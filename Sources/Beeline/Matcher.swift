@@ -13,7 +13,7 @@ enum Matcher {
         "go", "to", "the", "a", "an", "my", "with", "open", "show", "me", "switch", "find", "please",
         "for", "in", "on", "of", "that", "this", "take", "jump", "launch", "start", "change", "turn",
         "i", "need", "want", "do", "let", "is", "are", "it", "too", "so", "some", "something", "can",
-        "you", "get", "make", "be", "set", "put", "am", "im", "would", "like", "and", "or", "at", "from", "up", "how",
+        "you", "get", "make", "be", "set", "put", "mac", "computer", "laptop", "am", "im", "would", "like", "and", "or", "at", "from", "up", "how",
     ]
     private static let hints: [String: Kind] = [
         "tab": .tab, "tabs": .tab, "page": .tab, "website": .tab, "site": .tab,
@@ -22,6 +22,9 @@ enum Matcher {
         "window": .window, "windows": .window,
         "menu": .menu, "command": .menu,
     ]
+
+    /// Typing one of these is what makes the "Quit Safari" rows appear.
+    static let quitWords: Set<String> = ["quit", "close", "exit", "kill", "stop"]
 
     static func parse(_ query: String) -> Parsed {
         let words = query.lowercased()
@@ -59,16 +62,20 @@ enum Matcher {
         var total = 0
         var solid = 0
         var missed = 0
+        var inTitle = 0
         for token in parsed.tokens {
             if title.hasPrefix(token) {
                 total += 100
                 solid += 1
+                inTitle += 1
             } else if titleWords.contains(where: { $0.hasPrefix(token) }) {
                 total += 60
                 solid += 1
+                inTitle += 1
             } else if title.contains(token) {
                 total += 40
                 solid += 1
+                inTitle += 1
             } else if keywordWords.contains(where: { $0.hasPrefix(token) }) {
                 total += 30
                 solid += 1
@@ -87,8 +94,13 @@ enum Matcher {
             // A partial match needs real words behind it, and at least half of what was typed.
             guard solid > 0, solid * 2 >= parsed.tokens.count else { return nil }
         }
+        // Typing a name in full beats longer names that merely start with it.
+        if title == parsed.tokens.joined(separator: " ") { total += 40 }
         if let hint = parsed.hint, hint == item.kind { total += 50 }
         // On a tie, an app beats a menu command with the same name.
+        // "sleep" and "lock" mean the action, not the settings pane of the same name. An action found
+        // only through its keywords gets no lift: plain "wifi" should open Wi-Fi settings, not turn it off.
+        if item.kind == .action, inTitle > 0 { total += 15 }
         if item.kind == .app { total += 10 }
         if item.kind == .menu { total -= 5 }
         // Prefer the tighter match: "Notes" over "Notes Helper Tool".

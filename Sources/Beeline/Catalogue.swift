@@ -1,10 +1,10 @@
 import AppKit
 
 enum Kind {
-    case app, setting, tab, window, menu
+    case app, setting, tab, window, menu, action
 }
 
-/// One thing Beeline can do: open an app or settings pane, switch to a tab or window, or run a menu command.
+/// One thing Beeline can do: open an app or settings pane, switch to a tab or window, run a menu command, or perform an action.
 struct Item: Identifiable {
     let id: String
     let kind: Kind
@@ -18,6 +18,8 @@ struct Item: Identifiable {
     let run: () -> Void
     /// True when the item was found by meaning, not by the words typed.
     var isGuess = false
+    /// True for actions that cannot be undone. The bar asks for Return twice.
+    var needsConfirm = false
 }
 
 final class Catalogue {
@@ -26,6 +28,8 @@ final class Catalogue {
     private var tabs: [Item] = []
     private var windows: [Item] = []
     private var menus: [Item] = []
+    private let actions = Actions.items()
+    private var quits: [Item] = []
     private var runningAppPaths: Set<String> = []
 
     /// The app the user is working in. Its menu commands are the ones offered.
@@ -42,7 +46,7 @@ final class Catalogue {
 
     /// Blocks until apps and settings can be matched by meaning. The app does this in the background instead.
     func prepareMeaningNow() {
-        semantic.prepare(apps + settings)
+        semantic.prepare(actions + apps + settings)
     }
 
     /// Keeps the screen map current in the background, so it is ready before the bar opens.
@@ -52,13 +56,22 @@ final class Catalogue {
         ) { [weak self] _ in
             self?.refreshScreen {}
         }
-        let fixed = apps + settings
+        let fixed = actions + apps + settings
         scanQueue.async { self.semantic.prepare(fixed) }
-        refreshScreen {}
+        refreshScreen {
+            // Appended to the launch log so the screen map can be checked without seeing the screen.
+            let line = "screen map: \(self.windows.count) windows, \(self.menus.count) menu commands in \(self.frontApp?.localizedName ?? "no app")\n"
+            if let handle = FileHandle(forWritingAtPath: NSHomeDirectory() + "/Library/Logs/Beeline.log") {
+                handle.seekToEndOfFile()
+                handle.write(line.data(using: .utf8)!)
+                handle.closeFile()
+            }
+        }
     }
 
     func refreshRunning() {
         runningAppPaths = Set(NSWorkspace.shared.runningApplications.compactMap { $0.bundleURL?.path })
+        quits = Actions.quitItems()
     }
 
     /// Re-reads open windows and the front app's menu commands, then calls `done` on the main thread.
@@ -101,7 +114,9 @@ final class Catalogue {
     func search(_ query: String, limit: Int = 6) -> [Item] {
         let parsed = Matcher.parse(query)
         guard !parsed.tokens.isEmpty else { return [] }
-        let all = apps + settings + tabs + windows + menus
+        // Quit rows stay out of the way unless quitting is what was asked for.
+        let wantsQuit = !Matcher.quitWords.isDisjoint(with: parsed.tokens)
+        let all = actions + (wantsQuit ? quits : []) + apps + settings + tabs + windows + menus
         let scored: [(Item, Matcher.Score)] = all.compactMap { item in
             guard let score = Matcher.score(item, parsed) else { return nil }
             return (item, score)
@@ -159,7 +174,7 @@ final class Catalogue {
         guard !words.isEmpty else { return [] }
         let expanded = Matcher.Parsed(tokens: words, hint: parsed.hint)
 
-        return (settings + tabs + windows + apps + menus)
+        return (actions + settings + tabs + windows + apps + menus)
             .compactMap { item in Matcher.score(item, expanded, anyWord: true).map { (item, $0.value) } }
             .sorted { $0.1 > $1.1 }
             .prefix(3)

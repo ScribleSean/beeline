@@ -41,6 +41,7 @@ final class BarModel: ObservableObject {
 
     func refresh() {
         let found = catalogue.search(query)
+        if query != askedQuery { armedID = nil }
 
         // Called again for the same words when the screen map refreshes in the background:
         // keep the model's pick on top and do not ask it twice.
@@ -81,14 +82,28 @@ final class BarModel: ObservableObject {
         return Array((picks + found.filter { !picked.contains($0.id) }).prefix(6))
     }
 
+    /// The irreversible action waiting for a second Return, if any.
+    @Published var armedID: String?
+
+    /// Runs the item, unless it cannot be undone and has not been confirmed yet.
+    func run(_ item: Item) {
+        if item.needsConfirm, armedID != item.id {
+            armedID = item.id
+            return
+        }
+        armedID = nil
+        onRun(item)
+    }
+
     func move(_ delta: Int) {
+        armedID = nil
         guard !results.isEmpty else { return }
         selected = (selected + delta + results.count) % results.count
     }
 
     func runSelected() {
         guard results.indices.contains(selected) else { return }
-        onRun(results[selected])
+        run(results[selected])
     }
 }
 
@@ -112,9 +127,9 @@ struct BarView: View {
 
             ForEach(Array(model.results.enumerated()), id: \.element.id) { index, item in
                 Divider().opacity(0.5)
-                ResultRow(item: item, isSelected: index == model.selected)
+                ResultRow(item: item, isSelected: index == model.selected, isArmed: model.armedID == item.id)
                     .contentShape(Rectangle())
-                    .onTapGesture { model.onRun(item) }
+                    .onTapGesture { model.run(item) }
                     .transition(.opacity)
             }
 
@@ -154,6 +169,7 @@ struct BarView: View {
         .animation(Motion.results, value: model.results.map(\.id))
         .animation(Motion.selection, value: model.selected)
         .animation(Motion.results, value: model.isThinking)
+        .animation(Motion.selection, value: model.armedID)
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
@@ -171,9 +187,12 @@ struct BarView: View {
 private struct ResultRow: View {
     let item: Item
     let isSelected: Bool
+    /// True when an irreversible action has had its first Return and is waiting for the second.
+    let isArmed: Bool
     @Environment(\.colorScheme) private var scheme
 
     private var foreground: Color {
+        if isArmed { return .red }
         guard isSelected else { return .secondary }
         return scheme == .dark ? Theme.honey100 : Theme.bark800
     }
@@ -183,7 +202,7 @@ private struct ResultRow: View {
             if let icon = item.icon {
                 Image(nsImage: icon).resizable().frame(width: 22, height: 22)
             }
-            (Text(item.verb + " ") + Text(item.title).fontWeight(.medium))
+            (Text(item.verb.isEmpty ? "" : item.verb + " ") + Text(item.title).fontWeight(.medium))
                 .lineLimit(1)
                 .truncationMode(.middle)
             Text(item.subtitle)
@@ -192,24 +211,28 @@ private struct ResultRow: View {
                 .padding(.vertical, 2)
                 .background(isSelected ? Theme.honey100.opacity(scheme == .dark ? 0.25 : 1) : Color.primary.opacity(0.08))
                 .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-            if item.isGuess {
+            if isArmed {
+                Text("This can't be undone")
+                    .font(.system(size: 11))
+            } else if item.isGuess {
                 Text("best guess")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
             if isSelected {
-                Text("Return")
+                Text(isArmed ? "Return again" : "Return")
                     .font(.system(size: 11))
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
-                    .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Theme.amber400, lineWidth: 0.5))
+                    .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .strokeBorder(isArmed ? Color.red : Theme.amber400, lineWidth: 0.5))
             }
         }
         .font(.system(size: 14))
         .foregroundStyle(foreground)
         .padding(.horizontal, 16)
         .frame(height: 40)
-        .background(isSelected ? (scheme == .dark ? Theme.bark900 : Theme.honey50) : Color.clear)
+        .background(isArmed ? Color.red.opacity(0.12) : isSelected ? (scheme == .dark ? Theme.bark900 : Theme.honey50) : Color.clear)
     }
 }
