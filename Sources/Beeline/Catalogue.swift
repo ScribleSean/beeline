@@ -37,6 +37,7 @@ final class Catalogue {
     private let scanQueue = DispatchQueue(label: "beeline.screen-map", qos: .userInitiated)
     private var activationObserver: NSObjectProtocol?
     private let semantic = Semantic()
+    private let usage = Usage()
 
     init() {
         apps = Self.scanApps()
@@ -67,6 +68,11 @@ final class Catalogue {
                 handle.closeFile()
             }
         }
+    }
+
+    /// Called when an item is run, so the same words find it faster next time.
+    func recordUse(of item: Item, query: String) {
+        usage.record(item, query: query)
     }
 
     func refreshRunning() {
@@ -118,7 +124,14 @@ final class Catalogue {
         let wantsQuit = !Matcher.quitWords.isDisjoint(with: parsed.tokens)
         let all = actions + (wantsQuit ? quits : []) + apps + settings + tabs + windows + menus
         let scored: [(Item, Matcher.Score)] = all.compactMap { item in
-            guard let score = Matcher.score(item, parsed) else { return nil }
+            // Something picked before for exactly these words goes to the top, and is no longer a guess,
+            // even when the words do not appear in its name. This is how a model guess becomes instant.
+            let picked = usage.timesPicked(item, for: query)
+            if picked > 0 {
+                return (item, Matcher.Score(value: 300 + min(picked, 20) * 5, isComplete: true))
+            }
+            guard var score = Matcher.score(item, parsed) else { return nil }
+            score.value += usage.habitBoost(for: item)
             return (item, score)
         }
         // Items matching every typed word come first; partial matches follow, marked as guesses.
@@ -196,7 +209,7 @@ final class Catalogue {
         var items: [Item] = []
         for root in roots {
             guard let names = try? FileManager.default.contentsOfDirectory(atPath: root) else { continue }
-            for name in names where name.hasSuffix(".app") {
+            for name in names where name.hasSuffix(".app") && !name.hasPrefix(".") {
                 let path = root + "/" + name
                 let title = String(name.dropLast(4))
                 guard seen.insert(title).inserted else { continue }

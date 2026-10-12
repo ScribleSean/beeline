@@ -10,6 +10,16 @@ if let flag = CommandLine.arguments.firstIndex(of: "--query"), CommandLine.argum
     exit(0)
 }
 
+// `Beeline --pick "tunes" "Music"` records that Music was chosen for "tunes", as pressing Return would.
+if let flag = CommandLine.arguments.firstIndex(of: "--pick"), CommandLine.arguments.count > flag + 2 {
+    let catalogue = Catalogue()
+    if let item = catalogue.search(CommandLine.arguments[flag + 2], limit: 1).first {
+        catalogue.recordUse(of: item, query: CommandLine.arguments[flag + 1])
+        print("recorded \(item.title) for \"\(CommandLine.arguments[flag + 1])\"")
+    }
+    exit(0)
+}
+
 // `Beeline --ai "make my mac quieter"` asks the on-device model and prints its pick and how long it took.
 if let flag = CommandLine.arguments.firstIndex(of: "--ai"), CommandLine.arguments.count > flag + 1 {
     let catalogue = Catalogue()

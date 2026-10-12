@@ -92,6 +92,7 @@ final class BarModel: ObservableObject {
             return
         }
         armedID = nil
+        catalogue.recordUse(of: item, query: query)
         onRun(item)
     }
 
