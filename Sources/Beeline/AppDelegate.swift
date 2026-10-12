@@ -1,0 +1,137 @@
+import AppKit
+import Carbon.HIToolbox
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var statusItem: NSStatusItem!
+    private let bar = BarController()
+    private var hotKey: HotKey?
+    private var updateItem: NSMenuItem!
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem.button?.image = Self.menuBarGlyph()
+
+        let menu = NSMenu()
+        let open = menu.addItem(withTitle: "Open Beeline (⌥Space)", action: #selector(toggleBar), keyEquivalent: "")
+        open.target = self
+        updateItem = menu.addItem(withTitle: "Update Beeline", action: #selector(update), keyEquivalent: "")
+        updateItem.target = self
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Quit Beeline", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        statusItem.menu = menu
+
+        hotKey = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey)) { [weak self] in
+            self?.bar.toggle()
+        }
+        // Read by `cat ~/Library/Logs/Beeline.log` when checking why windows and menus are missing.
+        let status = "launched \(Date()) accessibility=\(Accessibility.isTrusted) hotkey=\(hotKey != nil)\n"
+        try? status.write(toFile: NSHomeDirectory() + "/Library/Logs/Beeline.log", atomically: true, encoding: .utf8)
+    }
+
+    @objc private func toggleBar() {
+        bar.toggle()
+    }
+
+    // MARK: Update
+
+    /// Pulls the newest pushed version, rebuilds and relaunches, or says so when there is nothing new.
+    @objc private func update() {
+        guard let root = Bundle.main.object(forInfoDictionaryKey: "BeelineSourceRoot") as? String,
+              FileManager.default.fileExists(atPath: root + "/scripts/build-app.sh") else {
+            alert("Can't find Beeline's source folder", "This copy doesn't know where it was built from.")
+            return
+        }
+        let built = Bundle.main.object(forInfoDictionaryKey: "BeelineCommit") as? String ?? ""
+        updateItem.title = "Checking for updates…"
+        updateItem.isEnabled = false
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let reachedGitHub = Self.shell("git fetch --quiet origin", in: root).ok
+            // Fast-forward only: local work that has not been pushed is never overwritten.
+            _ = Self.shell("git merge --ff-only --quiet origin/main", in: root)
+            let head = Self.shell("git rev-parse HEAD", in: root).output.trimmingCharacters(in: .whitespacesAndNewlines)
+            let hasLocalEdits = !Self.shell("git status --porcelain", in: root).output.isEmpty
+
+            if !head.isEmpty, head == built, !hasLocalEdits {
+                DispatchQueue.main.async {
+                    self.resetUpdateItem()
+                    let note = reachedGitHub ? "" : "\n\nCouldn't reach GitHub, so this was checked against the copy on this Mac only."
+                    self.alert("Beeline is up to date", "You're on the newest version (\(head.prefix(7))).\(note)")
+                }
+                return
+            }
+
+            DispatchQueue.main.async { self.updateItem.title = "Updating…" }
+            let build = Self.shell("bash scripts/build-app.sh", in: root)
+            DispatchQueue.main.async {
+                guard build.ok else {
+                    self.resetUpdateItem()
+                    let tail = build.output.split(separator: "\n").suffix(8).joined(separator: "\n")
+                    self.alert("Update failed", tail.isEmpty ? "The build didn't run." : tail)
+                    return
+                }
+                self.relaunch(root + "/build/Beeline.app")
+            }
+        }
+    }
+
+    private func resetUpdateItem() {
+        updateItem.title = "Update Beeline"
+        updateItem.isEnabled = true
+    }
+
+    /// Runs a command in a login shell, so it sees the same PATH and git credentials as a terminal.
+    private static func shell(_ command: String, in directory: String) -> (ok: Bool, output: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-lc", command]
+        process.currentDirectoryURL = URL(fileURLWithPath: directory)
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        do { try process.run() } catch { return (false, error.localizedDescription) }
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        process.waitUntilExit()
+        return (process.terminationStatus == 0, output)
+    }
+
+    private func relaunch(_ appPath: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        // Wait for this copy to quit, so the new one doesn't find Option+Space still taken.
+        process.arguments = ["-c", "sleep 0.6; open \"$0\"", appPath]
+        try? process.run()
+        NSApp.terminate(nil)
+    }
+
+    private func alert(_ title: String, _ detail: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = detail
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
+
+    // MARK: Menu bar glyph
+
+    /// The Beeline mark at menu bar size: a dotted wander that straightens into a line and lands on a dot.
+    private static func menuBarGlyph() -> NSImage {
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { _ in
+            NSColor.black.set()
+            for dot in [CGPoint(x: 3, y: 14), CGPoint(x: 5.2, y: 10.6), CGPoint(x: 8.4, y: 11.6)] {
+                NSBezierPath(ovalIn: NSRect(x: dot.x - 1, y: dot.y - 1, width: 2, height: 2)).fill()
+            }
+            let line = NSBezierPath()
+            line.lineWidth = 2
+            line.lineCapStyle = .round
+            line.move(to: CGPoint(x: 10.6, y: 9.4))
+            line.line(to: CGPoint(x: 14, y: 6))
+            line.stroke()
+            NSBezierPath(ovalIn: NSRect(x: 12.2, y: 2.2, width: 5, height: 5)).fill()
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "Beeline"
+        return image
+    }
+}

@@ -1,20 +1,4 @@
-# Local configuration and credentials
-.env
-.env.*
-!.env.example
-*.pem
-*.key
-auth.json
-credentials.json
-
-# Local tools and generated output
-node_modules/
-.DS_Store
-dist/
-build/
-coverage/
 .build/
-.swiftpm/
-*.xcodeproj/xcuserdata/
-*.xcworkspace/xcuserdata/
-local-evidence/
+build/
+.DS_Store
+.signing-identity
