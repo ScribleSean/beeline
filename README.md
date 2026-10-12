@@ -12,6 +12,10 @@ A fast, native replacement for Spotlight on the Mac. Press **Option+Space**, typ
 - Switches to any open window and runs menu commands of the app in front. These need the Accessibility permission.
 - For requests that match nothing exactly ("make my mac quieter"), asks the language model built into macOS to rewrite the request as search words. Those results are marked "best guess".
 
+- Runs actions: sleep, lock, mute, volume, dark mode, Wi-Fi, quit an app, and more. Empty Trash needs Return twice.
+- Remembers what you pick, so frequent choices rank higher and a learned request is instant.
+- For multi-step requests, "Ask Claude to work it out" sends the request to Claude through the Claude Code sign-in on this Mac. Claude has no tools and can only pick from a numbered list of steps. Its plan is previewed, and nothing runs until Return.
+
 Exact matches appear as you type. The model is only asked after a pause, and it never chooses or runs anything itself.
 
 ## Build
@@ -31,6 +35,7 @@ The script signs ad hoc unless `BEELINE_SIGNING_IDENTITY`, or an untracked `.sig
 ```sh
 build/Beeline.app/Contents/MacOS/Beeline --query "night shift"
 build/Beeline.app/Contents/MacOS/Beeline --ai "make my mac quieter"
+build/Beeline.app/Contents/MacOS/Beeline --plan "mute and open sound settings"   # prints Claude's plan, runs nothing
 ```
 
 ## Layout
@@ -41,6 +46,9 @@ build/Beeline.app/Contents/MacOS/Beeline --ai "make my mac quieter"
 | `Matcher.swift` | Word matching and scoring |
 | `Chooser.swift` | The on-device model, used to turn a loose request into search words |
 | `Semantic.swift` | Last-resort matching by meaning with the built-in embeddings |
+| `Actions.swift` | Fixed commands such as sleep, mute and dark mode |
+| `Planner.swift` | Asks Claude for a multi-step plan built only from listed steps |
+| `Usage.swift` | Remembers picks, stored locally in Application Support |
 | `Accessibility.swift`, `Browser.swift` | Reading windows, menu commands and tabs |
 | `BarView.swift`, `BarController.swift` | The bar and its panel |
 | `scripts/make-icon.swift` | Draws the app icon |

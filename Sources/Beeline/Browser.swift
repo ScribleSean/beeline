@@ -8,6 +8,9 @@ struct Browser {
     /// Safari calls a tab's title `name` and switches tabs differently from the Chromium browsers.
     let isSafari: Bool
 
+    /// Tab commands run one at a time in the order given, which closing several tabs depends on.
+    private static let commandQueue = DispatchQueue(label: "beeline.browser-commands", qos: .userInitiated)
+
     static let all = [
         Browser(name: "Google Chrome", bundleID: "com.google.Chrome", isSafari: false),
         Browser(name: "Safari", bundleID: "com.apple.Safari", isSafari: true),
@@ -41,12 +44,18 @@ struct Browser {
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
             guard fields.count >= 4, let window = Int(fields[0]), let index = Int(fields[1]) else { return nil }
             let host = URL(string: fields[3])?.host ?? ""
-            return Item(id: "tab:\(bundleID):\(window):\(index)", kind: .tab, verb: "Switch to tab",
-                        title: fields[2].isEmpty ? host : fields[2],
-                        subtitle: name.replacingOccurrences(of: "Google ", with: ""),
-                        keywords: host, icon: icon) {
+            var item = Item(id: "tab:\(bundleID):\(window):\(index)", kind: .tab, verb: "Switch to tab",
+                            title: fields[2].isEmpty ? host : fields[2],
+                            subtitle: name.replacingOccurrences(of: "Google ", with: ""),
+                            keywords: host, icon: icon) {
                 activate(window: window, index: index)
             }
+            item.tabIndex = index
+            item.close = {
+                let script = "tell application \"\(name)\" to close tab \(index) of window id \(window)"
+                Self.commandQueue.async { _ = Self.osascript(script) }
+            }
+            return item
         }
     }
 
@@ -61,7 +70,7 @@ struct Browser {
             activate
         end tell
         """
-        DispatchQueue.global(qos: .userInitiated).async { _ = Self.osascript(script) }
+        Self.commandQueue.async { _ = Self.osascript(script) }
     }
 
     /// Runs AppleScript in a child process so it is safe off the main thread.

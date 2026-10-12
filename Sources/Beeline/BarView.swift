@@ -46,11 +46,12 @@ final class BarModel: ObservableObject {
         // Called again for the same words when the screen map refreshes in the background:
         // keep the model's pick on top and do not ask it twice.
         if query == askedQuery {
-            results = merged(modelPicks, found)
+            results = decorated(merged(modelPicks, found))
             return
         }
 
-        results = found
+        clearPlan()
+        results = decorated(found)
         selected = 0
         thinking?.cancel()
         isThinking = false
@@ -70,7 +71,7 @@ final class BarModel: ObservableObject {
             self.isThinking = false
             self.modelPicks = picks
             if !picks.isEmpty {
-                self.results = self.merged(picks, self.results)
+                self.results = self.decorated(self.merged(picks, self.results))
                 self.selected = 0
             }
         }
@@ -79,7 +80,58 @@ final class BarModel: ObservableObject {
     /// The model's picks first, then whatever word matching found that it did not.
     private func merged(_ picks: [Item], _ found: [Item]) -> [Item] {
         let picked = Set(picks.map(\.id))
-        return Array((picks + found.filter { !picked.contains($0.id) }).prefix(6))
+        return Array((picks + found.filter { !picked.contains($0.id) && $0.id != Self.claudeRowID }).prefix(6))
+    }
+
+    // MARK: Claude plans
+
+    static let claudeRowID = "ask-claude"
+
+    /// The steps Claude proposed, waiting for Return. Nothing in a plan runs before that.
+    @Published var plan: Plan?
+    @Published var isAskingClaude = false
+    /// Shown when Claude could not be reached or found no way to do the request.
+    @Published var planProblem: String?
+    var onRunPlan: (Plan) -> Void = { _ in }
+    private var planning: Task<Void, Never>?
+
+    var isShowingPlan: Bool { plan != nil || isAskingClaude || planProblem != nil }
+
+    /// Adds the "Ask Claude" row under the results once the request is more than a single word.
+    private func decorated(_ items: [Item]) -> [Item] {
+        guard query.split(separator: " ").count >= 2 else { return items }
+        let row = Item(id: Self.claudeRowID, kind: .action, verb: "", title: "Ask Claude to work it out",
+                       subtitle: "takes a few seconds", keywords: "",
+                       icon: NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil), run: {})
+        return items + [row]
+    }
+
+    private func askClaude() {
+        clearPlan()
+        isAskingClaude = true
+        let asked = query
+        let options = catalogue.planOptions()
+        planning = Task { @MainActor [weak self] in
+            let result = await Planner.plan(for: asked, options: options)
+            guard let self, !Task.isCancelled, asked == self.query else { return }
+            self.isAskingClaude = false
+            switch result {
+            case .success(let plan) where plan.steps.isEmpty:
+                self.planProblem = plan.note.isEmpty ? "Claude found no way to do that with what's open." : plan.note
+            case .success(let plan):
+                self.plan = plan
+            case .failure(.message(let message)):
+                self.planProblem = message
+            }
+        }
+    }
+
+    func clearPlan() {
+        planning?.cancel()
+        planning = nil
+        plan = nil
+        isAskingClaude = false
+        planProblem = nil
     }
 
     /// The irreversible action waiting for a second Return, if any.
@@ -87,6 +139,10 @@ final class BarModel: ObservableObject {
 
     /// Runs the item, unless it cannot be undone and has not been confirmed yet.
     func run(_ item: Item) {
+        if item.id == Self.claudeRowID {
+            askClaude()
+            return
+        }
         if item.needsConfirm, armedID != item.id {
             armedID = item.id
             return
@@ -98,12 +154,16 @@ final class BarModel: ObservableObject {
 
     func move(_ delta: Int) {
         armedID = nil
-        guard !results.isEmpty else { return }
+        guard !results.isEmpty, !isShowingPlan else { return }
         selected = (selected + delta + results.count) % results.count
     }
 
     func runSelected() {
-        guard results.indices.contains(selected) else { return }
+        if let plan {
+            onRunPlan(plan)
+            return
+        }
+        guard !isShowingPlan, results.indices.contains(selected) else { return }
         run(results[selected])
     }
 }
@@ -126,12 +186,17 @@ struct BarView: View {
             .padding(.horizontal, 16)
             .frame(height: 54)
 
-            ForEach(Array(model.results.enumerated()), id: \.element.id) { index, item in
+            if model.isShowingPlan {
                 Divider().opacity(0.5)
-                ResultRow(item: item, isSelected: index == model.selected, isArmed: model.armedID == item.id)
-                    .contentShape(Rectangle())
-                    .onTapGesture { model.run(item) }
-                    .transition(.opacity)
+                PlanSection(model: model).transition(.opacity)
+            } else {
+                ForEach(Array(model.results.enumerated()), id: \.element.id) { index, item in
+                    Divider().opacity(0.5)
+                    ResultRow(item: item, isSelected: index == model.selected, isArmed: model.armedID == item.id)
+                        .contentShape(Rectangle())
+                        .onTapGesture { model.run(item) }
+                        .transition(.opacity)
+                }
             }
 
             if model.isThinking {
@@ -171,6 +236,8 @@ struct BarView: View {
         .animation(Motion.selection, value: model.selected)
         .animation(Motion.results, value: model.isThinking)
         .animation(Motion.selection, value: model.armedID)
+        .animation(Motion.results, value: model.isShowingPlan)
+        .animation(Motion.results, value: model.plan?.steps.map(\.id))
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
@@ -235,5 +302,64 @@ private struct ResultRow: View {
         .padding(.horizontal, 16)
         .frame(height: 40)
         .background(isArmed ? Color.red.opacity(0.12) : isSelected ? (scheme == .dark ? Theme.bark900 : Theme.honey50) : Color.clear)
+    }
+}
+
+/// Claude's proposed steps, shown for approval. Return runs them all; Escape goes back.
+private struct PlanSection: View {
+    @ObservedObject var model: BarModel
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if model.isAskingClaude {
+                footer(leading: { ProgressView().controlSize(.small) }, text: "Asking Claude…", key: "Esc to cancel")
+            } else if let problem = model.planProblem {
+                footer(leading: { Image(systemName: "exclamationmark.circle") }, text: problem, key: "Esc to go back")
+            } else if let plan = model.plan {
+                if !plan.note.isEmpty {
+                    Text(plan.note)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 10)
+                        .padding(.bottom, 6)
+                }
+                ForEach(Array(plan.steps.enumerated()), id: \.element.id) { index, step in
+                    HStack(spacing: 10) {
+                        Text("\(index + 1)")
+                            .font(.system(size: 11, weight: .medium))
+                            .frame(width: 18, height: 18)
+                            .background(Theme.honey100.opacity(scheme == .dark ? 0.25 : 1))
+                            .clipShape(Circle())
+                        if let icon = step.icon {
+                            Image(nsImage: icon).resizable().frame(width: 18, height: 18)
+                        }
+                        Text(step.text).lineLimit(1).truncationMode(.middle)
+                        Spacer(minLength: 0)
+                    }
+                    .font(.system(size: 14))
+                    .foregroundStyle(scheme == .dark ? Theme.honey100 : Theme.bark800)
+                    .padding(.horizontal, 16)
+                    .frame(height: 32)
+                }
+                Divider().opacity(0.5).padding(.top, 4)
+                footer(leading: { Image(systemName: "sparkles") },
+                       text: "Claude's plan. Nothing has run yet.", key: "Return to run · Esc to go back")
+            }
+        }
+    }
+
+    private func footer<Leading: View>(@ViewBuilder leading: () -> Leading, text: String, key: String) -> some View {
+        HStack(spacing: 8) {
+            leading()
+            Text(text).lineLimit(2)
+            Spacer(minLength: 8)
+            Text(key).foregroundStyle(.secondary)
+        }
+        .font(.system(size: 12))
+        .foregroundStyle(Theme.amber400)
+        .padding(.horizontal, 16)
+        .frame(minHeight: 34)
     }
 }

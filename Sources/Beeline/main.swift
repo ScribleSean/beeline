@@ -38,6 +38,27 @@ if let flag = CommandLine.arguments.firstIndex(of: "--ai"), CommandLine.argument
     dispatchMain()
 }
 
+// `Beeline --plan "mute and open sound settings"` asks Claude for a plan and prints it. Nothing is run.
+if let flag = CommandLine.arguments.firstIndex(of: "--plan"), CommandLine.arguments.count > flag + 1 {
+    let catalogue = Catalogue()
+    let request = CommandLine.arguments[flag + 1]
+    Task {
+        let options = catalogue.planOptions()
+        let start = Date()
+        let result = await Planner.plan(for: request, options: options)
+        print("\(options.count) options, \(String(format: "%.1f", Date().timeIntervalSince(start))) s")
+        switch result {
+        case .success(let plan):
+            print("note: \(plan.note)")
+            for (index, step) in plan.steps.enumerated() { print("  \(index + 1). \(step.text)") }
+        case .failure(.message(let message)):
+            print("failed: \(message)")
+        }
+        exit(0)
+    }
+    dispatchMain()
+}
+
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate

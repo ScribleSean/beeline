@@ -20,6 +20,13 @@ struct Item: Identifiable {
     var isGuess = false
     /// True for actions that cannot be undone. The bar asks for Return twice.
     var needsConfirm = false
+    /// For windows: moves and resizes the window to a side of the screen, or to fill it.
+    var tile: ((Accessibility.Side) -> Void)?
+    /// For windows: true when this is the window the user was working in.
+    var isCurrentWindow = false
+    /// For tabs: closes the tab, and its position in its window.
+    var close: (() -> Void)?
+    var tabIndex: Int?
 }
 
 final class Catalogue {
@@ -28,6 +35,8 @@ final class Catalogue {
     private var tabs: [Item] = []
     private var windows: [Item] = []
     private var menus: [Item] = []
+    /// Browser windows are not searched, since their tabs are, but a plan can still tile them.
+    private var browserWindows: [Item] = []
     private let actions = Actions.items()
     private var quits: [Item] = []
     private var runningAppPaths: Set<String> = []
@@ -87,20 +96,20 @@ final class Catalogue {
             frontApp = front
         }
         let front = frontApp
-        let browserIDs = Set(Browser.all.map(\.bundleID))
-        // Browser windows are left out: their tabs are listed instead.
-        let windowed = NSWorkspace.shared.runningApplications.filter {
-            $0.activationPolicy == .regular && $0 != own && !browserIDs.contains($0.bundleIdentifier ?? "")
-        }
+        let browserNames = Set(Browser.all.map(\.name))
+        let windowed = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular && $0 != own }
         scanQueue.async {
-            let windows = Accessibility.windows(of: windowed)
+            let found = Accessibility.windows(of: windowed, front: front)
             let menus = front.map { Accessibility.menuCommands(of: $0) } ?? []
+            // Browser windows are left out of search: their tabs are listed instead.
+            let searchable = found.filter { !browserNames.contains($0.subtitle) }
             DispatchQueue.main.async {
-                self.windows = windows
+                self.windows = searchable
+                self.browserWindows = found.filter { browserNames.contains($0.subtitle) }
                 self.menus = menus
                 done()
             }
-            self.semantic.prepare(windows + menus)
+            self.semantic.prepare(searchable + menus)
         }
     }
 
@@ -200,6 +209,41 @@ final class Catalogue {
                 pick.isGuess = true
                 return pick
             }
+    }
+
+    /// Everything a plan may be built from. Irreversible actions are left out on purpose:
+    /// a plan is written by a model reading window and tab titles, which other apps control.
+    func planOptions() -> [PlanStep] {
+        var options: [PlanStep] = []
+        for window in (windows + browserWindows).prefix(16) {
+            let name = "window \"\(window.title)\" (\(window.subtitle))" + (window.isCurrentWindow ? " [the current window]" : "")
+            options.append(PlanStep(text: "Switch to \(name)", icon: window.icon, run: window.run))
+            if let tile = window.tile {
+                options.append(PlanStep(text: "Move \(name) to the left half of the screen", icon: window.icon) { tile(.left) })
+                options.append(PlanStep(text: "Move \(name) to the right half of the screen", icon: window.icon) { tile(.right) })
+                options.append(PlanStep(text: "Make \(name) fill the screen", icon: window.icon) { tile(.full) })
+            }
+        }
+        for tab in tabs.prefix(40) {
+            let name = "tab \"\(tab.title)\" (\(tab.subtitle), \(tab.keywords))"
+            options.append(PlanStep(text: "Switch to \(name)", icon: tab.icon, run: tab.run))
+            if let close = tab.close {
+                options.append(PlanStep(text: "Close \(name)", icon: tab.icon, run: close, closingTabIndex: tab.tabIndex))
+            }
+        }
+        for item in actions + quits where !item.needsConfirm && !["Restart", "Shut Down", "Log Out"].contains(item.title) {
+            options.append(PlanStep(text: item.title, icon: item.icon, run: item.run))
+        }
+        for item in settings {
+            options.append(PlanStep(text: "Open \(item.title) settings", icon: item.icon, run: item.run))
+        }
+        for item in apps where !item.keywords.isEmpty || runningAppPaths.contains(item.id) {
+            options.append(PlanStep(text: "Open the app \(item.title)", icon: item.icon, run: item.run))
+        }
+        for item in menus.prefix(150) {
+            options.append(PlanStep(text: "Run the menu command \(item.subtitle) › \(item.title)", icon: item.icon, run: item.run))
+        }
+        return options
     }
 
     private static func scanApps() -> [Item] {

@@ -33,6 +33,10 @@ final class BarController: NSObject, NSWindowDelegate {
             self?.hide()
             item.run()
         }
+        model.onRunPlan = { [weak self] plan in
+            self?.hide()
+            Self.execute(plan)
+        }
         model.onRequestAccess = { [weak self] in
             self?.hide()
             Accessibility.requestAccess()
@@ -42,7 +46,9 @@ final class BarController: NSObject, NSWindowDelegate {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.panel.isKeyWindow else { return event }
             switch Int(event.keyCode) {
-            case kVK_Escape: self.hide()
+            case kVK_Escape:
+                // The first Escape backs out of a plan; the second closes the bar.
+                if self.model.isShowingPlan { self.model.clearPlan() } else { self.hide() }
             case kVK_DownArrow: self.model.move(1)
             case kVK_UpArrow: self.model.move(-1)
             case kVK_Return, kVK_ANSI_KeypadEnter: self.model.runSelected()
@@ -55,12 +61,27 @@ final class BarController: NSObject, NSWindowDelegate {
     /// Tracked separately from `panel.isVisible`, which stays true while the bar fades out.
     private var isShown = false
 
+    /// Runs a confirmed plan one step at a time, pausing so each app can catch up before the next.
+    private static func execute(_ plan: Plan) {
+        var steps = plan.steps
+        // Closing a tab renumbers the tabs after it, so all closes run together, highest index first.
+        let closes = steps.filter { $0.closingTabIndex != nil }.sorted { ($0.closingTabIndex ?? 0) > ($1.closingTabIndex ?? 0) }
+        if let first = steps.firstIndex(where: { $0.closingTabIndex != nil }) {
+            steps.removeAll { $0.closingTabIndex != nil }
+            steps.insert(contentsOf: closes, at: min(first, steps.count))
+        }
+        for (index, step) in steps.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15 + Double(index) * 0.35, execute: step.run)
+        }
+    }
+
     func toggle() {
         isShown ? hide() : show()
     }
 
     private func show() {
         isShown = true
+        model.clearPlan()
         model.query = ""
         model.focusTick += 1
         model.catalogue.refreshRunning()

@@ -12,24 +12,55 @@ enum Accessibility {
         AXIsProcessTrustedWithOptions(options)
     }
 
-    static func windows(of apps: [NSRunningApplication]) -> [Item] {
+    enum Side {
+        case left, right, full
+    }
+
+    static func windows(of apps: [NSRunningApplication], front: NSRunningApplication?) -> [Item] {
         guard isTrusted else { return [] }
         var items: [Item] = []
         for app in apps {
             let name = app.localizedName ?? ""
             let element = applicationElement(app)
             let windows: [AXUIElement] = attribute(element, kAXWindowsAttribute) ?? []
+            let focused: AXUIElement? = app == front ? attribute(element, kAXFocusedWindowAttribute) : nil
             for (index, window) in windows.enumerated() {
                 guard let title: String = attribute(window, kAXTitleAttribute), !title.isEmpty, title != name else { continue }
-                items.append(Item(id: "window:\(app.processIdentifier):\(index)", kind: .window, verb: "Switch to window",
-                                  title: title, subtitle: name, keywords: name, icon: app.icon) {
+                let raise = {
                     AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
                     AXUIElementPerformAction(window, kAXRaiseAction as CFString)
                     app.activate()
-                })
+                }
+                var item = Item(id: "window:\(app.processIdentifier):\(index)", kind: .window, verb: "Switch to window",
+                                title: title, subtitle: name, keywords: name, icon: app.icon, run: raise)
+                item.isCurrentWindow = focused.map { CFEqual($0, window) } ?? false
+                item.tile = { side in
+                    raise()
+                    place(window, side)
+                }
+                items.append(item)
             }
         }
         return items
+    }
+
+    /// Moves and resizes a window to half of, or all of, the usable area of the screen the pointer is on.
+    private static func place(_ window: AXUIElement, _ side: Side) {
+        let mouse = NSEvent.mouseLocation
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) ?? NSScreen.main,
+              let primary = NSScreen.screens.first else { return }
+        let usable = screen.visibleFrame
+        // Accessibility measures from the top left of the primary screen; AppKit from its bottom left.
+        var origin = CGPoint(x: usable.minX, y: primary.frame.height - usable.maxY)
+        var size = usable.size
+        if side != .full { size.width /= 2 }
+        if side == .right { origin.x += size.width }
+
+        guard let position = AXValueCreate(.cgPoint, &origin), let extent = AXValueCreate(.cgSize, &size) else { return }
+        AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, position)
+        AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, extent)
+        // Some apps clamp the first move to their old size, so the position is set again after resizing.
+        AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, position)
     }
 
     /// Every enabled command in the app's menu bar, as "Run Export as PDF…  [Safari › File]".
