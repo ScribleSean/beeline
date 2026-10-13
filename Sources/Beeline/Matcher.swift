@@ -22,6 +22,7 @@ enum Matcher {
         "app": .app, "application": .app,
         "window": .window, "windows": .window,
         "menu": .menu, "command": .menu,
+        "file": .file, "files": .file, "folder": .file, "folders": .file, "document": .file, "documents": .file,
     ]
 
     /// Typing one of these is what makes the "Quit Safari" rows appear.

@@ -40,6 +40,12 @@ final class BarModel: ObservableObject {
     private var modelPicks: [Item] = []
 
     func refresh() {
+        // Files come from the Spotlight index a moment later, then the list is rebuilt with them in it.
+        let typed = query
+        catalogue.refreshFiles(for: typed) { [weak self] in
+            // A plan being asked for or previewed must not be wiped by late file results.
+            if let self, self.query == typed, !self.isShowingPlan { self.refresh() }
+        }
         let found = catalogue.search(query)
         if query != askedQuery { armedID = nil }
 

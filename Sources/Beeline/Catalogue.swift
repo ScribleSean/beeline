@@ -1,7 +1,7 @@
 import AppKit
 
 enum Kind {
-    case app, setting, tab, window, menu, action
+    case app, setting, tab, window, menu, action, file, calculation
 }
 
 /// One thing Beeline can do: open an app or settings pane, switch to a tab or window, run a menu command, or perform an action.
@@ -40,6 +40,10 @@ final class Catalogue {
     private var planOnlyWindows: [Item] = []
     /// "Move this window to the left half" and its siblings, for the window in front.
     private var tiles: [Item] = []
+    /// Files found for `filesQuery`. They arrive a moment after the words are typed.
+    private var files: [Item] = []
+    private var filesQuery = ""
+    private let fileQueue = DispatchQueue(label: "beeline.files", qos: .userInitiated)
     private let actions = Actions.items()
     private var quits: [Item] = []
     private var runningAppPaths: Set<String> = []
@@ -78,6 +82,7 @@ final class Catalogue {
 
     /// Called when an item is run, so the same words find it faster next time.
     func recordUse(of item: Item, query: String) {
+        guard item.kind != .calculation else { return }
         usage.record(item, query: query)
     }
 
@@ -138,7 +143,35 @@ final class Catalogue {
         }
     }
 
+    /// Looks up files named like the query, then calls `done` on the main thread if the query still stands.
+    func refreshFiles(for query: String, done: @escaping () -> Void) {
+        guard query != filesQuery else { return }
+        let words = Matcher.parse(query).tokens
+        fileQueue.async {
+            let found = Files.search(words)
+            DispatchQueue.main.async {
+                self.files = found
+                self.filesQuery = query
+                done()
+            }
+        }
+    }
+
+    /// The same lookup, waited for. Used by the command-line test mode.
+    func loadFilesNow(for query: String) {
+        files = Files.search(Matcher.parse(query).tokens)
+        filesQuery = query
+    }
+
     func search(_ query: String, limit: Int = 6) -> [Item] {
+        if let value = Calculator.evaluate(query) {
+            let answer = Calculator.format(value)
+            return [Item(id: "calculation", kind: .calculation, verb: "", title: "= " + answer, subtitle: "Return copies it",
+                         keywords: "", icon: NSImage(systemSymbolName: "equal.circle", accessibilityDescription: nil)) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(answer, forType: .string)
+            }]
+        }
         let parsed = Matcher.parse(query)
         guard !parsed.tokens.isEmpty else { return [] }
         let wantsClose = !Matcher.quitWords.isDisjoint(with: parsed.tokens)
@@ -148,6 +181,7 @@ final class Catalogue {
             return closeTabResults(matching: target, limit: limit)
         }
         let all = actions + apps + settings + tabs + windows + tiles + menus + (wantsClose ? quitResults(for: target) : [])
+            + (filesQuery == query ? files : [])
         let scored: [(Item, Matcher.Score)] = all.compactMap { item in
             // Something picked before for exactly these words goes to the top, and is no longer a guess,
             // even when the words do not appear in its name. This is how a model guess becomes instant.
@@ -159,6 +193,12 @@ final class Catalogue {
             // A menu command acts on the app in front the moment Return is pressed, and can be something
             // like Close All. It is only offered when every typed word matches it, never as a guess.
             if item.kind == .menu, !score.isComplete { return nil }
+            // Files are plentiful and loosely named, so they need every word and sit below apps and settings
+            // unless a word like "file" or "folder" asked for them.
+            if item.kind == .file {
+                guard score.isComplete else { return nil }
+                score.value -= 45
+            }
             score.value += usage.habitBoost(for: item)
             return (item, score)
         }

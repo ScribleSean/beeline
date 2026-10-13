@@ -34,7 +34,7 @@ final class Usage {
     /// every time they are read, so those are keyed by where they live and what they are called.
     static func key(for item: Item) -> String {
         switch item.kind {
-        case .app, .setting, .action:
+        case .app, .setting, .action, .file, .calculation:
             return item.id.hasPrefix("quit:") ? "quit:" + item.title : item.id
         case .tab:
             return "tab:\(item.keywords):\(item.title)"

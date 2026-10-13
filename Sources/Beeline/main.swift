@@ -4,6 +4,7 @@ import AppKit
 if let flag = CommandLine.arguments.firstIndex(of: "--query"), CommandLine.arguments.count > flag + 1 {
     let catalogue = Catalogue()
     catalogue.prepareMeaningNow()
+    catalogue.loadFilesNow(for: CommandLine.arguments[flag + 1])
     for item in catalogue.search(CommandLine.arguments[flag + 1]) {
         print("\(item.isGuess ? "~ " : "  ")\(item.verb) \(item.title)  [\(item.subtitle)]")
     }

@@ -13,6 +13,9 @@ A fast, native replacement for Spotlight on the Mac. Press **Option+Space**, typ
 - For requests that match nothing exactly ("make my mac quieter"), asks the language model built into macOS to rewrite the request as search words. Those results are marked "best guess".
 
 - Runs actions: sleep, lock, mute, volume, dark mode, Wi-Fi, quit an app, and more. Empty Trash needs Return twice.
+- Finds files and folders by name through the Spotlight index, most recently used first.
+- Does arithmetic as you type ("15% of 234", "2^10"). Return copies the answer.
+- Closes browser tabs ("close every tab about flights") and moves the front window to the left half, right half or full screen.
 - Remembers what you pick, so frequent choices rank higher and a learned request is instant.
 - For multi-step requests, "Ask Claude to work it out" sends the request to Claude through the Claude Code sign-in on this Mac. Claude has no tools and can only pick from a numbered list of steps. Its plan is previewed, and nothing runs until Return.
 
@@ -48,6 +51,7 @@ build/Beeline.app/Contents/MacOS/Beeline --plan "mute and open sound settings"  
 | `Semantic.swift` | Last-resort matching by meaning with the built-in embeddings |
 | `Actions.swift` | Fixed commands such as sleep, mute and dark mode |
 | `Planner.swift` | Asks Claude for a multi-step plan built only from listed steps |
+| `Files.swift`, `Calculator.swift` | File search by name, and arithmetic |
 | `Usage.swift` | Remembers picks, stored locally in Application Support |
 | `Accessibility.swift`, `Browser.swift` | Reading windows, menu commands and tabs |
 | `BarView.swift`, `BarController.swift` | The bar and its panel |
