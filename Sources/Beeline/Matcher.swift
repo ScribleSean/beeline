@@ -104,7 +104,7 @@ enum Matcher {
         // On a tie, an app beats a menu command with the same name.
         // "sleep" and "lock" mean the action, not the settings pane of the same name. An action found
         // only through its keywords gets no lift: plain "wifi" should open Wi-Fi settings, not turn it off.
-        if item.kind == .action, inTitle > 0 { total += 15 }
+        if item.kind == .action, inTitle > 0, item.id != "action:Beeline Settings" { total += 15 }
         if item.kind == .app { total += 10 }
         if item.kind == .menu { total -= 5 }
         // Prefer the tighter match: "Notes" over "Notes Helper Tool".

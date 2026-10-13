@@ -207,18 +207,22 @@ final class Catalogue {
             // A menu command acts on the app in front the moment Return is pressed, and can be something
             // like Close All. It is only offered when every typed word matches it, never as a guess.
             if item.kind == .menu, !score.isComplete { return nil }
-            // Files are plentiful and loosely named, so they need every word and sit below apps and settings
-            // unless a word like "file" or "folder" asked for them.
-            if item.kind == .file {
-                guard score.isComplete else { return nil }
-                score.value -= 45
-            }
+            // Files are plentiful and loosely named, so they need every word.
+            if item.kind == .file, !score.isComplete { return nil }
             score.value += usage.habitBoost(for: item)
             return (item, score)
         }
-        // Items matching every typed word come first; partial matches follow, marked as guesses.
+        // Items matching every typed word come first, then files, then partial matches marked as guesses.
+        // A file never outranks an app, setting or action on its name alone: "wifi" must give Wi-Fi settings,
+        // not a file that happens to start with those letters. Asking for a "file" or "folder" lifts them.
+        let filesLead = parsed.hint == .file
+        func tier(_ entry: (Item, Matcher.Score)) -> Int {
+            if entry.1.timesLearned > 0 { return 3 }
+            guard entry.1.isComplete else { return 0 }
+            return entry.0.kind == .file && !filesLead ? 1 : 2
+        }
         var results: [Item] = scored
-            .sorted { ($0.1.isComplete ? 1 : 0, $0.1.value) > ($1.1.isComplete ? 1 : 0, $1.1.value) }
+            .sorted { (tier($0), $0.1.value) > (tier($1), $1.1.value) }
             .prefix(limit)
             .map { item, score in
                 var item = item
