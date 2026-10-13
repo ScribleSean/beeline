@@ -12,6 +12,7 @@ enum Matcher {
     private static let filler: Set<String> = [
         "go", "to", "the", "a", "an", "my", "with", "open", "show", "me", "switch", "find", "please",
         "for", "in", "on", "of", "that", "this", "take", "jump", "launch", "start", "change", "turn",
+        "every", "all", "each", "about", "matching", "any", "move",
         "i", "need", "want", "do", "let", "is", "are", "it", "too", "so", "some", "something", "can",
         "you", "get", "make", "be", "set", "put", "mac", "computer", "laptop", "am", "im", "would", "like", "and", "or", "at", "from", "up", "how",
     ]

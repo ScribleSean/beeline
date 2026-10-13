@@ -35,8 +35,11 @@ final class Catalogue {
     private var tabs: [Item] = []
     private var windows: [Item] = []
     private var menus: [Item] = []
-    /// Browser windows are not searched, since their tabs are, but a plan can still tile them.
-    private var browserWindows: [Item] = []
+    /// Windows left out of search because something else already stands for them (a browser's tabs,
+    /// or the app itself when the window carries only the app's name). A plan can still tile them.
+    private var planOnlyWindows: [Item] = []
+    /// "Move this window to the left half" and its siblings, for the window in front.
+    private var tiles: [Item] = []
     private let actions = Actions.items()
     private var quits: [Item] = []
     private var runningAppPaths: Set<String> = []
@@ -69,13 +72,7 @@ final class Catalogue {
         let fixed = actions + apps + settings
         scanQueue.async { self.semantic.prepare(fixed) }
         refreshScreen {
-            // Appended to the launch log so the screen map can be checked without seeing the screen.
-            let line = "screen map: \(self.windows.count) windows, \(self.menus.count) menu commands in \(self.frontApp?.localizedName ?? "no app")\n"
-            if let handle = FileHandle(forWritingAtPath: NSHomeDirectory() + "/Library/Logs/Beeline.log") {
-                handle.seekToEndOfFile()
-                handle.write(line.data(using: .utf8)!)
-                handle.closeFile()
-            }
+            Log.append("screen map: \(self.windows.count + self.planOnlyWindows.count) windows, \(self.menus.count) menu commands in \(self.frontApp?.localizedName ?? "no app")")
         }
     }
 
@@ -101,15 +98,30 @@ final class Catalogue {
         scanQueue.async {
             let found = Accessibility.windows(of: windowed, front: front)
             let menus = front.map { Accessibility.menuCommands(of: $0) } ?? []
-            // Browser windows are left out of search: their tabs are listed instead.
-            let searchable = found.filter { !browserNames.contains($0.subtitle) }
+            let isPlanOnly = { (window: Item) in browserNames.contains(window.subtitle) || window.title == window.subtitle }
+            let searchable = found.filter { !isPlanOnly($0) }
+            let tiles = found.first(where: \.isCurrentWindow).map(Self.tileItems) ?? []
             DispatchQueue.main.async {
                 self.windows = searchable
-                self.browserWindows = found.filter { browserNames.contains($0.subtitle) }
+                self.planOnlyWindows = found.filter(isPlanOnly)
+                self.tiles = tiles
                 self.menus = menus
                 done()
             }
             self.semantic.prepare(searchable + menus)
+        }
+    }
+
+    private static func tileItems(for window: Item) -> [Item] {
+        guard let tile = window.tile else { return [] }
+        let choices: [(String, Accessibility.Side, String)] = [
+            ("Move This Window to the Left Half", .left, "side snap tile put current"),
+            ("Move This Window to the Right Half", .right, "side snap tile put current"),
+            ("Make This Window Fill the Screen", .full, "maximise maximize full big enlarge whole current"),
+        ]
+        return choices.map { title, side, keywords in
+            Item(id: "tile:\(title)", kind: .window, verb: "", title: title, subtitle: window.subtitle,
+                 keywords: keywords, icon: window.icon) { tile(side) }
         }
     }
 
@@ -129,9 +141,13 @@ final class Catalogue {
     func search(_ query: String, limit: Int = 6) -> [Item] {
         let parsed = Matcher.parse(query)
         guard !parsed.tokens.isEmpty else { return [] }
-        // Quit rows stay out of the way unless quitting is what was asked for.
-        let wantsQuit = !Matcher.quitWords.isDisjoint(with: parsed.tokens)
-        let all = actions + (wantsQuit ? quits : []) + apps + settings + tabs + windows + menus
+        let wantsClose = !Matcher.quitWords.isDisjoint(with: parsed.tokens)
+        let target = parsed.tokens.filter { !Matcher.quitWords.contains($0) }
+        // "close every tab about hltv" is about tabs, not about quitting an app.
+        if wantsClose, parsed.hint == .tab {
+            return closeTabResults(matching: target, limit: limit)
+        }
+        let all = actions + apps + settings + tabs + windows + tiles + menus + (wantsClose ? quitResults(for: target) : [])
         let scored: [(Item, Matcher.Score)] = all.compactMap { item in
             // Something picked before for exactly these words goes to the top, and is no longer a guess,
             // even when the words do not appear in its name. This is how a model guess becomes instant.
@@ -172,6 +188,40 @@ final class Catalogue {
         }
     }
 
+    /// "Quit Safari" rows, only for apps actually named in the request. A quit word on its own, or beside
+    /// words that name something else, must never surface a row that closes an app.
+    private func quitResults(for target: [String]) -> [Item] {
+        guard !target.isEmpty else { return [] }
+        return quits.filter { quit in
+            let nameWords = quit.title.lowercased().split(separator: " ").dropFirst()
+            return target.allSatisfy { word in nameWords.contains { $0.hasPrefix(word) } }
+        }
+    }
+
+    /// One row to close every matching tab, then a row for each of them.
+    private func closeTabResults(matching target: [String], limit: Int) -> [Item] {
+        // "close all tabs" with nothing to narrow it is too sweeping to offer as one keypress.
+        guard !target.isEmpty else { return [] }
+        let wanted = Matcher.Parsed(tokens: target, hint: nil)
+        let matches = tabs.filter { Matcher.score($0, wanted)?.isComplete == true && $0.close != nil }
+        var rows: [Item] = []
+        if matches.count > 1 {
+            let closeAll = {
+                // Highest position first: closing a tab renumbers the ones after it.
+                for tab in matches.sorted(by: { ($0.tabIndex ?? 0) > ($1.tabIndex ?? 0) }) { tab.close?() }
+            }
+            let browsers = Set(matches.map(\.subtitle)).sorted().joined(separator: ", ")
+            rows.append(Item(id: "close-tabs:" + target.joined(separator: " "), kind: .tab, verb: "",
+                             title: "Close \(matches.count) Tabs Matching “\(target.joined(separator: " "))”",
+                             subtitle: browsers, keywords: "", icon: matches[0].icon, run: closeAll))
+        }
+        rows += matches.map { tab in
+            Item(id: "close:" + tab.id, kind: .tab, verb: "Close tab", title: tab.title, subtitle: tab.subtitle,
+                 keywords: tab.keywords, icon: tab.icon, run: tab.close ?? {})
+        }
+        return Array(rows.prefix(limit))
+    }
+
     /// True when word matching did not settle the request, so the model should be asked.
     func needsChooser(_ query: String, _ results: [Item]) -> Bool {
         guard Matcher.parse(query).tokens.contains(where: { $0.count >= 3 }) else { return false }
@@ -196,7 +246,7 @@ final class Catalogue {
         guard !words.isEmpty else { return [] }
         let expanded = Matcher.Parsed(tokens: words, hint: parsed.hint)
 
-        return (actions + settings + tabs + windows + apps + menus)
+        return (actions + settings + tabs + windows + tiles + apps + menus)
             .compactMap { item in Matcher.score(item, expanded, anyWord: true).map { (item, $0.value) } }
             .sorted { $0.1 > $1.1 }
             .prefix(3)
@@ -215,7 +265,7 @@ final class Catalogue {
     /// a plan is written by a model reading window and tab titles, which other apps control.
     func planOptions() -> [PlanStep] {
         var options: [PlanStep] = []
-        for window in (windows + browserWindows).prefix(16) {
+        for window in (windows + planOnlyWindows).prefix(16) {
             let name = "window \"\(window.title)\" (\(window.subtitle))" + (window.isCurrentWindow ? " [the current window]" : "")
             options.append(PlanStep(text: "Switch to \(name)", icon: window.icon, run: window.run))
             if let tile = window.tile {
@@ -237,11 +287,21 @@ final class Catalogue {
         for item in settings {
             options.append(PlanStep(text: "Open \(item.title) settings", icon: item.icon, run: item.run))
         }
+        let appsWithWindows = Set((windows + planOnlyWindows).map(\.subtitle))
         for item in apps where !item.keywords.isEmpty || runningAppPaths.contains(item.id) {
             options.append(PlanStep(text: "Open the app \(item.title)", icon: item.icon, run: item.run))
+            // An app with no window yet cannot be tiled as a window, so opening and placing is one step.
+            guard !appsWithWindows.contains(item.title) else { continue }
+            let url = URL(fileURLWithPath: item.id)
+            options.append(PlanStep(text: "Open the app \(item.title) and put it on the left half of the screen", icon: item.icon) {
+                Accessibility.openAndPlace(url, .left)
+            })
+            options.append(PlanStep(text: "Open the app \(item.title) and put it on the right half of the screen", icon: item.icon) {
+                Accessibility.openAndPlace(url, .right)
+            })
         }
         for item in menus.prefix(150) {
-            options.append(PlanStep(text: "Run the menu command \(item.subtitle) › \(item.title)", icon: item.icon, run: item.run))
+            options.append(PlanStep(text: "In the current app only, run its menu command \(item.subtitle) › \(item.title)", icon: item.icon, run: item.run))
         }
         return options
     }

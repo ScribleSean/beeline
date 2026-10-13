@@ -25,7 +25,7 @@ enum Accessibility {
             let windows: [AXUIElement] = attribute(element, kAXWindowsAttribute) ?? []
             let focused: AXUIElement? = app == front ? attribute(element, kAXFocusedWindowAttribute) : nil
             for (index, window) in windows.enumerated() {
-                guard let title: String = attribute(window, kAXTitleAttribute), !title.isEmpty, title != name else { continue }
+                guard let title: String = attribute(window, kAXTitleAttribute), !title.isEmpty else { continue }
                 let raise = {
                     AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
                     AXUIElementPerformAction(window, kAXRaiseAction as CFString)
@@ -42,6 +42,28 @@ enum Accessibility {
             }
         }
         return items
+    }
+
+    /// Opens an app, waits for its window to appear, and places it. For apps with no window open yet.
+    static func openAndPlace(_ url: URL, _ side: Side) {
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration()) { app, _ in
+            guard let app else { return }
+            DispatchQueue.global(qos: .userInitiated).async {
+                let element = applicationElement(app)
+                // A cold launch can take a few seconds to show its first window.
+                for _ in 0..<25 {
+                    let windows: [AXUIElement] = attribute(element, kAXWindowsAttribute) ?? []
+                    if let window = windows.first {
+                        DispatchQueue.main.async {
+                            app.activate()
+                            place(window, side)
+                        }
+                        return
+                    }
+                    Thread.sleep(forTimeInterval: 0.2)
+                }
+            }
+        }
     }
 
     /// Moves and resizes a window to half of, or all of, the usable area of the screen the pointer is on.

@@ -99,11 +99,15 @@ final class BarModel: ObservableObject {
 
     /// Adds the "Ask Claude" row under the results once the request is more than a single word.
     private func decorated(_ items: [Item]) -> [Item] {
-        guard query.split(separator: " ").count >= 2 else { return items }
+        let words = query.split(separator: " ").count
+        guard words >= 2 else { return items }
         let row = Item(id: Self.claudeRowID, kind: .action, verb: "", title: "Ask Claude to work it out",
                        subtitle: "takes a few seconds", keywords: "",
                        icon: NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil), run: {})
-        return items + [row]
+        // A long request that nothing matched outright is most likely a job for Claude, so that row leads.
+        // Either way it only asks; nothing runs before the preview.
+        let leads = words >= 5 && (items.first?.isGuess ?? true)
+        return leads ? [row] + items : items + [row]
     }
 
     private func askClaude() {
@@ -115,6 +119,12 @@ final class BarModel: ObservableObject {
             let result = await Planner.plan(for: asked, options: options)
             guard let self, !Task.isCancelled, asked == self.query else { return }
             self.isAskingClaude = false
+            switch result {
+            case .success(let plan):
+                Log.append("plan for \"\(asked)\" from \(options.count) options: \(plan.steps.map(\.text).joined(separator: " | ")) // \(plan.note)")
+            case .failure(.message(let message)):
+                Log.append("plan for \"\(asked)\" failed: \(message)")
+            }
             switch result {
             case .success(let plan) where plan.steps.isEmpty:
                 self.planProblem = plan.note.isEmpty ? "Claude found no way to do that with what's open." : plan.note

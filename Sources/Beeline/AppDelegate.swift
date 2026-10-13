@@ -23,9 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKey = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey)) { [weak self] in
             self?.bar.toggle()
         }
-        // Read by `cat ~/Library/Logs/Beeline.log` when checking why windows and menus are missing.
-        let status = "launched \(Date()) accessibility=\(Accessibility.isTrusted) hotkey=\(hotKey != nil)\n"
-        try? status.write(toFile: NSHomeDirectory() + "/Library/Logs/Beeline.log", atomically: true, encoding: .utf8)
+        Log.start("launched \(Date()) accessibility=\(Accessibility.isTrusted) hotkey=\(hotKey != nil)")
     }
 
     @objc private func toggleBar() {
