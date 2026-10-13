@@ -10,7 +10,7 @@ private final class BarPanel: NSPanel {
 
 final class BarController: NSObject, NSWindowDelegate {
     private let model = BarModel()
-    private let size = NSSize(width: 720, height: 420)
+    private let size = NSSize(width: 720, height: 560)
     private var keyMonitor: Any?
 
     private lazy var panel: BarPanel = {

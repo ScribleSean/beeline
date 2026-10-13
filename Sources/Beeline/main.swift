@@ -1,5 +1,7 @@
 import AppKit
 
+Settings.registerDefaults()
+
 // `Beeline --query "wifi"` prints the ranked matches and exits, for checking the matcher without the UI.
 if let flag = CommandLine.arguments.firstIndex(of: "--query"), CommandLine.arguments.count > flag + 1 {
     let catalogue = Catalogue()

@@ -69,6 +69,11 @@ final class Usage {
         }
     }
 
+    func forgetEverything() {
+        store = Store()
+        try? FileManager.default.removeItem(at: file)
+    }
+
     /// How many times this item was picked for exactly these words. Zero when never.
     func timesPicked(_ item: Item, for query: String) -> Int {
         store.queries[Self.normalise(query)]?[Self.key(for: item)] ?? 0

@@ -6,14 +6,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let bar = BarController()
     private var hotKey: HotKey?
     private var updateItem: NSMenuItem!
+    private let settingsWindow = SettingsWindowController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Settings.registerDefaults()
+        NotificationCenter.default.addObserver(forName: Settings.open, object: nil, queue: .main) { [weak self] _ in
+            self?.settingsWindow.show()
+        }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = Self.menuBarGlyph()
 
         let menu = NSMenu()
         let open = menu.addItem(withTitle: "Open Beeline (⌥Space)", action: #selector(toggleBar), keyEquivalent: "")
         open.target = self
+        let settings = menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settings.target = self
         updateItem = menu.addItem(withTitle: "Update Beeline", action: #selector(update), keyEquivalent: "")
         updateItem.target = self
         menu.addItem(.separator())
@@ -24,6 +31,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.bar.toggle()
         }
         Log.start("launched \(Date()) accessibility=\(Accessibility.isTrusted) hotkey=\(hotKey != nil)")
+    }
+
+    @objc private func openSettings() {
+        settingsWindow.show()
     }
 
     @objc private func toggleBar() {

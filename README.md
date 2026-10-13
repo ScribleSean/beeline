@@ -19,6 +19,8 @@ A fast, native replacement for Spotlight on the Mac. Press **Option+Space**, typ
 - Remembers what you pick, so frequent choices rank higher and a learned request is instant.
 - For multi-step requests, "Ask Claude to work it out" sends the request to Claude through the Claude Code sign-in on this Mac. Claude has no tools and can only pick from a numbered list of steps. Its plan is previewed, and nothing runs until Return.
 
+Settings, in the menu bar or by typing "beeline settings", can switch off the on-device model, the Claude row and learning, clear the history, and turn on a details strip that shows why a result was chosen and how long it took.
+
 Exact matches appear as you type. The model is only asked after a pause, and it never chooses or runs anything itself.
 
 ## Build

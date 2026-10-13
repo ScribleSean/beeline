@@ -32,6 +32,10 @@ final class BarModel: ObservableObject {
     var onRun: (Item) -> Void = { _ in }
     var onRequestAccess: () -> Void = {}
 
+    /// How long the last search took, and the last on-device model call if there was one. For the details strip.
+    @Published var searchMilliseconds = 0.0
+    @Published var modelMilliseconds: Double?
+
     /// True while the on-device model is deciding.
     @Published var isThinking = false
     private var thinking: Task<Void, Never>?
@@ -46,7 +50,9 @@ final class BarModel: ObservableObject {
             // A plan being asked for or previewed must not be wiped by late file results.
             if let self, self.query == typed, !self.isShowingPlan { self.refresh() }
         }
+        let started = Date()
         let found = catalogue.search(query)
+        searchMilliseconds = Date().timeIntervalSince(started) * 1000
         if query != askedQuery { armedID = nil }
 
         // Called again for the same words when the screen map refreshes in the background:
@@ -63,6 +69,7 @@ final class BarModel: ObservableObject {
         isThinking = false
         askedQuery = nil
         modelPicks = []
+        modelMilliseconds = nil
         guard catalogue.needsChooser(query, found) else { return }
 
         let asked = query
@@ -72,8 +79,10 @@ final class BarModel: ObservableObject {
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard let self, !Task.isCancelled else { return }
             self.isThinking = true
+            let asking = Date()
             let picks = await self.catalogue.choose(asked)
             guard !Task.isCancelled, asked == self.query else { return }
+            self.modelMilliseconds = Date().timeIntervalSince(asking) * 1000
             self.isThinking = false
             self.modelPicks = picks
             if !picks.isEmpty {
@@ -106,7 +115,7 @@ final class BarModel: ObservableObject {
     /// Adds the "Ask Claude" row under the results once the request is more than a single word.
     private func decorated(_ items: [Item]) -> [Item] {
         let words = query.split(separator: " ").count
-        guard words >= 2 else { return items }
+        guard words >= 2, Settings.isOn(Settings.offerClaude) else { return items }
         let row = Item(id: Self.claudeRowID, kind: .action, verb: "", title: "Ask Claude to work it out",
                        subtitle: "takes a few seconds", keywords: "",
                        icon: NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil), run: {})
@@ -187,6 +196,7 @@ final class BarModel: ObservableObject {
 struct BarView: View {
     @ObservedObject var model: BarModel
     @FocusState private var focused: Bool
+    @AppStorage(Settings.showDetails) private var showDetails = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -213,6 +223,13 @@ struct BarView: View {
                         .onTapGesture { model.run(item) }
                         .transition(.opacity)
                 }
+            }
+
+            if showDetails, !model.isShowingPlan, model.results.indices.contains(model.selected),
+               model.results[model.selected].id != BarModel.claudeRowID {
+                Divider().opacity(0.5)
+                DetailStrip(item: model.results[model.selected], searchMilliseconds: model.searchMilliseconds,
+                            modelMilliseconds: model.modelMilliseconds)
             }
 
             if model.isThinking {
@@ -377,5 +394,51 @@ private struct PlanSection: View {
         .foregroundStyle(Theme.amber400)
         .padding(.horizontal, 16)
         .frame(minHeight: 34)
+    }
+}
+
+/// The optional "what did Beeline understand" readout for the selected result.
+private struct DetailStrip: View {
+    let item: Item
+    let searchMilliseconds: Double
+    let modelMilliseconds: Double?
+
+    private var why: String {
+        switch item.source {
+        case .words: return "every word you typed matches"
+        case .partial: return "only some of your words match, so this is a guess"
+        case .learned(let times): return "you picked this \(times == 1 ? "once" : "\(times) times") before for these words"
+        case .model(let keywords): return "on-device model read your request as: " + keywords.joined(separator: " ")
+        case .meaning: return "closest in meaning, a weak guess"
+        }
+    }
+
+    private var time: String {
+        var text = String(format: "%.1f ms search", searchMilliseconds)
+        if case .model = item.source, let modelMilliseconds {
+            text += String(format: ", %.0f ms on-device model", modelMilliseconds)
+        }
+        return text + ", on this Mac"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            line("do", item.verb.isEmpty ? "run" : item.verb.lowercased())
+            line("target", item.title)
+            line("in", item.subtitle)
+            line("why", why)
+            line("time", time)
+        }
+        .font(.system(size: 11, design: .monospaced))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func line(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 0) {
+            Text(label).foregroundStyle(.secondary).frame(width: 56, alignment: .leading)
+            Text(value).foregroundStyle(Theme.amber400).lineLimit(1).truncationMode(.tail)
+        }
     }
 }

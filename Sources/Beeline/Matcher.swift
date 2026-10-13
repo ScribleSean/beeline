@@ -49,6 +49,8 @@ enum Matcher {
         var value: Int
         /// False when some typed words matched nothing, which makes the item a guess.
         var isComplete: Bool
+        /// How many times this item was picked before for exactly these words. Zero when never.
+        var timesLearned = 0
     }
 
     /// Nil when the item is unrelated. An item can still match with some words unaccounted for,

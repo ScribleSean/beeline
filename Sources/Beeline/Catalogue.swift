@@ -5,10 +5,15 @@ enum Kind {
 }
 
 /// One thing Beeline can do: open an app or settings pane, switch to a tab or window, run a menu command, or perform an action.
+/// Why an item is in the results. Shown in the optional details strip.
+enum Source {
+    case words, partial, learned(Int), model([String]), meaning
+}
+
 struct Item: Identifiable {
     let id: String
     let kind: Kind
-    let verb: String
+    var verb: String
     let title: String
     /// Shown as the chip on the right, and searched at low weight.
     let subtitle: String
@@ -18,6 +23,7 @@ struct Item: Identifiable {
     let run: () -> Void
     /// True when the item was found by meaning, not by the words typed.
     var isGuess = false
+    var source = Source.words
     /// True for actions that cannot be undone. The bar asks for Return twice.
     var needsConfirm = false
     /// For windows: moves and resizes the window to a side of the screen, or to fill it.
@@ -44,7 +50,12 @@ final class Catalogue {
     private var files: [Item] = []
     private var filesQuery = ""
     private let fileQueue = DispatchQueue(label: "beeline.files", qos: .userInitiated)
-    private let actions = Actions.items()
+    private let actions = Actions.items() + [
+        Item(id: "action:Beeline Settings", kind: .action, verb: "", title: "Beeline Settings", subtitle: "Action",
+             keywords: "preferences options configure details", icon: NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)) {
+            NotificationCenter.default.post(name: Settings.open, object: nil)
+        },
+    ]
     private var quits: [Item] = []
     private var runningAppPaths: Set<String> = []
 
@@ -75,6 +86,9 @@ final class Catalogue {
         }
         let fixed = actions + apps + settings
         scanQueue.async { self.semantic.prepare(fixed) }
+        NotificationCenter.default.addObserver(forName: Settings.forgetHistory, object: nil, queue: .main) { [weak self] _ in
+            self?.usage.forgetEverything()
+        }
         refreshScreen {
             Log.append("screen map: \(self.windows.count + self.planOnlyWindows.count) windows, \(self.menus.count) menu commands in \(self.frontApp?.localizedName ?? "no app")")
         }
@@ -82,7 +96,7 @@ final class Catalogue {
 
     /// Called when an item is run, so the same words find it faster next time.
     func recordUse(of item: Item, query: String) {
-        guard item.kind != .calculation else { return }
+        guard item.kind != .calculation, Settings.isOn(Settings.learnFromUse) else { return }
         usage.record(item, query: query)
     }
 
@@ -187,7 +201,7 @@ final class Catalogue {
             // even when the words do not appear in its name. This is how a model guess becomes instant.
             let picked = usage.timesPicked(item, for: query)
             if picked > 0 {
-                return (item, Matcher.Score(value: 300 + min(picked, 20) * 5, isComplete: true))
+                return (item, Matcher.Score(value: 300 + min(picked, 20) * 5, isComplete: true, timesLearned: picked))
             }
             guard var score = Matcher.score(item, parsed) else { return nil }
             // A menu command acts on the app in front the moment Return is pressed, and can be something
@@ -209,6 +223,7 @@ final class Catalogue {
             .map { item, score in
                 var item = item
                 item.isGuess = !score.isComplete
+                item.source = score.timesLearned > 0 ? .learned(score.timesLearned) : score.isComplete ? .words : .partial
                 return item
             }
 
@@ -218,17 +233,20 @@ final class Catalogue {
             results = semantic.rank(parsed.tokens.joined(separator: " "), in: pool, limit: 2).map { guess in
                 var item = guess.item
                 item.isGuess = true
+                item.source = .meaning
                 return item
             }
         }
 
-        return results.map { item in
-            guard item.kind == .app, runningAppPaths.contains(item.id) else { return item }
-            var running = Item(id: item.id, kind: .app, verb: "Switch to", title: item.title, subtitle: item.subtitle,
-                               keywords: item.keywords, icon: item.icon, run: item.run)
-            running.isGuess = item.isGuess
-            return running
-        }
+        return results.map(markedIfRunning)
+    }
+
+    /// An app that is already open is switched to, not opened.
+    private func markedIfRunning(_ item: Item) -> Item {
+        guard item.kind == .app, runningAppPaths.contains(item.id) else { return item }
+        var running = item
+        running.verb = "Switch to"
+        return running
     }
 
     /// "Quit Safari" rows, only for apps actually named in the request. A quit word on its own, or beside
@@ -267,6 +285,7 @@ final class Catalogue {
 
     /// True when word matching did not settle the request, so the model should be asked.
     func needsChooser(_ query: String, _ results: [Item]) -> Bool {
+        guard Settings.isOn(Settings.useOnDeviceModel) else { return false }
         guard Matcher.parse(query).tokens.contains(where: { $0.count >= 3 }) else { return false }
         return results.first?.isGuess ?? true
     }
@@ -295,12 +314,9 @@ final class Catalogue {
             .sorted { $0.1 > $1.1 }
             .prefix(3)
             .map { item, _ in
-                var pick = item
-                if pick.kind == .app, runningAppPaths.contains(pick.id) {
-                    pick = Item(id: pick.id, kind: .app, verb: "Switch to", title: pick.title, subtitle: pick.subtitle,
-                                keywords: pick.keywords, icon: pick.icon, run: pick.run)
-                }
+                var pick = markedIfRunning(item)
                 pick.isGuess = true
+                pick.source = .model(extra)
                 return pick
             }
     }
