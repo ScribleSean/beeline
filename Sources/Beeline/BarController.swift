@@ -45,6 +45,7 @@ final class BarController: NSObject, NSWindowDelegate {
         Chooser.prewarm()
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.panel.isKeyWindow else { return event }
+            if self.handleEditShortcut(event) { return nil }
             switch Int(event.keyCode) {
             case kVK_Escape:
                 // The first Escape backs out of a plan; the second closes the bar.
@@ -73,6 +74,24 @@ final class BarController: NSObject, NSWindowDelegate {
         for (index, step) in steps.enumerated() {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15 + Double(index) * 0.35, execute: step.run)
         }
+    }
+
+    /// Beeline has no Edit menu, which is what normally routes ⌘C, ⌘V and the rest to a text field.
+    /// This sends the same commands to the search field directly.
+    private func handleEditShortcut(_ event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard modifiers == .command || modifiers == [.command, .shift] else { return false }
+        let action: Selector
+        switch (event.charactersIgnoringModifiers?.lowercased(), modifiers.contains(.shift)) {
+        case ("a", false): action = #selector(NSText.selectAll(_:))
+        case ("c", false): action = #selector(NSText.copy(_:))
+        case ("v", false): action = #selector(NSText.paste(_:))
+        case ("x", false): action = #selector(NSText.cut(_:))
+        case ("z", false): action = Selector(("undo:"))
+        case ("z", true): action = Selector(("redo:"))
+        default: return false
+        }
+        return NSApp.sendAction(action, to: nil, from: nil)
     }
 
     func toggle() {

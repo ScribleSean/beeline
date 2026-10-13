@@ -156,6 +156,9 @@ final class Catalogue {
                 return (item, Matcher.Score(value: 300 + min(picked, 20) * 5, isComplete: true))
             }
             guard var score = Matcher.score(item, parsed) else { return nil }
+            // A menu command acts on the app in front the moment Return is pressed, and can be something
+            // like Close All. It is only offered when every typed word matches it, never as a guess.
+            if item.kind == .menu, !score.isComplete { return nil }
             score.value += usage.habitBoost(for: item)
             return (item, score)
         }
@@ -246,7 +249,8 @@ final class Catalogue {
         guard !words.isEmpty else { return [] }
         let expanded = Matcher.Parsed(tokens: words, hint: parsed.hint)
 
-        return (actions + settings + tabs + windows + tiles + apps + menus)
+        // Menu commands are left out: a guess must never be one keypress from Close All.
+        return (actions + settings + tabs + windows + tiles + apps)
             .compactMap { item in Matcher.score(item, expanded, anyWord: true).map { (item, $0.value) } }
             .sorted { $0.1 > $1.1 }
             .prefix(3)
