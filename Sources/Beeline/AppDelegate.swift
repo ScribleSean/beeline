@@ -123,22 +123,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: Menu bar glyph
 
-    /// The Beeline mark at menu bar size: a dotted wander that straightens into a line and lands on a dot.
+    /// The app's mark at menu bar size, made from the icon art by scripts/make-icon.swift. A template image,
+    /// so macOS tints it for light and dark menu bars.
     private static func menuBarGlyph() -> NSImage {
-        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { _ in
-            NSColor.black.set()
-            for dot in [CGPoint(x: 3, y: 14), CGPoint(x: 5.2, y: 10.6), CGPoint(x: 8.4, y: 11.6)] {
-                NSBezierPath(ovalIn: NSRect(x: dot.x - 1, y: dot.y - 1, width: 2, height: 2)).fill()
-            }
-            let line = NSBezierPath()
-            line.lineWidth = 2
-            line.lineCapStyle = .round
-            line.move(to: CGPoint(x: 10.6, y: 9.4))
-            line.line(to: CGPoint(x: 14, y: 6))
-            line.stroke()
-            NSBezierPath(ovalIn: NSRect(x: 12.2, y: 2.2, width: 5, height: 5)).fill()
-            return true
-        }
+        let image = Bundle.main.url(forResource: "MenuBarGlyph", withExtension: "png").flatMap(NSImage.init(contentsOf:))
+            ?? NSImage(systemSymbolName: "hexagon", accessibilityDescription: nil)!
+        image.size = NSSize(width: 18, height: 18)
         image.isTemplate = true
         image.accessibilityDescription = "Beeline"
         return image

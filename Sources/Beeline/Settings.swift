@@ -91,6 +91,6 @@ private struct SettingsView: View {
             }
         }
         .toggleStyle(.switch)
-        .tint(Theme.amber400)
+        .tint(Theme.yellow)
     }
 }

@@ -10,6 +10,7 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp ".build/release/Beeline" "$app/Contents/MacOS/Beeline"
 cp "Resources/Info.plist" "$app/Contents/Info.plist"
 cp "Resources/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
+cp "Resources/MenuBarGlyph.png" "$app/Contents/Resources/MenuBarGlyph.png"
 # The menu bar's Update item rebuilds from this folder, and compares this commit with the newest
 # one to decide whether there is anything to update. Uncommitted edits always count as newer.
 commit="$(git rev-parse HEAD 2>/dev/null || echo unknown)"

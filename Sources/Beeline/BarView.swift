@@ -8,12 +8,21 @@ enum Motion {
     static let selection = Animation.easeOut(duration: 0.08)
 }
 
+/// Bee yellow and stripe black, the colours of the Hex dart logo.
 enum Theme {
-    static let honey50 = Color(red: 0.980, green: 0.933, blue: 0.855)
-    static let honey100 = Color(red: 0.980, green: 0.780, blue: 0.459)
-    static let amber400 = Color(red: 0.729, green: 0.459, blue: 0.090)
-    static let bark800 = Color(red: 0.388, green: 0.220, blue: 0.024)
-    static let bark900 = Color(red: 0.255, green: 0.141, blue: 0.008)
+    /// The brand yellow, #FFC21A. Fills the selected row in light and dark mode alike.
+    static let yellow = Color(red: 1.0, green: 0.761, blue: 0.102)
+    /// A deeper yellow for chips sitting on the yellow row.
+    static let deepYellow = Color(red: 0.878, green: 0.659, blue: 0.0)
+    /// Near-black, #1A1407, for text on yellow.
+    static let ink = Color(red: 0.102, green: 0.078, blue: 0.027)
+    /// Icons and hints on the bar's own background: yellow in dark mode, and a darker gold in light mode,
+    /// where plain yellow is too faint to read.
+    static let accent = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(red: 1.0, green: 0.761, blue: 0.102, alpha: 1)
+            : NSColor(red: 0.66, green: 0.48, blue: 0.0, alpha: 1)
+    })
 }
 
 final class BarModel: ObservableObject {
@@ -203,7 +212,7 @@ struct BarView: View {
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(Theme.amber400)
+                    .foregroundStyle(Theme.accent)
                 TextField("What do you want to do?", text: $model.query)
                     .textFieldStyle(.plain)
                     .font(.system(size: 20))
@@ -240,7 +249,7 @@ struct BarView: View {
                     Spacer()
                 }
                 .font(.system(size: 12))
-                .foregroundStyle(Theme.amber400)
+                .foregroundStyle(Theme.accent)
                 .padding(.horizontal, 16)
                 .frame(height: 32)
                 .transition(.opacity)
@@ -255,10 +264,10 @@ struct BarView: View {
                     Text("Allow")
                         .padding(.horizontal, 7)
                         .padding(.vertical, 2)
-                        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Theme.amber400, lineWidth: 0.5))
+                        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Theme.accent, lineWidth: 0.5))
                 }
                 .font(.system(size: 12))
-                .foregroundStyle(Theme.amber400)
+                .foregroundStyle(Theme.accent)
                 .padding(.horizontal, 16)
                 .frame(height: 32)
                 .contentShape(Rectangle())
@@ -295,7 +304,7 @@ private struct ResultRow: View {
     private var foreground: Color {
         if isArmed { return .red }
         guard isSelected else { return .secondary }
-        return scheme == .dark ? Theme.honey100 : Theme.bark800
+        return Theme.ink
     }
 
     var body: some View {
@@ -310,7 +319,7 @@ private struct ResultRow: View {
                 .font(.system(size: 11))
                 .padding(.horizontal, 7)
                 .padding(.vertical, 2)
-                .background(isSelected ? Theme.honey100.opacity(scheme == .dark ? 0.25 : 1) : Color.primary.opacity(0.08))
+                .background(isSelected ? Theme.deepYellow : Color.primary.opacity(0.08))
                 .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
             if isArmed {
                 Text("This can't be undone")
@@ -318,7 +327,7 @@ private struct ResultRow: View {
             } else if item.isGuess {
                 Text("best guess")
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(isSelected ? Theme.ink.opacity(0.6) : .secondary)
             }
             Spacer(minLength: 8)
             if isSelected {
@@ -327,14 +336,14 @@ private struct ResultRow: View {
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
                     .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .strokeBorder(isArmed ? Color.red : Theme.amber400, lineWidth: 0.5))
+                        .strokeBorder(isArmed ? Color.red : Theme.ink, lineWidth: 0.5))
             }
         }
         .font(.system(size: 14))
         .foregroundStyle(foreground)
         .padding(.horizontal, 16)
         .frame(height: 40)
-        .background(isArmed ? Color.red.opacity(0.12) : isSelected ? (scheme == .dark ? Theme.bark900 : Theme.honey50) : Color.clear)
+        .background(isArmed ? Color.red.opacity(0.12) : isSelected ? Theme.yellow : Color.clear)
     }
 }
 
@@ -363,7 +372,8 @@ private struct PlanSection: View {
                         Text("\(index + 1)")
                             .font(.system(size: 11, weight: .medium))
                             .frame(width: 18, height: 18)
-                            .background(Theme.honey100.opacity(scheme == .dark ? 0.25 : 1))
+                            .foregroundStyle(Theme.ink)
+                            .background(Theme.yellow)
                             .clipShape(Circle())
                         if let icon = step.icon {
                             Image(nsImage: icon).resizable().frame(width: 18, height: 18)
@@ -372,7 +382,7 @@ private struct PlanSection: View {
                         Spacer(minLength: 0)
                     }
                     .font(.system(size: 14))
-                    .foregroundStyle(scheme == .dark ? Theme.honey100 : Theme.bark800)
+                    .foregroundStyle(.primary)
                     .padding(.horizontal, 16)
                     .frame(height: 32)
                 }
@@ -391,7 +401,7 @@ private struct PlanSection: View {
             Text(key).foregroundStyle(.secondary)
         }
         .font(.system(size: 12))
-        .foregroundStyle(Theme.amber400)
+        .foregroundStyle(Theme.accent)
         .padding(.horizontal, 16)
         .frame(minHeight: 34)
     }
@@ -438,7 +448,7 @@ private struct DetailStrip: View {
     private func line(_ label: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 0) {
             Text(label).foregroundStyle(.secondary).frame(width: 56, alignment: .leading)
-            Text(value).foregroundStyle(Theme.amber400).lineLimit(1).truncationMode(.tail)
+            Text(value).foregroundStyle(Theme.accent).lineLimit(1).truncationMode(.tail)
         }
     }
 }

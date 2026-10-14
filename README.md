@@ -59,7 +59,7 @@ build/Beeline.app/Contents/MacOS/Beeline --controls Safari   # lists the control
 | `Usage.swift` | Remembers picks, stored locally in Application Support |
 | `Accessibility.swift`, `Controls.swift`, `Browser.swift` | Reading windows, menu commands and tabs |
 | `BarView.swift`, `BarController.swift` | The bar and its panel |
-| `scripts/make-icon.swift` | Draws the app icon |
+| `scripts/make-icon.swift` | Builds the app icon and menu bar glyph from `Resources/AppIcon-source.png` |
 
 The repository's first commit is an unrelated earlier prototype, Voice Control, kept as history.
 
