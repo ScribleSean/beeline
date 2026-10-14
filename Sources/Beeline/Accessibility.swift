@@ -121,14 +121,14 @@ enum Accessibility {
         return items
     }
 
-    private static func applicationElement(_ app: NSRunningApplication) -> AXUIElement {
+    static func applicationElement(_ app: NSRunningApplication) -> AXUIElement {
         let element = AXUIElementCreateApplication(app.processIdentifier)
         // A hung app must not stall the whole scan.
         AXUIElementSetMessagingTimeout(element, 0.25)
         return element
     }
 
-    private static func attribute<T>(_ element: AXUIElement, _ name: String) -> T? {
+    static func attribute<T>(_ element: AXUIElement, _ name: String) -> T? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else { return nil }
         return value as? T

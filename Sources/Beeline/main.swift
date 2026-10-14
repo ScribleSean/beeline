@@ -13,6 +13,19 @@ if let flag = CommandLine.arguments.firstIndex(of: "--query"), CommandLine.argum
     exit(0)
 }
 
+// `Beeline --controls Safari` lists the controls Beeline would offer in that app's front window. Presses nothing.
+if let flag = CommandLine.arguments.firstIndex(of: "--controls"), CommandLine.arguments.count > flag + 1 {
+    let name = CommandLine.arguments[flag + 1]
+    if let app = NSWorkspace.shared.runningApplications.first(where: { $0.localizedName == name }) {
+        for item in Accessibility.controls(of: app) {
+            print("\(item.needsConfirm ? "!" : " ") \(item.verb) \(item.title)  [\(item.subtitle)]")
+        }
+    } else {
+        print("\(name) is not running")
+    }
+    exit(0)
+}
+
 // `Beeline --pick "tunes" "Music"` records that Music was chosen for "tunes", as pressing Return would.
 if let flag = CommandLine.arguments.firstIndex(of: "--pick"), CommandLine.arguments.count > flag + 2 {
     let catalogue = Catalogue()

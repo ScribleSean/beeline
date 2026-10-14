@@ -1,7 +1,7 @@
 import AppKit
 
 enum Kind {
-    case app, setting, tab, window, menu, action, file, calculation
+    case app, setting, tab, window, menu, action, file, calculation, control
 }
 
 /// One thing Beeline can do: open an app or settings pane, switch to a tab or window, run a menu command, or perform an action.
@@ -46,6 +46,8 @@ final class Catalogue {
     private var planOnlyWindows: [Item] = []
     /// "Move this window to the left half" and its siblings, for the window in front.
     private var tiles: [Item] = []
+    /// Buttons, links, checkboxes and fields inside the front window.
+    private var controls: [Item] = []
     /// Files found for `filesQuery`. They arrive a moment after the words are typed.
     private var files: [Item] = []
     private var filesQuery = ""
@@ -117,6 +119,7 @@ final class Catalogue {
         scanQueue.async {
             let found = Accessibility.windows(of: windowed, front: front)
             let menus = front.map { Accessibility.menuCommands(of: $0) } ?? []
+            let controls = front.map { Accessibility.controls(of: $0) } ?? []
             let isPlanOnly = { (window: Item) in browserNames.contains(window.subtitle) || window.title == window.subtitle }
             let searchable = found.filter { !isPlanOnly($0) }
             let tiles = found.first(where: \.isCurrentWindow).map(Self.tileItems) ?? []
@@ -125,6 +128,7 @@ final class Catalogue {
                 self.planOnlyWindows = found.filter(isPlanOnly)
                 self.tiles = tiles
                 self.menus = menus
+                self.controls = controls
                 done()
             }
             self.semantic.prepare(searchable + menus)
@@ -194,7 +198,7 @@ final class Catalogue {
         if wantsClose, parsed.hint == .tab {
             return closeTabResults(matching: target, limit: limit)
         }
-        let all = actions + apps + settings + tabs + windows + tiles + menus + (wantsClose ? quitResults(for: target) : [])
+        let all = actions + apps + settings + tabs + windows + tiles + menus + controls + (wantsClose ? quitResults(for: target) : [])
             + (filesQuery == query ? files : [])
         let scored: [(Item, Matcher.Score)] = all.compactMap { item in
             // Something picked before for exactly these words goes to the top, and is no longer a guess,
@@ -204,9 +208,9 @@ final class Catalogue {
                 return (item, Matcher.Score(value: 300 + min(picked, 20) * 5, isComplete: true, timesLearned: picked))
             }
             guard var score = Matcher.score(item, parsed) else { return nil }
-            // A menu command acts on the app in front the moment Return is pressed, and can be something
-            // like Close All. It is only offered when every typed word matches it, never as a guess.
-            if item.kind == .menu, !score.isComplete { return nil }
+            // A menu command or a button acts on the app in front the moment Return is pressed, and can be
+            // something like Close All. It is only offered when every typed word matches it, never as a guess.
+            if item.kind == .menu || item.kind == .control, !score.isComplete { return nil }
             // Files are plentiful and loosely named, so they need every word.
             if item.kind == .file, !score.isComplete { return nil }
             score.value += usage.habitBoost(for: item)
@@ -363,6 +367,10 @@ final class Catalogue {
             options.append(PlanStep(text: "Open the app \(item.title) and put it on the right half of the screen", icon: item.icon) {
                 Accessibility.openAndPlace(url, .right)
             })
+        }
+        for item in controls.prefix(60) where !item.needsConfirm {
+            options.append(PlanStep(text: "In the current window only, \(item.verb.lowercased()) the \(item.subtitle) \"\(item.title)\"",
+                                    icon: item.icon, run: item.run))
         }
         for item in menus.prefix(150) {
             options.append(PlanStep(text: "In the current app only, run its menu command \(item.subtitle) › \(item.title)", icon: item.icon, run: item.run))

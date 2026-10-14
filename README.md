@@ -12,6 +12,7 @@ A fast, native replacement for Spotlight on the Mac. Press **Option+Space**, typ
 - Switches to any open window and runs menu commands of the app in front. These need the Accessibility permission.
 - For requests that match nothing exactly ("make my mac quieter"), asks the language model built into macOS to rewrite the request as search words. Those results are marked "best guess".
 
+- Presses buttons, links, checkboxes and fields inside the front window by name ("share", "undo"). Like menu commands, a control only appears when every typed word matches it, and one labelled like Delete, Send or Buy needs Return twice.
 - Runs actions: sleep, lock, mute, volume, dark mode, Wi-Fi, quit an app, and more. Empty Trash needs Return twice.
 - Finds files and folders by name through the Spotlight index, most recently used first.
 - Does arithmetic as you type ("15% of 234", "2^10"). Return copies the answer.
@@ -41,6 +42,7 @@ The script signs ad hoc unless `BEELINE_SIGNING_IDENTITY`, or an untracked `.sig
 build/Beeline.app/Contents/MacOS/Beeline --query "night shift"
 build/Beeline.app/Contents/MacOS/Beeline --ai "make my mac quieter"
 build/Beeline.app/Contents/MacOS/Beeline --plan "mute and open sound settings"   # prints Claude's plan, runs nothing
+build/Beeline.app/Contents/MacOS/Beeline --controls Safari   # lists the controls offered in Safari's front window, presses nothing
 ```
 
 ## Layout
@@ -55,7 +57,7 @@ build/Beeline.app/Contents/MacOS/Beeline --plan "mute and open sound settings"  
 | `Planner.swift` | Asks Claude for a multi-step plan built only from listed steps |
 | `Files.swift`, `Calculator.swift` | File search by name, and arithmetic |
 | `Usage.swift` | Remembers picks, stored locally in Application Support |
-| `Accessibility.swift`, `Browser.swift` | Reading windows, menu commands and tabs |
+| `Accessibility.swift`, `Controls.swift`, `Browser.swift` | Reading windows, menu commands and tabs |
 | `BarView.swift`, `BarController.swift` | The bar and its panel |
 | `scripts/make-icon.swift` | Draws the app icon |
 

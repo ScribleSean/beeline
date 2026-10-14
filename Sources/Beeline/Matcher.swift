@@ -22,6 +22,7 @@ enum Matcher {
         "app": .app, "application": .app,
         "window": .window, "windows": .window,
         "menu": .menu, "command": .menu,
+        "button": .control, "buttons": .control, "checkbox": .control, "field": .control, "textbox": .control,
         "file": .file, "files": .file, "folder": .file, "folders": .file, "document": .file, "documents": .file,
     ]
 
@@ -107,6 +108,8 @@ enum Matcher {
         if item.kind == .action, inTitle > 0, item.id != "action:Beeline Settings" { total += 15 }
         if item.kind == .app { total += 10 }
         if item.kind == .menu { total -= 5 }
+        // A button sharing a name with an app or setting is the less likely meaning.
+        if item.kind == .control { total -= 10 }
         // Prefer the tighter match: "Notes" over "Notes Helper Tool".
         total -= min(title.count, 40) / 4
         return Score(value: total, isComplete: missed == 0)

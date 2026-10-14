@@ -42,6 +42,8 @@ final class Usage {
             return "window:\(item.subtitle):\(item.title)"
         case .menu:
             return "menu:\(item.subtitle):\(item.title)"
+        case .control:
+            return "control:\(item.keywords):\(item.title)"
         }
     }
 
