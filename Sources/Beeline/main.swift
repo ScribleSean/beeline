@@ -7,6 +7,7 @@ if let flag = CommandLine.arguments.firstIndex(of: "--query"), CommandLine.argum
     let catalogue = Catalogue()
     catalogue.prepareMeaningNow()
     catalogue.loadFilesNow(for: CommandLine.arguments[flag + 1])
+    Rates.shared.refreshIfStale(wait: true)
     for item in catalogue.search(CommandLine.arguments[flag + 1]) {
         print("\(item.isGuess ? "~ " : "  ")\(item.verb) \(item.title)  [\(item.subtitle)]")
     }

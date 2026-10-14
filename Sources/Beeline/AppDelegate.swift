@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let bar = BarController()
     private var hotKey: HotKey?
     private var updateItem: NSMenuItem!
+    private var openItem: NSMenuItem!
     private let settingsWindow = SettingsWindowController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -17,8 +18,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.image = Self.menuBarGlyph()
 
         let menu = NSMenu()
-        let open = menu.addItem(withTitle: "Open Beeline (⌥Space)", action: #selector(toggleBar), keyEquivalent: "")
-        open.target = self
+        openItem = menu.addItem(withTitle: "Open Beeline", action: #selector(toggleBar), keyEquivalent: "")
+        openItem.target = self
         let settings = menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         updateItem = menu.addItem(withTitle: "Update Beeline", action: #selector(update), keyEquivalent: "")
@@ -27,10 +28,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Quit Beeline", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         statusItem.menu = menu
 
-        hotKey = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey)) { [weak self] in
-            self?.bar.toggle()
+        Log.start("launched \(Date()) accessibility=\(Accessibility.isTrusted)")
+        registerShortcut()
+        NotificationCenter.default.addObserver(forName: Settings.shortcutChanged, object: nil, queue: .main) { [weak self] _ in
+            self?.registerShortcut()
         }
-        Log.start("launched \(Date()) accessibility=\(Accessibility.isTrusted) hotkey=\(hotKey != nil)")
+        Rates.shared.refreshIfStale()
+    }
+
+    /// Registers the shortcut chosen in Settings. If another app holds it (Spotlight still on ⌘Space),
+    /// falls back to ⌥Space so Beeline can always be opened.
+    private func registerShortcut() {
+        hotKey = nil
+        let modifier: Int
+        switch UserDefaults.standard.string(forKey: Settings.shortcut) {
+        case "option": modifier = optionKey
+        case "control": modifier = controlKey
+        default: modifier = cmdKey
+        }
+        let open: () -> Void = { [weak self] in self?.bar.toggle() }
+        var label = Settings.shortcutLabel
+        hotKey = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(modifier), action: open)
+        if hotKey == nil {
+            hotKey = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey), action: open)
+            label = "⌥Space, since \(Settings.shortcutLabel) is taken"
+        }
+        openItem.title = "Open Beeline (\(label))"
+        Log.append("shortcut: \(label)")
     }
 
     @objc private func openSettings() {

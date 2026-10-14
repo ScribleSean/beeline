@@ -59,7 +59,6 @@ final class BarController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// Tracked separately from `panel.isVisible`, which stays true while the bar fades out.
     private var isShown = false
 
     /// Runs a confirmed plan one step at a time, pausing so each app can catch up before the next.
@@ -117,28 +116,14 @@ final class BarController: NSObject, NSWindowDelegate {
             panel.setFrame(NSRect(x: visible.midX - size.width / 2, y: top - size.height,
                                   width: size.width, height: size.height), display: true)
         }
-        // Typing works from the first frame; only the visuals fade.
-        panel.alphaValue = 0
+        // Instant for now: no fade in or out. Smoothing can come back once the basics feel right.
         panel.makeKeyAndOrderFront(nil)
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = Motion.fadeIn
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            panel.animator().alphaValue = 1
-        }
     }
 
     private func hide() {
         guard isShown else { return }
         isShown = false
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = Motion.fadeOut
-            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            panel.animator().alphaValue = 0
-        }, completionHandler: { [weak self] in
-            // Reopened during the fade: leave it on screen.
-            guard let self, !self.isShown else { return }
-            self.panel.orderOut(nil)
-        })
+        panel.orderOut(nil)
     }
 
     func windowDidResignKey(_ notification: Notification) {

@@ -1,14 +1,6 @@
 import SwiftUI
 
-/// Every animation is short enough that the bar never feels like it is waiting.
-enum Motion {
-    static let fadeIn = 0.12
-    static let fadeOut = 0.09
-    static let results = Animation.easeOut(duration: 0.14)
-    static let selection = Animation.easeOut(duration: 0.08)
-}
-
-/// Bee yellow and stripe black, the colours of the Hex dart logo.
+/// Bee yellow and stripe black, the colours of the app icon.
 enum Theme {
     /// The brand yellow, #FFC21A. Fills the selected row in light and dark mode alike.
     static let yellow = Color(red: 1.0, green: 0.761, blue: 0.102)
@@ -223,14 +215,13 @@ struct BarView: View {
 
             if model.isShowingPlan {
                 Divider().opacity(0.5)
-                PlanSection(model: model).transition(.opacity)
+                PlanSection(model: model)
             } else {
                 ForEach(Array(model.results.enumerated()), id: \.element.id) { index, item in
                     Divider().opacity(0.5)
                     ResultRow(item: item, isSelected: index == model.selected, isArmed: model.armedID == item.id)
                         .contentShape(Rectangle())
                         .onTapGesture { model.run(item) }
-                        .transition(.opacity)
                 }
             }
 
@@ -252,7 +243,6 @@ struct BarView: View {
                 .foregroundStyle(Theme.accent)
                 .padding(.horizontal, 16)
                 .frame(height: 32)
-                .transition(.opacity)
             }
 
             if model.needsAccess {
@@ -274,12 +264,6 @@ struct BarView: View {
                 .onTapGesture { model.onRequestAccess() }
             }
         }
-        .animation(Motion.results, value: model.results.map(\.id))
-        .animation(Motion.selection, value: model.selected)
-        .animation(Motion.results, value: model.isThinking)
-        .animation(Motion.selection, value: model.armedID)
-        .animation(Motion.results, value: model.isShowingPlan)
-        .animation(Motion.results, value: model.plan?.steps.map(\.id))
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(

@@ -1,7 +1,7 @@
 import AppKit
 
 enum Kind {
-    case app, setting, tab, window, menu, action, file, calculation, control
+    case app, setting, tab, window, menu, action, file, calculation, control, clipboard
 }
 
 /// One thing Beeline can do: open an app or settings pane, switch to a tab or window, run a menu command, or perform an action.
@@ -66,6 +66,7 @@ final class Catalogue {
     private let scanQueue = DispatchQueue(label: "beeline.screen-map", qos: .userInitiated)
     private var activationObserver: NSObjectProtocol?
     private let semantic = Semantic()
+    let clipboard = Clipboard()
     private let usage = Usage()
 
     init() {
@@ -91,6 +92,10 @@ final class Catalogue {
         NotificationCenter.default.addObserver(forName: Settings.forgetHistory, object: nil, queue: .main) { [weak self] _ in
             self?.usage.forgetEverything()
         }
+        NotificationCenter.default.addObserver(forName: Settings.clearClipboard, object: nil, queue: .main) { [weak self] _ in
+            self?.clipboard.clear()
+        }
+        clipboard.start()
         refreshScreen {
             Log.append("screen map: \(self.windows.count + self.planOnlyWindows.count) windows, \(self.menus.count) menu commands in \(self.frontApp?.localizedName ?? "no app")")
         }
@@ -98,7 +103,7 @@ final class Catalogue {
 
     /// Called when an item is run, so the same words find it faster next time.
     func recordUse(of item: Item, query: String) {
-        guard item.kind != .calculation, Settings.isOn(Settings.learnFromUse) else { return }
+        guard item.kind != .calculation, item.kind != .clipboard, Settings.isOn(Settings.learnFromUse) else { return }
         usage.record(item, query: query)
     }
 
@@ -182,10 +187,14 @@ final class Catalogue {
     }
 
     func search(_ query: String, limit: Int = 6) -> [Item] {
-        if let value = Calculator.evaluate(query) {
-            let answer = Calculator.format(value)
+        if let clips = clipboard.results(for: query, limit: limit) {
+            return clips
+        }
+        // Arithmetic and conversions answer in a single row; Return copies the answer.
+        if let answer = Calculator.evaluate(query).map(Calculator.format) ?? Converter.answer(query) {
             return [Item(id: "calculation", kind: .calculation, verb: "", title: "= " + answer, subtitle: "Return copies it",
                          keywords: "", icon: NSImage(systemSymbolName: "equal.circle", accessibilityDescription: nil)) {
+                // Copy the number and unit without the leading "= ", or the bare time.
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(answer, forType: .string)
             }]
