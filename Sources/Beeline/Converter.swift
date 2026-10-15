@@ -30,7 +30,7 @@ enum Converter {
 
     /// "<number> <unit> in|to <unit>", as (number, from, to).
     private static func split(_ text: String) -> (Double, String, String)? {
-        let pattern = #"^(-?[0-9][0-9.,]*)\s*([a-z/ ]+?)\s+(?:in|to|into|as)\s+([a-z/ ]+)$"#
+        let pattern = #"^(-?[0-9][0-9.,]*)\s*([a-z][a-z0-9/ ]*?)\s+(?:in|to|into|as)\s+([a-z][a-z0-9/ ]*)$"#
         guard let match = text.firstMatch(of: try! Regex(pattern)),
               let number = Double(String(match.output[1].substring ?? "").replacingOccurrences(of: ",", with: "")),
               let from = match.output[2].substring, let to = match.output[3].substring else { return nil }

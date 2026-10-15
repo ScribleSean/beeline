@@ -4,7 +4,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 swift build -c release
-app="build/Beeline.app"
+# Built beside the old app and swapped in at the end, so a failed build never leaves no app at all.
+final="build/Beeline.app"
+app="build/Beeline.app.new"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp ".build/release/Beeline" "$app/Contents/MacOS/Beeline"
@@ -20,4 +22,6 @@ commit="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
 # BEELINE_SIGNING_IDENTITY, else the untracked .signing-identity file, else ad hoc.
 identity="${BEELINE_SIGNING_IDENTITY:-$(cat .signing-identity 2>/dev/null || echo -)}"
 codesign --force --sign "$identity" "$app"
-echo "$app"
+rm -rf "$final"
+mv "$app" "$final"
+echo "$final"

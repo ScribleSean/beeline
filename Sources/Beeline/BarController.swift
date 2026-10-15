@@ -70,15 +70,12 @@ final class BarController: NSObject, NSWindowDelegate {
 
     /// Runs a confirmed plan one step at a time, pausing so each app can catch up before the next.
     private static func execute(_ plan: Plan) {
-        var steps = plan.steps
-        // Closing a tab renumbers the tabs after it, so all closes run together, highest index first.
-        let closes = steps.filter { $0.closingTabIndex != nil }.sorted { ($0.closingTabIndex ?? 0) > ($1.closingTabIndex ?? 0) }
-        if let first = steps.firstIndex(where: { $0.closingTabIndex != nil }) {
-            steps.removeAll { $0.closingTabIndex != nil }
-            steps.insert(contentsOf: closes, at: min(first, steps.count))
-        }
-        for (index, step) in steps.enumerated() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15 + Double(index) * 0.35, execute: step.run)
+        // Steps run in exactly the order previewed. Each waits for the one before to settle; opening an app
+        // and placing its window is given a few seconds.
+        var delay = 0.15
+        for step in plan.steps {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: step.run)
+            delay += step.settleTime
         }
     }
 
@@ -162,8 +159,10 @@ final class BarController: NSObject, NSWindowDelegate {
         model.query = ""
         model.focusTick += 1
         model.catalogue.refreshRunning()
-        model.catalogue.refreshTabs { [weak self] in self?.model.refresh() }
-        model.catalogue.refreshScreen { [weak self] in self?.model.refresh() }
+        model.catalogue.refreshTabs { [weak self] in self?.model.refreshInBackground() }
+        model.catalogue.refreshScreen { [weak self] in self?.model.refreshInBackground() }
+        model.catalogue.refreshAppsIfChanged()
+        Rates.shared.refreshIfStale()
         model.needsAccess = !Accessibility.isTrusted
         Chooser.prewarm()
 

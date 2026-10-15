@@ -57,8 +57,8 @@ func drawGlyph() -> NSBitmapImageRep {
     return rep
 }
 
-let iconset = FileManager.default.temporaryDirectory.appendingPathComponent("Beeline.iconset")
-try? FileManager.default.removeItem(at: iconset)
+let iconset = FileManager.default.temporaryDirectory.appendingPathComponent("Beeline-\(UUID().uuidString).iconset")
+defer { try? FileManager.default.removeItem(at: iconset) }
 try FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)
 for base in [16, 32, 128, 256, 512] {
     for scale in [1, 2] {
@@ -76,4 +76,8 @@ try drawGlyph().representation(using: .png, properties: [:])!.write(to: URL(file
 if let preview = ProcessInfo.processInfo.environment["ICON_PREVIEW"] {
     try drawIcon(size: 512).representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: preview))
 }
-print(convert.terminationStatus == 0 ? "Wrote Resources/AppIcon.icns and Resources/MenuBarGlyph.png" : "iconutil failed")
+guard convert.terminationStatus == 0 else {
+    print("iconutil failed")
+    exit(1)
+}
+print("Wrote Resources/AppIcon.icns and Resources/MenuBarGlyph.png")

@@ -24,8 +24,23 @@ final class Clipboard {
     ].map { NSPasteboard.PasteboardType(rawValue: $0) }
 
     func start() {
-        // Checking twice a second costs next to nothing: the change count is a single integer.
-        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.check() }
+        syncWithSetting()
+        NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.syncWithSetting()
+        }
+    }
+
+    /// Checks twice a second while history is on, which costs next to nothing; stops and forgets when it is off.
+    private func syncWithSetting() {
+        if Settings.isOn(Settings.clipboardHistory) {
+            guard timer == nil else { return }
+            lastChange = NSPasteboard.general.changeCount
+            timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.check() }
+        } else {
+            timer?.invalidate()
+            timer = nil
+            entries.removeAll()
+        }
     }
 
     func clear() {
@@ -39,6 +54,8 @@ final class Clipboard {
         guard Settings.isOn(Settings.clipboardHistory),
               !(board.types ?? []).contains(where: { Self.doNotKeep.contains($0) }),
               let text = board.string(forType: .string),
+              // Very large copies (a whole log, a data dump) are not kept: memory stays small.
+              text.utf16.count <= 200_000,
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         // Copying something already in the list moves it to the top instead of repeating it.
         entries.removeAll { $0.text == text }

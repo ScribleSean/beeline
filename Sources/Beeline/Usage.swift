@@ -63,12 +63,17 @@ final class Usage {
             store.queries = store.queries.filter { $0.value.values.reduce(0, +) > 1 }
         }
         let snapshot = store
-        saveQueue.sync { [file] in
+        // Written in the background so choosing a result never waits on the disk.
+        saveQueue.async { [file] in
             try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             if let data = try? JSONEncoder().encode(snapshot) {
                 try? data.write(to: file, options: .atomic)
             }
         }
+    }
+
+    func flush() {
+        saveQueue.sync {}
     }
 
     func forgetEverything() {

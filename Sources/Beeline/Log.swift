@@ -10,10 +10,15 @@ enum Log {
         try? (line + "\n").write(toFile: path, atomically: true, encoding: .utf8)
     }
 
+    /// Lines come from several threads; one queue writes them in turn so they never interleave.
+    private static let queue = DispatchQueue(label: "beeline.log")
+
     static func append(_ line: String) {
-        guard let handle = FileHandle(forWritingAtPath: path) else { return start(line) }
-        handle.seekToEndOfFile()
-        handle.write(Data((line + "\n").utf8))
-        handle.closeFile()
+        queue.async {
+            guard let handle = FileHandle(forWritingAtPath: path) else { return start(line) }
+            handle.seekToEndOfFile()
+            handle.write(Data((line + "\n").utf8))
+            handle.closeFile()
+        }
     }
 }

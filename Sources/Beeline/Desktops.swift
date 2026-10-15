@@ -30,12 +30,18 @@ enum Desktops {
     private static let file = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("Beeline/desktops.json")
 
+    /// Read from disk once, then kept: every keystroke checks saved desktops.
+    private static var cache: [Desktop]?
+
     static func load() -> [Desktop] {
-        guard let data = try? Data(contentsOf: file) else { return [] }
-        return (try? JSONDecoder().decode([Desktop].self, from: data)) ?? []
+        if let cache { return cache }
+        let read = (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode([Desktop].self, from: $0) } ?? []
+        cache = read
+        return read
     }
 
     private static func store(_ desktops: [Desktop]) {
+        cache = desktops
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? JSONEncoder().encode(desktops).write(to: file, options: .atomic)
     }
@@ -179,21 +185,20 @@ enum Desktops {
         guard !saved.isEmpty else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let element = Accessibility.applicationElement(app)
-            // Apps take a moment to bring windows back after launch; try for up to five seconds.
-            for _ in 0..<10 {
+            // Apps take a moment to bring windows back after launch; keep looking for up to eight seconds.
+            // Only a window whose title matches is moved: a window that happens to be open is never taken instead.
+            var remaining = saved.filter { !$0.title.isEmpty }
+            for _ in 0..<16 where !remaining.isEmpty {
                 Thread.sleep(forTimeInterval: 0.5)
-                let windows: [AXUIElement] = Accessibility.attribute(element, kAXWindowsAttribute) ?? []
-                guard !windows.isEmpty else { continue }
-                var unused = windows
-                for target in saved {
-                    let match = unused.firstIndex { window in
+                var windows: [AXUIElement] = Accessibility.attribute(element, kAXWindowsAttribute) ?? []
+                remaining = remaining.filter { target in
+                    guard let index = windows.firstIndex(where: { window in
                         let title: String = Accessibility.attribute(window, kAXTitleAttribute) ?? ""
                         return title.caseInsensitiveCompare(target.title) == .orderedSame
-                    } ?? (unused.isEmpty ? nil : 0)
-                    guard let index = match else { break }
-                    place(unused.remove(at: index), target.frame)
+                    }) else { return true }
+                    place(windows.remove(at: index), target.frame)
+                    return false
                 }
-                return
             }
         }
     }

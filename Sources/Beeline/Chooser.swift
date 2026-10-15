@@ -11,7 +11,11 @@ enum Chooser {
     }
 
     /// Loads the model into memory so the first real request is not the slow one.
+    private static var lastPrewarm = Date.distantPast
+
     static func prewarm() {
+        guard Settings.isOn(Settings.useOnDeviceModel), Date().timeIntervalSince(lastPrewarm) > 60 else { return }
+        lastPrewarm = Date()
         guard #available(macOS 26.0, *), isAvailable else { return }
         LanguageModelSession(instructions: keywordInstructions).prewarm()
     }

@@ -11,7 +11,8 @@ enum Calculator {
             .replacingOccurrences(of: " of ", with: "*")
             .replacingOccurrences(of: ",", with: "")
             .filter { !$0.isWhitespace }
-        guard cleaned.contains(where: \.isNumber),
+        // Long or deeply nested input is refused rather than risk running out of stack.
+        guard cleaned.count <= 200, cleaned.contains(where: \.isNumber),
               cleaned.contains(where: { "+-*/^%x".contains($0) }),
               cleaned.allSatisfy({ $0.isNumber || "+-*/^%x().".contains($0) }) else { return nil }
 
@@ -40,6 +41,8 @@ enum Calculator {
         var position = 0
 
         var isAtEnd: Bool { position == characters.count }
+        /// Nesting so far. Parentheses, minus signs and powers each add one, and past 40 the input is refused.
+        private var depth = 0
 
         private mutating func take(_ options: String) -> Character? {
             guard position < characters.count, options.contains(characters[position]) else { return nil }
@@ -57,31 +60,37 @@ enum Calculator {
         }
 
         private mutating func term() -> Double? {
-            guard var value = power() else { return nil }
+            guard var value = unary() else { return nil }
             while let sign = take("*/x") {
-                guard let next = power() else { return nil }
+                guard let next = unary() else { return nil }
                 value = sign == "/" ? value / next : value * next
             }
             return value
         }
 
-        private mutating func power() -> Double? {
-            guard let base = unary() else { return nil }
-            guard take("^") != nil else { return base }
-            // Right-associative: 2^3^2 is 2^(3^2).
-            guard let exponent = power() else { return nil }
-            return pow(base, exponent)
+        /// Minus applies after the power, as in written maths: -2^2 is -4.
+        private mutating func unary() -> Double? {
+            depth += 1
+            defer { depth -= 1 }
+            guard depth <= 40 else { return nil }
+            if take("-") != nil { return unary().map { -$0 } }
+            return power()
         }
 
-        private mutating func unary() -> Double? {
-            if take("-") != nil { return unary().map { -$0 } }
-            return primary()
+        private mutating func power() -> Double? {
+            guard let base = primary() else { return nil }
+            guard take("^") != nil else { return base }
+            // Right-associative, and the exponent may be negative: 2^-1 is 0.5, 2^3^2 is 2^(3^2).
+            guard let exponent = unary() else { return nil }
+            return pow(base, exponent)
         }
 
         private mutating func primary() -> Double? {
             var value: Double
             if take("(") != nil {
-                guard let inner = expression(), take(")") != nil else { return nil }
+                depth += 1
+                defer { depth -= 1 }
+                guard depth <= 40, let inner = expression(), take(")") != nil else { return nil }
                 value = inner
             } else {
                 let start = position

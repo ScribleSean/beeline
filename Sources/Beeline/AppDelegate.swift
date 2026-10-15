@@ -12,6 +12,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Settings.registerDefaults()
+        // Applies to every accessibility element, not only app elements, so one stuck app can't stall a scan.
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.25)
         Settings.applyAppearance()
         NotificationCenter.default.addObserver(forName: Settings.openWelcome, object: nil, queue: .main) { [weak self] _ in
             self?.welcomeWindow.show()
@@ -91,7 +93,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.global(qos: .userInitiated).async {
             let reachedGitHub = Self.shell("git fetch --quiet origin", in: root).ok
             // Fast-forward only: local work that has not been pushed is never overwritten.
-            _ = Self.shell("git merge --ff-only --quiet origin/main", in: root)
+            let merged = Self.shell("git merge --ff-only --quiet origin/main", in: root)
+            if reachedGitHub, !merged.ok {
+                DispatchQueue.main.async {
+                    self.resetUpdateItem()
+                    self.alert("Couldn't update", "The copy of Beeline on this Mac has changes that aren't on GitHub, so it can't simply move to the newest version.")
+                }
+                return
+            }
             let head = Self.shell("git rev-parse HEAD", in: root).output.trimmingCharacters(in: .whitespacesAndNewlines)
             let hasLocalEdits = !Self.shell("git status --porcelain", in: root).output.isEmpty
 

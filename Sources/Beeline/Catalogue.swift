@@ -81,7 +81,7 @@ final class Catalogue {
 
     /// Blocks until apps and settings can be matched by meaning. The app does this in the background instead.
     func prepareMeaningNow() {
-        semantic.prepare(actions + apps + settings)
+        semantic.prepare(actions + apps + settings, permanent: true)
     }
 
     /// Keeps the screen map current in the background, so it is ready before the bar opens.
@@ -92,7 +92,7 @@ final class Catalogue {
             self?.refreshScreen {}
         }
         let fixed = actions + apps + settings
-        scanQueue.async { self.semantic.prepare(fixed) }
+        scanQueue.async { self.semantic.prepare(fixed, permanent: true) }
         NotificationCenter.default.addObserver(forName: Settings.forgetHistory, object: nil, queue: .main) { [weak self] _ in
             self?.usage.forgetEverything()
         }
@@ -116,8 +116,19 @@ final class Catalogue {
         quits = Actions.quitItems()
     }
 
+    private var scanning = false
+    private var rescanWanted = false
+    private var scanWaiters: [() -> Void] = []
+
     /// Re-reads open windows and the front app's menu commands, then calls `done` on the main thread.
+    /// Requests that arrive while a scan runs are folded into one more scan, never queued one by one.
     func refreshScreen(done: @escaping () -> Void) {
+        scanWaiters.append(done)
+        guard !scanning else {
+            rescanWanted = true
+            return
+        }
+        scanning = true
         let own = NSRunningApplication.current
         if let front = NSWorkspace.shared.frontmostApplication, front != own {
             frontApp = front
@@ -138,10 +149,39 @@ final class Catalogue {
                 self.tiles = tiles
                 self.menus = menus
                 self.controls = controls
-                done()
+                let waiting = self.scanWaiters
+                self.scanWaiters = []
+                waiting.forEach { $0() }
+                self.scanning = false
+                if self.rescanWanted {
+                    self.rescanWanted = false
+                    self.refreshScreen {}
+                }
             }
             self.semantic.prepare(searchable + menus)
         }
+    }
+
+    private var appFolderDates: [Date] = []
+
+    /// Rescans installed apps when an Applications folder has changed, so a new app appears without a relaunch.
+    func refreshAppsIfChanged() {
+        let folders = ["/Applications", NSHomeDirectory() + "/Applications"]
+        let dates = folders.map { (try? FileManager.default.attributesOfItem(atPath: $0)[.modificationDate] as? Date) ?? .distantPast }
+        guard dates != appFolderDates else { return }
+        let first = appFolderDates.isEmpty
+        appFolderDates = dates
+        guard !first else { return }
+        scanQueue.async {
+            let fresh = Self.scanApps()
+            DispatchQueue.main.async { self.apps = fresh }
+            self.semantic.prepare(fresh, permanent: true)
+        }
+    }
+
+    /// Waits for pick history to reach disk. Used before the command-line modes exit.
+    func flushHistory() {
+        usage.flush()
     }
 
     private static func tileItems(for window: Item) -> [Item] {
@@ -174,10 +214,21 @@ final class Catalogue {
     var includeFiles = true
 
     /// Looks up files named like the query, then calls `done` on the main thread if the query still stands.
+    private var newestFileQuery = ""
+    private let fileQueryLock = NSLock()
+
     func refreshFiles(for query: String, done: @escaping () -> Void) {
         guard includeFiles, query != filesQuery else { return }
         let words = Matcher.parse(query).tokens
+        fileQueryLock.lock()
+        newestFileQuery = query
+        fileQueryLock.unlock()
         fileQueue.async {
+            // Typing quickly queues a search per keystroke; only the newest one is worth running.
+            self.fileQueryLock.lock()
+            let current = self.newestFileQuery == query
+            self.fileQueryLock.unlock()
+            guard current else { return }
             let found = Files.search(words)
             DispatchQueue.main.async {
                 self.files = found
@@ -358,6 +409,8 @@ final class Catalogue {
 
     /// Asks the on-device model what the request is about, then finds the items its words describe.
     /// Returns the best few, marked as guesses.
+    /// Runs on the main thread, where the catalogue's lists are changed, so it never reads them mid-update.
+    @MainActor
     func choose(_ query: String) async -> [Item] {
         let parsed = Matcher.parse(query)
         let extra = await Chooser.keywords(for: query)
@@ -413,12 +466,15 @@ final class Catalogue {
             // An app with no window yet cannot be tiled as a window, so opening and placing is one step.
             guard !appsWithWindows.contains(item.title) else { continue }
             let url = URL(fileURLWithPath: item.id)
-            options.append(PlanStep(text: "Open the app \(item.title) and put it on the left half of the screen", icon: item.icon) {
+            var left = PlanStep(text: "Open the app \(item.title) and put it on the left half of the screen", icon: item.icon) {
                 Accessibility.openAndPlace(url, .left)
-            })
-            options.append(PlanStep(text: "Open the app \(item.title) and put it on the right half of the screen", icon: item.icon) {
+            }
+            left.settleTime = 3
+            var right = PlanStep(text: "Open the app \(item.title) and put it on the right half of the screen", icon: item.icon) {
                 Accessibility.openAndPlace(url, .right)
-            })
+            }
+            right.settleTime = 3
+            options += [left, right]
         }
         for item in controls.prefix(60) where !item.needsConfirm {
             options.append(PlanStep(text: "In the current window only, \(item.verb.lowercased()) the \(item.subtitle) \"\(item.title)\"",

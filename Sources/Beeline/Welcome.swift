@@ -3,7 +3,7 @@ import SwiftUI
 
 /// The first-run screen: what Beeline is, its shortcut, and why it asks for Accessibility.
 /// Shown once; type "beeline welcome" to see it again.
-final class WelcomeWindowController: NSObject {
+final class WelcomeWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private let state = WelcomeState()
 
@@ -15,6 +15,7 @@ final class WelcomeWindowController: NSObject {
             created.styleMask = [.titled, .closable, .fullSizeContentView]
             created.titlebarAppearsTransparent = true
             created.isReleasedWhenClosed = false
+            created.delegate = self
             window = created
         }
         state.refresh()
@@ -22,6 +23,10 @@ final class WelcomeWindowController: NSObject {
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
         UserDefaults.standard.set(true, forKey: Settings.welcomed)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        state.stop()
     }
 }
 
@@ -45,6 +50,11 @@ extension WelcomeWindowController {
 private final class WelcomeState: ObservableObject {
     @Published var trusted = Accessibility.isTrusted
     private var timer: Timer?
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+    }
 
     func refresh() {
         trusted = Accessibility.isTrusted

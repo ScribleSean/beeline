@@ -18,9 +18,17 @@ final class Semantic {
         item.keywords.isEmpty ? item.title : item.title + " " + item.keywords
     }
 
+    /// Texts that stay cached for good: apps, settings and actions. Window, tab and menu texts come and go.
+    private var permanent = Set<String>()
+
     /// Computes and stores vectors for new texts. Each takes about 2 ms, so call this off the main thread.
-    func prepare(_ items: [Item]) {
+    func prepare(_ items: [Item], permanent keep: Bool = false) {
         guard let sentence else { return }
+        if keep {
+            lock.lock()
+            permanent.formUnion(items.map(Self.text(for:)))
+            lock.unlock()
+        }
         for item in items {
             let text = Self.text(for: item)
             lock.lock()
@@ -32,6 +40,10 @@ final class Semantic {
             vectors[text] = unit
             lock.unlock()
         }
+        // Titles of windows and tabs long closed would otherwise pile up for the whole session.
+        lock.lock()
+        if vectors.count > 3000 { vectors = vectors.filter { permanent.contains($0.key) } }
+        lock.unlock()
     }
 
     /// The items closest in meaning to the query, best first, with their similarity from 0 to 1.

@@ -106,6 +106,15 @@ final class BarModel: ObservableObject {
         }
     }
 
+    /// For results arriving in the background (tabs, windows). Leaves a plan, a confirm or a pending Claude
+    /// request alone, and keeps the same item selected if it is still there.
+    func refreshInBackground() {
+        guard !isShowingPlan, armedID == nil else { return }
+        let selectedID = results.indices.contains(selected) ? results[selected].id : nil
+        refresh()
+        if let selectedID, let index = results.firstIndex(where: { $0.id == selectedID }) { selected = index }
+    }
+
     /// The model's picks first, then whatever word matching found that it did not.
     private func merged(_ picks: [Item], _ found: [Item]) -> [Item] {
         let picked = Set(picks.map(\.id))

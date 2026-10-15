@@ -85,6 +85,7 @@ if let flag = CommandLine.arguments.firstIndex(of: "--pick"), CommandLine.argume
     let catalogue = Catalogue()
     if let item = catalogue.search(CommandLine.arguments[flag + 2], limit: 1).first {
         catalogue.recordUse(of: item, query: CommandLine.arguments[flag + 1])
+        catalogue.flushHistory()
         print("recorded \(item.title) for \"\(CommandLine.arguments[flag + 1])\"")
     }
     exit(0)

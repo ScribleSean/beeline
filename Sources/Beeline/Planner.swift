@@ -6,9 +6,10 @@ struct PlanStep: Identifiable {
     let text: String
     let icon: NSImage?
     let run: () -> Void
-    /// Set for "close tab" steps. Closing a tab renumbers the ones after it,
-    /// so these are run highest index first.
+    /// Set for "close tab" steps. Kept for reference; tabs now close by address, so order no longer matters.
     var closingTabIndex: Int?
+    /// How long to wait after this step before the next. Opening an app and placing it takes seconds.
+    var settleTime = 0.35
 }
 
 struct Plan {
