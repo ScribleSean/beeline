@@ -170,9 +170,12 @@ final class Catalogue {
         }
     }
 
+    /// Off for screenshot previews, whose images should not show the names of real files.
+    var includeFiles = true
+
     /// Looks up files named like the query, then calls `done` on the main thread if the query still stands.
     func refreshFiles(for query: String, done: @escaping () -> Void) {
-        guard query != filesQuery else { return }
+        guard includeFiles, query != filesQuery else { return }
         let words = Matcher.parse(query).tokens
         fileQueue.async {
             let found = Files.search(words)

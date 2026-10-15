@@ -1,71 +1,95 @@
-# Beeline
+<p align="center"><img src="docs/icon.png" width="112" alt=""></p>
 
-A fast, native replacement for Spotlight on the Mac. Press **Cmd+Space** (or Option or Control+Space, set in Settings), type what you want in plain words, and press Return.
+<h1 align="center">Beeline</h1>
 
-**In development.** It runs on the author's Mac and has no releases.
+<p align="center"><b>Type what you want. Go straight there.</b><br>
+A fast Spotlight replacement for the Mac that understands plain words.</p>
+
+<p align="center"><img src="docs/bar.png" width="640" alt="Beeline searching for wifi: Wi-Fi settings first, then the actions to turn Wi-Fi off or on"></p>
+
+Press ⌘Space and type it the way you'd say it. "night shift" opens the right settings pane. "close every tab about flights" closes them. "100 usd in eur" just answers. When something takes more than one step, Claude plans it and you approve it before anything runs.
 
 ## What it does
 
-- Opens or switches to apps, by name or by what they do ("video call", "browser").
-- Opens System Settings panes by everyday words ("night shift", "change my resolution").
-- Switches to open browser tabs in Chrome, Safari, Brave and Edge.
-- Switches to any open window and runs menu commands of the app in front. These need the Accessibility permission.
-- For requests that match nothing exactly ("make my mac quieter"), asks the language model built into macOS to rewrite the request as search words. Those results are marked "best guess".
+- **Opens anything.** Apps, System Settings by everyday words, browser tabs, windows, files, and the menu commands and buttons of the app in front.
+- **Does things.** Sleep, lock, mute, dark mode, Wi-Fi, quit an app, put a window on half the screen, close matching tabs.
+- **Answers.** Sums, units, currencies and time zones, shown large. Return copies.
+- **Remembers.** "remind me to call Sam at 5" goes to Reminders. "save desktop as tax work" brings back the same apps, windows and tabs later.
+- **Pastes again.** "clip" lists what you copied.
+- **Listens.** Hold ⌘Space and speak.
+- **Asks Claude.** Questions are answered in the bar. Multi-step requests become a plan built only from steps Beeline offers, and nothing runs until you press Return.
 
-- Presses buttons, links, checkboxes and fields inside the front window by name ("share", "undo"). Like menu commands, a control only appears when every typed word matches it, and one labelled like Delete, Send or Buy needs Return twice.
-- Runs actions: sleep, lock, mute, volume, dark mode, Wi-Fi, quit an app, and more. Empty Trash needs Return twice.
-- Finds files and folders by name through the Spotlight index, most recently used first.
-- Does arithmetic as you type ("15% of 234", "2^10"). Return copies the answer.
-- Converts units ("10 km in mi", "20c in f"), currencies ("100 usd in eur", "$50 in gbp") and time zones ("3pm london in new york", "time in tokyo"). Currency rates are the European Central Bank's, fetched from the free Frankfurter service twice a day.
-- Keeps the last 100 things you copied, in memory only. Type "clip" to list them, or "clip invoice" to narrow them; Return pastes. Items a password manager marks as concealed are never kept.
-- Closes browser tabs ("close every tab about flights") and moves the front window to the left half, right half or full screen.
-- Remembers what you pick, so frequent choices rank higher and a learned request is instant.
-- For multi-step requests, "Ask Claude to work it out" sends the request to Claude through the Claude Code sign-in on this Mac. Claude has no tools and can only pick from a numbered list of steps. Its plan is previewed, and nothing runs until Return.
+It learns what you pick, so what you use most comes first.
 
-Settings, in the menu bar or by typing "beeline settings", can start Beeline at login, change the shortcut, switch off the on-device model, the Claude row and learning, clear the history, and turn on a details strip that shows why a result was chosen and how long it took.
+<p align="center">
+  <img src="docs/answer.png" width="49%" alt="A currency conversion shown as a large answer">
+  <img src="docs/plan.png" width="49%" alt="A three-step plan from Claude with Cancel and Run buttons">
+</p>
 
-Exact matches appear as you type. The model is only asked after a pause, and it never chooses or runs anything itself.
+## Install
 
-## Build
-
-Apple silicon, macOS 26 or later for the on-device model, and the Swift toolchain from the Xcode Command Line Tools.
+There's no release yet, so build it. You need an Apple silicon Mac with macOS 14 or later, and the Xcode Command Line Tools (`xcode-select --install`).
 
 ```sh
+git clone https://github.com/ScribleSean/beeline
+cd beeline
 bash scripts/build-app.sh && open build/Beeline.app
 ```
 
-The script signs ad hoc unless `BEELINE_SIGNING_IDENTITY`, or an untracked `.signing-identity` file, names a certificate fingerprint. A stable certificate keeps macOS permissions across rebuilds.
+To use ⌘Space, first turn off Spotlight's shortcut in System Settings › Keyboard › Keyboard Shortcuts › Spotlight. Beeline falls back to ⌥Space until you do.
 
-**Update Beeline** in the menu bar pulls the newest pushed commit, rebuilds and relaunches, or tells you that you are up to date.
+Some parts need more than that:
 
-## Check the matching without the UI
+- Rewriting loose requests ("make my mac quieter") uses the model built into macOS 26 with Apple Intelligence.
+- Ask Claude needs [Claude Code](https://claude.com/claude-code) installed and signed in.
+
+To update, choose **Update Beeline** in the menu bar. It pulls the newest commit, rebuilds and relaunches, or says you're up to date.
+
+## Privacy
+
+Beeline runs on your Mac. It goes online only for:
+
+- **Currency rates,** from the European Central Bank through [Frankfurter](https://frankfurter.dev), twice a day. Nothing about you is sent.
+- **Ask Claude,** when you choose it. Your request goes to Claude, and for a plan, so do the names of your open windows and tabs.
+- **Search the web,** when you choose it, in your browser.
+
+Clipboard history stays in memory and ends when Beeline quits. Anything a password manager marks as private is never kept. What you pick is remembered in `~/Library/Application Support/Beeline`, and Settings can clear it.
+
+## Permissions
+
+macOS asks the first time a feature needs one.
+
+| Permission | For |
+| --- | --- |
+| Accessibility | Windows, menu commands, buttons, pasting |
+| Automation | Browser tabs, dark mode, emptying the Trash |
+| Reminders | Reminders and goals |
+| Microphone and Speech Recognition | Holding ⌘Space to talk |
+
+## Keys
+
+| Key | Does |
+| --- | --- |
+| ⌘Space | Open or close |
+| Hold ⌘Space | Talk |
+| ↑ ↓ | Move |
+| ↩ | Open, run or copy |
+| esc | Back, then close |
+
+Anything that can't be undone, like emptying the Trash, asks for a second ↩.
+
+## Development
+
+Everything is in `Sources/Beeline`. These check behaviour without opening the bar:
 
 ```sh
-build/Beeline.app/Contents/MacOS/Beeline --query "night shift"
-build/Beeline.app/Contents/MacOS/Beeline --ai "make my mac quieter"
-build/Beeline.app/Contents/MacOS/Beeline --plan "mute and open sound settings"   # prints Claude's plan, runs nothing
-build/Beeline.app/Contents/MacOS/Beeline --controls Safari   # lists the controls offered in Safari's front window, presses nothing
-build/Beeline.app/Contents/MacOS/Beeline --preview "notes" bar.png [dark]   # renders the bar with real results to an image
+build/Beeline.app/Contents/MacOS/Beeline --query "night shift"       # ranked results
+build/Beeline.app/Contents/MacOS/Beeline --ai "make my mac quieter"  # the on-device model's pick
+build/Beeline.app/Contents/MacOS/Beeline --plan "mute and dark mode"  # Claude's plan, runs nothing
+build/Beeline.app/Contents/MacOS/Beeline --preview "wifi" bar.png    # render the bar to an image
 ```
 
-## Layout
-
-| File | Role |
-| --- | --- |
-| `Catalogue.swift` | Everything Beeline can act on, and the search across it |
-| `Matcher.swift` | Word matching and scoring |
-| `Chooser.swift` | The on-device model, used to turn a loose request into search words |
-| `Semantic.swift` | Last-resort matching by meaning with the built-in embeddings |
-| `Actions.swift` | Fixed commands such as sleep, mute and dark mode |
-| `Planner.swift` | Asks Claude for a multi-step plan built only from listed steps |
-| `Files.swift`, `Calculator.swift`, `Converter.swift` | File search by name, arithmetic, and unit, currency and time-zone conversion |
-| `Clipboard.swift` | Clipboard history, in memory only |
-| `Usage.swift` | Remembers picks, stored locally in Application Support |
-| `Accessibility.swift`, `Controls.swift`, `Browser.swift` | Reading windows, menu commands and tabs |
-| `BarView.swift`, `BarController.swift` | The bar and its panel |
-| `scripts/make-icon.swift` | Builds the app icon and menu bar glyph from `Resources/AppIcon-source.png` |
-
-The repository's first commit is an unrelated earlier prototype, Voice Control, kept as history.
+The build signs ad hoc, so macOS may ask for permissions again after each rebuild. Set `BEELINE_SIGNING_IDENTITY` to a code-signing certificate's fingerprint to keep them.
 
 ## License
 

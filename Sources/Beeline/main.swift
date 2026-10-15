@@ -37,7 +37,8 @@ if let flag = CommandLine.arguments.firstIndex(of: "--preview"), CommandLine.arg
     app.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
     let model = BarModel()
     model.catalogue.prepareMeaningNow()
-    model.catalogue.loadFilesNow(for: CommandLine.arguments[flag + 1])
+    // File results are left out: previews end up in screenshots, and file names are private.
+    model.catalogue.includeFiles = false
     model.query = CommandLine.arguments[flag + 1]
     // "arm" shows the confirm step for the top result; "plan" shows a sample Claude plan.
     if CommandLine.arguments.contains("arm") { model.runSelected() }
@@ -61,6 +62,11 @@ if let flag = CommandLine.arguments.firstIndex(of: "--preview"), CommandLine.arg
     window.contentView = backdrop
     backdrop.layoutSubtreeIfNeeded()
     RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+    // Focusing the field selects its text; put the cursor at the end, as it is while typing.
+    if let editor = window.firstResponder as? NSTextView {
+        editor.setSelectedRange(NSRange(location: editor.string.utf16.count, length: 0))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+    }
     let rep = backdrop.bitmapImageRepForCachingDisplay(in: backdrop.bounds)!
     backdrop.cacheDisplay(in: backdrop.bounds, to: rep)
     try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: CommandLine.arguments[flag + 2]))
