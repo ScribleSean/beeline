@@ -117,7 +117,13 @@ enum Accessibility {
                 }
             }
         }
-        walk(menuBar, path: [], depth: 0)
+        // The Apple menu is skipped: Beeline's own actions cover sleep, restart and the rest, and its
+        // Recent Items list only repeats apps and files as noise ("Run Stremio").
+        let menus: [AXUIElement] = attribute(menuBar, kAXChildrenAttribute) ?? []
+        for menu in menus.dropFirst() {
+            guard let title: String = attribute(menu, kAXTitleAttribute), !title.isEmpty else { continue }
+            walk(menu, path: [title], depth: 1)
+        }
         return items
     }
 

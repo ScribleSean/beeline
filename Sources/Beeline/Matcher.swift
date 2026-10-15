@@ -86,7 +86,9 @@ enum Matcher {
                 solid += 1
             } else if subtitle.contains(token) {
                 total += 15
-            } else if token.count >= 3, isSubsequence(token, of: title) {
+            // Letters typed out of order or with gaps ("sfri" for Safari) only count against short names.
+            // In a long tab or file title they turn up by chance and bring in unrelated results.
+            } else if token.count >= 3, title.count <= 24, isSubsequence(token, of: title) {
                 total += 8
             } else {
                 missed += 1
