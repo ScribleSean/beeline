@@ -264,6 +264,9 @@ final class Catalogue {
         if let desktops = Desktops.results(for: query) {
             return desktops
         }
+        if let chores = FileTools.results(for: query) {
+            return chores
+        }
         // Arithmetic and conversions answer in a single row; Return copies the answer.
         // The answer card shows the value large, its kind above it, and the working underneath.
         if let answer = Calculator.answer(query) ?? Converter.answer(query) {

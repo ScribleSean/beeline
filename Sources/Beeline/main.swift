@@ -80,6 +80,21 @@ if let flag = CommandLine.arguments.firstIndex(of: "--preview-welcome"), Command
     exit(0)
 }
 
+// `Beeline --files "compress" a.pdf b.pdf` shows the file chores offered for those files. Runs nothing.
+if let flag = CommandLine.arguments.firstIndex(of: "--files"), CommandLine.arguments.count > flag + 2 {
+    FileTools.useSelection(CommandLine.arguments[(flag + 2)...].map { URL(fileURLWithPath: $0) })
+    let rows = FileTools.results(for: CommandLine.arguments[flag + 1]) ?? []
+    for item in rows {
+        print("\(item.needsConfirm ? "!" : " ") \(item.title)  [\(item.subtitle)]")
+    }
+    // With BEELINE_FILES_TEST set, the first chore is run too, and what it made is printed.
+    if ProcessInfo.processInfo.environment["BEELINE_FILES_TEST"] != nil, let first = rows.first {
+        first.run()
+        RunLoop.main.run(until: Date().addingTimeInterval(8))
+    }
+    exit(0)
+}
+
 // `Beeline --pick "tunes" "Music"` records that Music was chosen for "tunes", as pressing Return would.
 if let flag = CommandLine.arguments.firstIndex(of: "--pick"), CommandLine.arguments.count > flag + 2 {
     let catalogue = Catalogue()

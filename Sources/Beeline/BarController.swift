@@ -187,6 +187,12 @@ final class BarController: NSObject, NSWindowDelegate {
         model.catalogue.refreshTabs { [weak self] in self?.model.refreshInBackground() }
         model.catalogue.refreshScreen { [weak self] in self?.model.refreshInBackground() }
         model.catalogue.refreshAppsIfChanged()
+        // File chores act on Finder's selection, so it is read only when the bar opens over Finder.
+        if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder" {
+            FileTools.refreshSelection()
+        } else {
+            FileTools.clearSelection()
+        }
         Rates.shared.refreshIfStale()
         model.needsAccess = !Accessibility.isTrusted
         Chooser.prewarm()
