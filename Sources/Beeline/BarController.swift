@@ -106,6 +106,7 @@ final class BarController: NSObject, NSWindowDelegate {
     private func show() {
         isShown = true
         model.clearPlan()
+        model.newTip()
         model.query = ""
         model.focusTick += 1
         model.catalogue.refreshRunning()

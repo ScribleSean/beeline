@@ -124,23 +124,55 @@ final class BarModel: ObservableObject {
     var onRunPlan: (Plan) -> Void = { _ in }
     private var planning: Task<Void, Never>?
 
-    var isShowingPlan: Bool { plan != nil || isAskingClaude || planProblem != nil }
+    /// Claude's reply to a question, shown in the bar. Return copies it.
+    @Published var claudeAnswer: String?
+
+    var isShowingPlan: Bool { plan != nil || isAskingClaude || planProblem != nil || claudeAnswer != nil }
+
+    /// An example shown under the empty bar, different each time it opens.
+    @Published var tip = BarModel.tips[0]
+    static let tips = [
+        "night shift", "20c in f", "remind me to call Sam at 5", "close every tab about flights", "clip",
+        "100 usd in eur", "time in tokyo", "dark mode", "quit safari", "window left", "how far is the moon",
+        "15% of 240", "beeline settings",
+    ]
+
+    func newTip() {
+        tip = Self.tips.filter { $0 != tip }.randomElement() ?? tip
+    }
 
     /// Adds the "Ask Claude" row under the results once the request is more than a single word.
     private func decorated(_ items: [Item]) -> [Item] {
         let words = query.split(separator: " ").count
         // An answer is complete on its own; Claude has nothing to add to "12 miles in km".
         guard words >= 2, Settings.isOn(Settings.offerClaude), items.first?.kind != .calculation else { return items }
-        let row = Item(id: Self.claudeRowID, kind: .action, verb: "", title: "Ask Claude to work it out",
-                       subtitle: "takes a few seconds", keywords: "",
+        let question = Matcher.isQuestion(query)
+        let row = Item(id: Self.claudeRowID, kind: .action, verb: "", title: question ? "Ask Claude" : "Ask Claude to work it out",
+                       subtitle: question ? "answers here in a few seconds" : "takes a few seconds", keywords: "",
                        icon: NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil), run: {})
-        // A long request that nothing matched outright is most likely a job for Claude, so that row leads.
-        // Either way it only asks; nothing runs before the preview.
-        let leads = words >= 5 && (items.first?.isGuess ?? true)
+        // A question, or a long request that nothing matched outright, is most likely a job for Claude,
+        // so that row leads. Either way it only asks; nothing runs before the preview.
+        let leads = question || (words >= 5 && (items.first?.isGuess ?? true))
         return leads ? [row] + items : items + [row]
     }
 
+    private func askClaudeQuestion() {
+        clearPlan()
+        isAskingClaude = true
+        let asked = query
+        planning = Task { @MainActor [weak self] in
+            let result = await Planner.answer(asked)
+            guard let self, !Task.isCancelled, asked == self.query else { return }
+            self.isAskingClaude = false
+            switch result {
+            case .success(let text): self.claudeAnswer = text
+            case .failure(.message(let message)): self.planProblem = message
+            }
+        }
+    }
+
     private func askClaude() {
+        if Matcher.isQuestion(query) { return askClaudeQuestion() }
         clearPlan()
         isAskingClaude = true
         let asked = query
@@ -172,6 +204,7 @@ final class BarModel: ObservableObject {
         plan = nil
         isAskingClaude = false
         planProblem = nil
+        claudeAnswer = nil
     }
 
     /// The irreversible action waiting for a second Return, if any.
@@ -203,6 +236,12 @@ final class BarModel: ObservableObject {
             onRunPlan(plan)
             return
         }
+        if let claudeAnswer {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(claudeAnswer, forType: .string)
+            onRun(Item(id: "copied", kind: .calculation, verb: "", title: "", subtitle: "", keywords: "", icon: nil, run: {}))
+            return
+        }
         guard !isShowingPlan, results.indices.contains(selected) else { return }
         run(results[selected])
     }
@@ -220,7 +259,7 @@ struct BarView: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(Theme.accent)
-                TextField("What do you want to do?", text: $model.query)
+                TextField("Beeline to…", text: $model.query)
                     .textFieldStyle(.plain)
                     .font(.system(size: 20))
                     .focused($focused)
@@ -240,7 +279,7 @@ struct BarView: View {
                     .contentShape(Rectangle())
                     .onTapGesture { model.run(answer) }
             } else if model.query.isEmpty {
-                Text("Open an app, find a file, or just ask.")
+                (Text("Try ") + Text("“\(model.tip)”").foregroundStyle(.primary))
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
@@ -472,6 +511,30 @@ private struct PlanSection: View {
                 status(icon: AnyView(ProgressView().controlSize(.small)), text: "Asking Claude…", key: "esc to cancel")
             } else if let problem = model.planProblem {
                 status(icon: AnyView(Image(systemName: "exclamationmark.circle")), text: problem, key: "esc to go back")
+            } else if let answer = model.claudeAnswer {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "sparkles").foregroundStyle(Theme.accent)
+                        Text("Claude").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+                    }
+                    Text(answer)
+                        .font(.system(size: 15))
+                        .lineLimit(10)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.yellow, lineWidth: 1.5))
+                HStack {
+                    Text("↩ copy").foregroundStyle(.secondary)
+                    Spacer()
+                    Text("esc back").foregroundStyle(.secondary)
+                }
+                .font(.system(size: 11))
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
             } else if let plan = model.plan {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Ready when you are")

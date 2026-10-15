@@ -206,6 +206,24 @@ final class Catalogue {
                 NSPasteboard.general.setString(answer.value, forType: .string)
             }]
         }
+        if Matcher.isQuestion(query) {
+            return [webSearch(query)] + search(words: query, limit: limit - 1).filter { !$0.isGuess }
+        }
+        return search(words: query, limit: limit)
+    }
+
+    /// Opens the default browser on a web search for the text.
+    private func webSearch(_ query: String) -> Item {
+        var address = URLComponents(string: "https://www.google.com/search")!
+        address.queryItems = [URLQueryItem(name: "q", value: query)]
+        let url = address.url!
+        return Item(id: "web-search", kind: .action, verb: "Search the web for", title: "“\(query)”", subtitle: "Browser",
+                    keywords: "", icon: NSImage(systemSymbolName: "globe", accessibilityDescription: nil)) {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func search(words query: String, limit: Int) -> [Item] {
         let parsed = Matcher.parse(query)
         guard !parsed.tokens.isEmpty else { return [] }
         let wantsClose = !Matcher.quitWords.isDisjoint(with: parsed.tokens)
@@ -309,6 +327,8 @@ final class Catalogue {
 
     /// True when word matching did not settle the request, so the model should be asked.
     func needsChooser(_ query: String, _ results: [Item]) -> Bool {
+        // A question wants an answer, not a guessed app: "how far is the moon" must not become Safari.
+        if Matcher.isQuestion(query) { return false }
         guard Settings.isOn(Settings.useOnDeviceModel) else { return false }
         guard Matcher.parse(query).tokens.contains(where: { $0.count >= 3 }) else { return false }
         return results.first?.isGuess ?? true

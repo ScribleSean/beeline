@@ -26,6 +26,16 @@ enum Matcher {
         "file": .file, "files": .file, "folder": .file, "folders": .file, "document": .file, "documents": .file,
     ]
 
+    /// True for a question rather than a request: "how far is the moon", "who wrote dune", "is it raining?".
+    /// These want an answer, so apps are not guessed for them.
+    static func isQuestion(_ query: String) -> Bool {
+        let words = query.lowercased().split(separator: " ")
+        guard words.count >= 3 || query.hasSuffix("?") else { return false }
+        let openers: Set<Substring> = ["how", "what", "what's", "whats", "why", "who", "who's", "when", "where", "which",
+                                       "is", "are", "can", "does", "do", "did", "will", "should", "define", "explain"]
+        return query.hasSuffix("?") || openers.contains(words[0])
+    }
+
     /// Typing one of these is what makes the "Quit Safari" rows appear.
     static let quitWords: Set<String> = ["quit", "close", "exit", "kill", "stop"]
 
