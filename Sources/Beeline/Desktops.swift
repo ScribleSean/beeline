@@ -1,0 +1,209 @@
+import AppKit
+import ApplicationServices
+
+/// "save desktop as tax work" remembers the open apps, their windows' places, the documents they show and
+/// the browser tabs; "open tax work" brings them back. Names ignore case, and saving under a name that
+/// exists replaces it. Restoring only opens and arranges: it never closes or quits anything.
+enum Desktops {
+    struct Window: Codable {
+        var title: String
+        var frame: CGRect
+        /// The file a document window shows, when the app reports one.
+        var document: String?
+    }
+
+    struct App: Codable {
+        var name: String
+        var path: String
+        var bundleID: String?
+        var windows: [Window]
+        /// For browsers: each window's tab addresses, in order.
+        var tabs: [[String]]?
+    }
+
+    struct Desktop: Codable {
+        var name: String
+        var saved: Date
+        var apps: [App]
+    }
+
+    private static let file = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("Beeline/desktops.json")
+
+    static func load() -> [Desktop] {
+        guard let data = try? Data(contentsOf: file) else { return [] }
+        return (try? JSONDecoder().decode([Desktop].self, from: data)) ?? []
+    }
+
+    private static func store(_ desktops: [Desktop]) {
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? JSONEncoder().encode(desktops).write(to: file, options: .atomic)
+    }
+
+    /// The comparison key for a name: case and spacing do not matter.
+    private static func key(_ name: String) -> String {
+        name.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    private static func cleaned(_ name: String) -> String {
+        name.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    // MARK: Results
+
+    /// Save, open and delete rows for what was typed, or nil when it is not about desktops.
+    static func results(for query: String) -> [Item]? {
+        let text = query.trimmingCharacters(in: .whitespaces)
+        let lowered = text.lowercased()
+        let saved = load()
+
+        if let match = lowered.firstMatch(of: try! Regex(#"^(?:save|store|remember)(?: this| my)? desktop(?: as)?\s+(.+)$"#)),
+           let range = match.output[1].range {
+            let name = cleaned(String(text[range]))
+            let existing = saved.first { key($0.name) == key(name) }
+            let title = existing.map { "Replace saved desktop “\($0.name)”" } ?? "Save this desktop as “\(name)”"
+            return [Item(id: "desktop-save", kind: .action, verb: "", title: title,
+                         subtitle: existing == nil ? "Apps, windows, documents and tabs" : "Saved \(age(existing!.saved))",
+                         keywords: "", icon: NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: nil)) {
+                save(as: existing?.name.isEmpty == false ? name : name)
+            }]
+        }
+
+        if let match = lowered.firstMatch(of: try! Regex(#"^(?:delete|remove|forget) (?:saved )?desktop\s+(.+)$"#)),
+           let range = match.output[1].range {
+            let name = key(String(text[range]))
+            return saved.filter { key($0.name).hasPrefix(name) }.map { desktop in
+                var item = Item(id: "desktop-delete:\(key(desktop.name))", kind: .action, verb: "Delete saved desktop",
+                                title: desktop.name, subtitle: "Saved \(age(desktop.saved))", keywords: "",
+                                icon: NSImage(systemSymbolName: "trash", accessibilityDescription: nil)) {
+                    store(load().filter { key($0.name) != key(desktop.name) })
+                }
+                item.needsConfirm = true
+                return item
+            }
+        }
+
+        if lowered == "desktops" || lowered == "saved desktops" {
+            return saved.sorted { $0.saved > $1.saved }.map(openItem)
+        }
+        return nil
+    }
+
+    /// One "Open desktop" row per saved desktop, searched like any other item ("tax" finds "Tax work").
+    static func items() -> [Item] {
+        load().map(openItem)
+    }
+
+    private static func openItem(_ desktop: Desktop) -> Item {
+        let count = desktop.apps.count
+        return Item(id: "desktop-open:\(key(desktop.name))", kind: .action, verb: "Open desktop", title: desktop.name,
+                    subtitle: "\(count) \(count == 1 ? "app" : "apps") · saved \(age(desktop.saved))",
+                    keywords: "saved desktop restore workspace", icon: NSImage(systemSymbolName: "macwindow.on.rectangle", accessibilityDescription: nil)) {
+            restore(desktop)
+        }
+    }
+
+    private static func age(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    // MARK: Saving
+
+    private static func save(as name: String) {
+        let own = NSRunningApplication.current
+        let running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular && $0 != own && !$0.isHidden }
+        DispatchQueue.global(qos: .userInitiated).async {
+            var apps: [App] = []
+            for app in running {
+                guard let url = app.bundleURL else { continue }
+                let element = Accessibility.applicationElement(app)
+                let windows: [AXUIElement] = Accessibility.attribute(element, kAXWindowsAttribute) ?? []
+                let saved: [Window] = windows.compactMap { window in
+                    let minimized: Bool = Accessibility.attribute(window, kAXMinimizedAttribute) ?? false
+                    guard !minimized, let frame = frame(of: window) else { return nil }
+                    let document: String? = Accessibility.attribute(window, kAXDocumentAttribute)
+                    return Window(title: Accessibility.attribute(window, kAXTitleAttribute) ?? "", frame: frame,
+                                  document: document.flatMap { URL(string: $0)?.path })
+                }
+                let browser = Browser.all.first { $0.bundleID == app.bundleIdentifier }
+                apps.append(App(name: app.localizedName ?? url.lastPathComponent, path: url.path, bundleID: app.bundleIdentifier,
+                                windows: saved, tabs: browser?.tabAddresses()))
+            }
+            DispatchQueue.main.async {
+                var desktops = load().filter { key($0.name) != key(name) }
+                desktops.append(Desktop(name: name, saved: Date(), apps: apps))
+                store(desktops)
+                Log.append("desktops: saved \(apps.count) apps")
+            }
+        }
+    }
+
+    private static func frame(of window: AXUIElement) -> CGRect? {
+        var origin = CGPoint.zero
+        var size = CGSize.zero
+        guard let position: AXValue = Accessibility.attribute(window, kAXPositionAttribute),
+              let extent: AXValue = Accessibility.attribute(window, kAXSizeAttribute),
+              AXValueGetValue(position, .cgPoint, &origin), AXValueGetValue(extent, .cgSize, &size) else { return nil }
+        return CGRect(origin: origin, size: size)
+    }
+
+    // MARK: Restoring
+
+    private static func restore(_ desktop: Desktop) {
+        for saved in desktop.apps {
+            let url = URL(fileURLWithPath: saved.path)
+            guard FileManager.default.fileExists(atPath: saved.path) else { continue }
+            let documents = saved.windows.compactMap(\.document).map { URL(fileURLWithPath: $0) }
+                .filter { FileManager.default.fileExists(atPath: $0.path) }
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = false
+            let opened: (NSRunningApplication?, Error?) -> Void = { app, _ in
+                guard let app else { return }
+                if let tabs = saved.tabs, let browser = Browser.all.first(where: { $0.bundleID == saved.bundleID }) {
+                    browser.openWindows(tabs)
+                }
+                arrange(app, saved.windows)
+            }
+            if documents.isEmpty {
+                NSWorkspace.shared.openApplication(at: url, configuration: configuration, completionHandler: opened)
+            } else {
+                NSWorkspace.shared.open(documents, withApplicationAt: url, configuration: configuration, completionHandler: opened)
+            }
+        }
+    }
+
+    /// Moves each saved window back into place, matching by title, once the app has shown its windows.
+    private static func arrange(_ app: NSRunningApplication, _ saved: [Window]) {
+        guard !saved.isEmpty else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let element = Accessibility.applicationElement(app)
+            // Apps take a moment to bring windows back after launch; try for up to five seconds.
+            for _ in 0..<10 {
+                Thread.sleep(forTimeInterval: 0.5)
+                let windows: [AXUIElement] = Accessibility.attribute(element, kAXWindowsAttribute) ?? []
+                guard !windows.isEmpty else { continue }
+                var unused = windows
+                for target in saved {
+                    let match = unused.firstIndex { window in
+                        let title: String = Accessibility.attribute(window, kAXTitleAttribute) ?? ""
+                        return title.caseInsensitiveCompare(target.title) == .orderedSame
+                    } ?? (unused.isEmpty ? nil : 0)
+                    guard let index = match else { break }
+                    place(unused.remove(at: index), target.frame)
+                }
+                return
+            }
+        }
+    }
+
+    private static func place(_ window: AXUIElement, _ frame: CGRect) {
+        var origin = frame.origin
+        var size = frame.size
+        guard let position = AXValueCreate(.cgPoint, &origin), let extent = AXValueCreate(.cgSize, &size) else { return }
+        AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, position)
+        AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, extent)
+        AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, position)
+    }
+}

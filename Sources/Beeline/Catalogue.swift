@@ -197,6 +197,9 @@ final class Catalogue {
         if let reminder = Reminders.results(for: query) {
             return reminder
         }
+        if let desktops = Desktops.results(for: query) {
+            return desktops
+        }
         // Arithmetic and conversions answer in a single row; Return copies the answer.
         // The answer card shows the value large, its kind above it, and the working underneath.
         if let answer = Calculator.answer(query) ?? Converter.answer(query) {
@@ -232,7 +235,7 @@ final class Catalogue {
         if wantsClose, parsed.hint == .tab {
             return closeTabResults(matching: target, limit: limit)
         }
-        let all = actions + apps + settings + tabs + windows + tiles + menus + controls + (wantsClose ? quitResults(for: target) : [])
+        let all = actions + Desktops.items() + apps + settings + tabs + windows + tiles + menus + controls + (wantsClose ? quitResults(for: target) : [])
             + (filesQuery == query ? files : [])
         let scored: [(Item, Matcher.Score)] = all.compactMap { item in
             // Something picked before for exactly these words goes to the top, and is no longer a guess,

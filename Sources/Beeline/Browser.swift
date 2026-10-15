@@ -59,6 +59,57 @@ struct Browser {
         }
     }
 
+    /// Every window's tab addresses, in order, for saving a desktop.
+    func tabAddresses() -> [[String]] {
+        let script = """
+        set sep to (ASCII character 9)
+        set out to ""
+        tell application "\(name)"
+            repeat with w in windows
+                try
+                    repeat with t in tabs of w
+                        set out to out & (URL of t) & sep
+                    end repeat
+                    set out to out & linefeed
+                end try
+            end repeat
+        end tell
+        return out
+        """
+        guard let output = Self.osascript(script) else { return [] }
+        return output.split(separator: "\n").map { line in
+            line.split(separator: "\t").map(String.init).filter { $0.hasPrefix("http://") || $0.hasPrefix("https://") }
+        }.filter { !$0.isEmpty }
+    }
+
+    /// Opens one new browser window per saved window, with its tabs. Only web addresses are opened.
+    func openWindows(_ windows: [[String]]) {
+        for tabs in windows {
+            let addresses = tabs.filter { $0.hasPrefix("http://") || $0.hasPrefix("https://") }
+                .map { $0.replacingOccurrences(of: "\\", with: "%5C").replacingOccurrences(of: "\"", with: "%22") }
+            guard let first = addresses.first else { continue }
+            let rest = addresses.dropFirst()
+            let script: String
+            if isSafari {
+                script = """
+                tell application "Safari"
+                    make new document with properties {URL:"\(first)"}
+                    \(rest.map { "tell window 1 to make new tab with properties {URL:\"\($0)\"}" }.joined(separator: "\n"))
+                end tell
+                """
+            } else {
+                script = """
+                tell application "\(name)"
+                    make new window
+                    set URL of active tab of window 1 to "\(first)"
+                    \(rest.map { "make new tab at end of tabs of window 1 with properties {URL:\"\($0)\"}" }.joined(separator: "\n"))
+                end tell
+                """
+            }
+            Self.commandQueue.async { _ = Self.osascript(script) }
+        }
+    }
+
     private func activate(window: Int, index: Int) {
         let select = isSafari
             ? "tell window id \(window) to set current tab to tab \(index)"
