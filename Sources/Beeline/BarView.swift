@@ -299,6 +299,8 @@ struct BarView: View {
                         }
                         ResultRow(item: item, isSelected: index == model.selected, isArmed: false)
                             .contentShape(Rectangle())
+                            // The row under the pointer becomes the selected one, so a click and Return agree.
+                            .onHover { inside in if inside { model.selected = index } }
                             .onTapGesture { model.run(item) }
                     }
                 }

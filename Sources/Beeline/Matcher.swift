@@ -98,7 +98,9 @@ enum Matcher {
                 total += 15
             // Letters typed out of order or with gaps ("sfri" for Safari) only count against short names.
             // In a long tab or file title they turn up by chance and bring in unrelated results.
-            } else if token.count >= 3, title.count <= 24, isSubsequence(token, of: title) {
+            // Only apps, settings and actions: "notes" must not find a button called "More navigation items".
+            } else if token.count >= 3, title.count <= 24, [Kind.app, .setting, .action].contains(item.kind),
+                      isSubsequence(token, of: title) {
                 total += 8
             } else {
                 missed += 1

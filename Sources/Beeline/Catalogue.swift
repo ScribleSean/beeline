@@ -259,8 +259,16 @@ final class Catalogue {
             guard entry.1.isComplete else { return 0 }
             return entry.0.kind == .file && !filesLead ? 1 : 2
         }
+        // At most two buttons from the front window: they are often file names and labels that crowd out
+        // what was meant ("bee" finding three attachments in a chat).
+        var controlsShown = 0
         var results: [Item] = scored
             .sorted { (tier($0), $0.1.value) > (tier($1), $1.1.value) }
+            .filter { entry in
+                guard entry.0.kind == .control else { return true }
+                controlsShown += 1
+                return controlsShown <= 2
+            }
             .prefix(limit)
             .map { item, score in
                 var item = item
