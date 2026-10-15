@@ -11,21 +11,35 @@ enum Settings {
     static let clipboardHistory = "clipboardHistory"
     /// Which modifier opens the bar with Space: "command", "option" or "control".
     static let shortcut = "shortcut"
+    /// "system", "light" or "dark".
+    static let appearance = "appearance"
+    /// Set once the welcome screen has been shown.
+    static let welcomed = "welcomed"
 
     static let forgetHistory = Notification.Name("BeelineForgetHistory")
     static let clearClipboard = Notification.Name("BeelineClearClipboard")
     static let shortcutChanged = Notification.Name("BeelineShortcutChanged")
     static let open = Notification.Name("BeelineOpenSettings")
+    static let openWelcome = Notification.Name("BeelineOpenWelcome")
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
             showDetails: false, useOnDeviceModel: true, offerClaude: true, learnFromUse: true,
-            clipboardHistory: true, shortcut: "command",
+            clipboardHistory: true, shortcut: "command", appearance: "system", welcomed: false,
         ])
     }
 
     static func isOn(_ key: String) -> Bool {
         UserDefaults.standard.bool(forKey: key)
+    }
+
+    /// Applies the chosen appearance to every Beeline window, the bar included.
+    static func applyAppearance() {
+        switch UserDefaults.standard.string(forKey: appearance) {
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        default: NSApp.appearance = nil
+        }
     }
 
     static var shortcutLabel: String {
@@ -95,6 +109,7 @@ private struct SettingsView: View {
     @ObservedObject var state: SettingsState
     @ObservedObject var login: LoginItem
     @AppStorage(Settings.shortcut) private var shortcut = "command"
+    @AppStorage(Settings.appearance) private var appearance = "system"
     @AppStorage(Settings.showDetails) private var showDetails = false
     @AppStorage(Settings.useOnDeviceModel) private var useOnDeviceModel = true
     @AppStorage(Settings.offerClaude) private var offerClaude = true
@@ -115,6 +130,15 @@ private struct SettingsView: View {
                     label("Shortcut", "For ⌘ Space, Spotlight's shortcut must be off in Keyboard settings.")
                 }
                 .onChange(of: shortcut) { NotificationCenter.default.post(name: Settings.shortcutChanged, object: nil) }
+                Picker(selection: $appearance) {
+                    Text("System").tag("system")
+                    Text("Light").tag("light")
+                    Text("Dark").tag("dark")
+                } label: {
+                    label("Appearance", "Light, dark, or follow your Mac.")
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: appearance) { Settings.applyAppearance() }
             }
 
             Section("Search") {

@@ -57,6 +57,10 @@ final class Catalogue {
              keywords: "preferences options configure details", icon: NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)) {
             NotificationCenter.default.post(name: Settings.open, object: nil)
         },
+        Item(id: "action:Beeline Welcome", kind: .action, verb: "", title: "Beeline Welcome", subtitle: "Action",
+             keywords: "intro start tour setup help", icon: NSImage(systemSymbolName: "hand.wave", accessibilityDescription: nil)) {
+            NotificationCenter.default.post(name: Settings.openWelcome, object: nil)
+        },
     ]
     private var quits: [Item] = []
     private var runningAppPaths: Set<String> = []
@@ -190,13 +194,16 @@ final class Catalogue {
         if let clips = clipboard.results(for: query, limit: limit) {
             return clips
         }
+        if let reminder = Reminders.results(for: query) {
+            return reminder
+        }
         // Arithmetic and conversions answer in a single row; Return copies the answer.
-        if let answer = Calculator.evaluate(query).map(Calculator.format) ?? Converter.answer(query) {
-            return [Item(id: "calculation", kind: .calculation, verb: "", title: "= " + answer, subtitle: "Return copies it",
-                         keywords: "", icon: NSImage(systemSymbolName: "equal.circle", accessibilityDescription: nil)) {
-                // Copy the number and unit without the leading "= ", or the bare time.
+        // The answer card shows the value large, its kind above it, and the working underneath.
+        if let answer = Calculator.answer(query) ?? Converter.answer(query) {
+            return [Item(id: "calculation", kind: .calculation, verb: "Copy", title: answer.value, subtitle: answer.label,
+                         keywords: answer.detail, icon: NSImage(systemSymbolName: "equal.circle", accessibilityDescription: nil)) {
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(answer, forType: .string)
+                NSPasteboard.general.setString(answer.value, forType: .string)
             }]
         }
         let parsed = Matcher.parse(query)

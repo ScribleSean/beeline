@@ -1,9 +1,16 @@
 import Foundation
 
+/// An answer shown large in the bar: what kind it is, the value itself, and a line of working underneath.
+struct Answer {
+    let label: String
+    let value: String
+    let detail: String
+}
+
 /// Answers conversions typed into the bar: units ("10 km in mi"), time zones ("3pm london in new york",
-/// "time in tokyo") and currencies ("100 usd in eur"). Each answer is one line of text.
+/// "time in tokyo") and currencies ("100 usd in eur").
 enum Converter {
-    static func answer(_ query: String) -> String? {
+    static func answer(_ query: String) -> Answer? {
         let text = normalised(query)
         return currency(text) ?? units(text) ?? time(text)
     }
@@ -96,13 +103,21 @@ enum Converter {
         return table
     }()
 
-    private static func units(_ text: String) -> String? {
+    private static func units(_ text: String) -> Answer? {
         guard let (value, fromName, toName) = split(text),
-              let (from, _) = unitNames[fromName], let (to, label) = unitNames[toName],
+              let (from, fromLabel) = unitNames[fromName], let (to, label) = unitNames[toName],
               // Converting between different kinds (length to mass) would crash, so it is refused.
               type(of: from) == type(of: to) else { return nil }
         let result = Measurement(value: value, unit: from).converted(to: to).value
-        return "\(format(result)) \(label)"
+        // Checked with `is`, because Foundation hands back private subclasses of these unit types.
+        let kind = from is UnitLength ? "Length" : from is UnitMass ? "Weight" : from is UnitTemperature ? "Temperature"
+            : from is UnitVolume ? "Volume" : from is UnitSpeed ? "Speed" : from is UnitInformationStorage ? "Data"
+            : from is UnitDuration ? "Time" : from is UnitArea ? "Area" : "Conversion"
+        let precise = NumberFormatter()
+        precise.numberStyle = .decimal
+        precise.maximumFractionDigits = 8
+        return Answer(label: kind, value: "\(format(result)) \(label)",
+                      detail: "\(format(value)) \(fromLabel) = \(precise.string(from: NSNumber(value: result)) ?? "") \(label)")
     }
 
     // MARK: Currency
@@ -121,12 +136,18 @@ enum Converter {
         return currencyNames[name]
     }
 
-    private static func currency(_ text: String) -> String? {
+    private static func currency(_ text: String) -> Answer? {
         guard let rates = Rates.shared.current, let (value, fromName, toName) = split(text),
               let from = currencyCode(fromName, in: rates), let to = currencyCode(toName, in: rates),
               let fromRate = rates[from], let toRate = rates[to] else { return nil }
         // Rates are per euro, so convert through the euro.
-        return "\(format(value / fromRate * toRate, money: true)) \(to)"
+        let rate = toRate / fromRate
+        let precise = NumberFormatter()
+        precise.numberStyle = .decimal
+        precise.maximumFractionDigits = 4
+        let day = Rates.shared.day.map { " from \($0)" } ?? ""
+        return Answer(label: "Currency", value: "\(format(value * rate, money: true)) \(to)",
+                      detail: "1 \(from) = \(precise.string(from: NSNumber(value: rate)) ?? "") \(to) · European Central Bank rate\(day)")
     }
 
     // MARK: Time zones
@@ -171,7 +192,7 @@ enum Converter {
         return (hour, minute)
     }
 
-    private static func time(_ text: String) -> String? {
+    private static func time(_ text: String) -> Answer? {
         let display = DateFormatter()
         display.dateFormat = "h:mm a, EEE"
 
@@ -180,7 +201,8 @@ enum Converter {
             if let match = text.firstMatch(of: try! Regex(pattern)), let place = match.output[1].substring,
                let target = zone(String(place)) {
                 display.timeZone = target
-                return "\(display.string(from: Date())) in \(name(of: target))"
+                return Answer(label: "Time in \(name(of: target))", value: display.string(from: Date()),
+                              detail: "Now, \(target.abbreviation() ?? target.identifier)")
             }
         }
 
@@ -207,8 +229,12 @@ enum Converter {
         parts.hour = hour
         parts.minute = minute
         guard let moment = calendar.date(from: parts) else { return nil }
+        let original = DateFormatter()
+        original.dateFormat = "h:mm a"
+        original.timeZone = source
         display.timeZone = target
-        return "\(display.string(from: moment)) in \(name(of: target))"
+        return Answer(label: "Time in \(name(of: target))", value: display.string(from: moment),
+                      detail: "\(original.string(from: moment)) in \(name(of: source))")
     }
 
     private static func name(of zone: TimeZone) -> String {
@@ -224,6 +250,8 @@ final class Rates {
     private struct Saved: Codable {
         var fetched: Date
         var rates: [String: Double]
+        /// The day the bank published these rates, as the service reports it.
+        var day: String?
     }
 
     private var saved: Saved?
@@ -233,6 +261,7 @@ final class Rates {
 
     /// Rates per euro, or nil until the first fetch has finished.
     var current: [String: Double]? { saved?.rates }
+    var day: String? { saved?.day }
 
     private init() {
         if let data = try? Data(contentsOf: file) { saved = try? JSONDecoder().decode(Saved.self, from: data) }
@@ -252,7 +281,7 @@ final class Rates {
                 return
             }
             rates["EUR"] = 1
-            let fresh = Saved(fetched: Date(), rates: rates)
+            let fresh = Saved(fetched: Date(), rates: rates, day: object["date"] as? String)
             try? FileManager.default.createDirectory(at: self.file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? JSONEncoder().encode(fresh).write(to: self.file, options: .atomic)
             DispatchQueue.main.async {

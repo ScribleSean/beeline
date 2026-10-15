@@ -22,6 +22,10 @@
     <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
+    <key>NSRemindersFullAccessUsageDescription</key>
+    <string>Beeline adds the reminders and goals you type to Reminders.</string>
+    <key>NSRemindersUsageDescription</key>
+    <string>Beeline adds the reminders and goals you type to Reminders.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>Beeline lists your open browser tabs so you can jump to one by typing.</string>
 </dict>

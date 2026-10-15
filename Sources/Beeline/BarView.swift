@@ -129,7 +129,8 @@ final class BarModel: ObservableObject {
     /// Adds the "Ask Claude" row under the results once the request is more than a single word.
     private func decorated(_ items: [Item]) -> [Item] {
         let words = query.split(separator: " ").count
-        guard words >= 2, Settings.isOn(Settings.offerClaude) else { return items }
+        // An answer is complete on its own; Claude has nothing to add to "12 miles in km".
+        guard words >= 2, Settings.isOn(Settings.offerClaude), items.first?.kind != .calculation else { return items }
         let row = Item(id: Self.claudeRowID, kind: .action, verb: "", title: "Ask Claude to work it out",
                        subtitle: "takes a few seconds", keywords: "",
                        icon: NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil), run: {})
@@ -230,7 +231,21 @@ struct BarView: View {
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.capsuleEdge, lineWidth: 1))
 
             if model.isShowingPlan {
-                PlanSection(model: model).padding(.top, 6)
+                PlanSection(model: model).padding(.top, 8)
+            } else if let armed = model.results.first(where: { $0.id == model.armedID }) {
+                ConfirmCard(item: armed, confirm: { model.run(armed) }, cancel: { model.armedID = nil })
+                    .padding(.top, 8)
+            } else if model.results.count == 1, let answer = model.results.first, answer.kind == .calculation {
+                AnswerCard(item: answer).padding(.top, 8)
+                    .contentShape(Rectangle())
+                    .onTapGesture { model.run(answer) }
+            } else if model.query.isEmpty {
+                Text("Open an app, find a file, or just ask.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 12)
+                    .padding(.bottom, 2)
             } else if !model.results.isEmpty {
                 VStack(spacing: 2) {
                     ForEach(Array(model.results.enumerated()), id: \.element.id) { index, item in
@@ -243,7 +258,7 @@ struct BarView: View {
                                 .padding(.top, index == 0 ? 4 : 8)
                                 .padding(.bottom, 2)
                         }
-                        ResultRow(item: item, isSelected: index == model.selected, isArmed: model.armedID == item.id)
+                        ResultRow(item: item, isSelected: index == model.selected, isArmed: false)
                             .contentShape(Rectangle())
                             .onTapGesture { model.run(item) }
                     }
@@ -257,8 +272,20 @@ struct BarView: View {
                             modelMilliseconds: model.modelMilliseconds)
             }
 
-            if model.isThinking {
-                hint(icon: AnyView(ProgressView().controlSize(.small)), text: "Thinking…")
+            if model.isThinking, !model.isShowingPlan {
+                HStack(spacing: 8) {
+                    HStack(spacing: 3) {
+                        ForEach(0..<3, id: \.self) { step in
+                            Circle().fill(Theme.yellow.opacity(1 - Double(step) * 0.25)).frame(width: 5, height: 5)
+                        }
+                    }
+                    Text("Thinking…").foregroundStyle(.primary)
+                    Text("on your Mac").foregroundStyle(.secondary)
+                }
+                .font(.system(size: 12))
+                .frame(maxWidth: .infinity)
+                .frame(height: 30)
+                .padding(.top, 4)
             }
 
             if model.needsAccess {
@@ -268,10 +295,16 @@ struct BarView: View {
                     .onTapGesture { model.onRequestAccess() }
             }
 
-            if !model.results.isEmpty, !model.isShowingPlan {
+            if !model.isShowingPlan, model.armedID == nil {
                 HStack(spacing: 16) {
-                    Text("↑↓ move")
-                    Text("↩ open")
+                    if model.results.count == 1, model.results.first?.kind == .calculation {
+                        Text("↩ copy")
+                    } else if !model.results.isEmpty {
+                        Text("↑↓ move")
+                        Text("↩ open")
+                    } else {
+                        Text("\(Settings.shortcutLabel) opens Beeline anywhere")
+                    }
                     Spacer()
                     Text("esc close")
                 }
@@ -429,54 +462,80 @@ private struct ResultRow: View {
     }
 }
 
-/// Claude's proposed steps, shown for approval. Return runs them all; Escape goes back.
+/// Claude's proposed steps, shown for approval. Return or Run runs them all; Escape goes back.
 private struct PlanSection: View {
     @ObservedObject var model: BarModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if model.isAskingClaude {
-                footer(leading: { ProgressView().controlSize(.small) }, text: "Asking Claude…", key: "esc to cancel")
+                status(icon: AnyView(ProgressView().controlSize(.small)), text: "Asking Claude…", key: "esc to cancel")
             } else if let problem = model.planProblem {
-                footer(leading: { Image(systemName: "exclamationmark.circle") }, text: problem, key: "esc to go back")
+                status(icon: AnyView(Image(systemName: "exclamationmark.circle")), text: problem, key: "esc to go back")
             } else if let plan = model.plan {
-                if !plan.note.isEmpty {
-                    Text(plan.note)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 6)
-                        .padding(.bottom, 6)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Ready when you are")
+                        .font(.system(size: 15, weight: .semibold))
+                    if !plan.note.isEmpty {
+                        Text(plan.note).font(.system(size: 12)).foregroundStyle(.secondary)
+                    }
                 }
-                VStack(spacing: 2) {
+                .padding(.horizontal, 12)
+                .padding(.bottom, 10)
+
+                VStack(spacing: 6) {
                     ForEach(Array(plan.steps.enumerated()), id: \.element.id) { index, step in
                         HStack(spacing: 12) {
                             Text("\(index + 1)")
                                 .font(.system(size: 11, weight: .semibold))
-                                .frame(width: 20, height: 20)
+                                .frame(width: 22, height: 22)
                                 .foregroundStyle(Theme.ink)
                                 .background(Theme.yellow, in: Circle())
                             if let icon = step.icon {
-                                Image(nsImage: icon).resizable().frame(width: 20, height: 20)
+                                Image(nsImage: icon).resizable().frame(width: 22, height: 22)
                             }
-                            Text(step.text).lineLimit(1).truncationMode(.middle)
+                            Text(step.text).font(.system(size: 14)).lineLimit(1).truncationMode(.middle)
                             Spacer(minLength: 0)
                         }
-                        .font(.system(size: 14))
-                        .padding(.horizontal, 10)
-                        .frame(height: 36)
-                        .background(Theme.raised.opacity(0.6), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                        .padding(.horizontal, 12)
+                        .frame(height: 42)
+                        .background(Theme.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(index == 0 ? Theme.yellow : Theme.capsuleEdge, lineWidth: index == 0 ? 1.5 : 1))
                     }
                 }
-                footer(leading: { Image(systemName: "sparkles") },
-                       text: "Claude's plan. Nothing has run yet.", key: "↩ run · esc back")
+
+                HStack(spacing: 10) {
+                    Image(systemName: "sparkles").foregroundStyle(Theme.accent)
+                    Text("\(plan.steps.count) \(plan.steps.count == 1 ? "step" : "steps") · nothing has run yet")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button { model.clearPlan() } label: {
+                        Text("Cancel")
+                            .padding(.horizontal, 14).frame(height: 28)
+                            .background(Theme.capsule, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.capsuleEdge, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    Button { model.runSelected() } label: {
+                        HStack(spacing: 6) { Text("Run"); Text("↩").opacity(0.7) }
+                            .fontWeight(.semibold)
+                            .foregroundStyle(Theme.ink)
+                            .padding(.horizontal, 14).frame(height: 28)
+                            .background(Theme.yellow, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .font(.system(size: 12))
+                .padding(.horizontal, 4)
+                .padding(.top, 10)
             }
         }
     }
 
-    private func footer<Leading: View>(@ViewBuilder leading: () -> Leading, text: String, key: String) -> some View {
+    private func status(icon: AnyView, text: String, key: String) -> some View {
         HStack(spacing: 8) {
-            leading()
+            icon
             Text(text).lineLimit(2)
             Spacer(minLength: 8)
             Text(key).foregroundStyle(.secondary)
@@ -484,7 +543,103 @@ private struct PlanSection: View {
         .font(.system(size: 12))
         .foregroundStyle(Theme.accent)
         .padding(.horizontal, 12)
-        .frame(minHeight: 34)
+        .frame(minHeight: 36)
+    }
+}
+
+/// A calculation or conversion: its kind, the value large, and the working underneath.
+private struct AnswerCard: View {
+    let item: Item
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.subtitle)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Text(item.title)
+                    .font(.system(size: 34, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                Text(item.keywords)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Image(systemName: "doc.on.doc")
+                .font(.system(size: 14))
+                .foregroundStyle(Theme.accent)
+                .frame(width: 32, height: 32)
+                .background(Theme.honeyTile, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(Theme.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.yellow, lineWidth: 1.5))
+    }
+}
+
+/// The second step for anything that cannot be undone, with Cancel and the action side by side.
+private struct ConfirmCard: View {
+    let item: Item
+    let confirm: () -> Void
+    let cancel: () -> Void
+
+    /// For Empty Trash, how much is in it. Nil when the Trash cannot be read.
+    private var trashSummary: String? {
+        guard item.id == "action:Empty Trash",
+              let names = try? FileManager.default.contentsOfDirectory(atPath: NSHomeDirectory() + "/.Trash") else { return nil }
+        let count = names.filter { !$0.hasPrefix(".") }.count
+        return count == 1 ? "1 item will be deleted permanently." : "\(count) items will be deleted permanently."
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 14) {
+                Group {
+                    if let icon = item.icon, !icon.isTemplate {
+                        Image(nsImage: icon).resizable()
+                    } else {
+                        Image(systemName: "exclamationmark.triangle").font(.system(size: 22)).foregroundStyle(.red)
+                    }
+                }
+                .frame(width: 40, height: 40)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("\((item.verb.isEmpty ? "" : item.verb + " ") + item.title)?")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text(trashSummary ?? "This can't be undone.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 10) {
+                Spacer()
+                Button(action: cancel) {
+                    HStack(spacing: 6) { Text("Cancel"); Text("esc").foregroundStyle(.secondary) }
+                        .font(.system(size: 13))
+                        .padding(.horizontal, 14)
+                        .frame(height: 30)
+                        .background(Theme.capsule, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.capsuleEdge, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                Button(action: confirm) {
+                    HStack(spacing: 6) { Text(item.verb.isEmpty ? item.title : item.verb); Text("↩").opacity(0.8) }
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .frame(height: 30)
+                        .background(Color.red, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(16)
+        .background(Theme.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.red.opacity(0.5), lineWidth: 1.5))
     }
 }
 

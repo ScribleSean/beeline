@@ -8,9 +8,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var updateItem: NSMenuItem!
     private var openItem: NSMenuItem!
     private let settingsWindow = SettingsWindowController()
+    private let welcomeWindow = WelcomeWindowController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Settings.registerDefaults()
+        Settings.applyAppearance()
+        NotificationCenter.default.addObserver(forName: Settings.openWelcome, object: nil, queue: .main) { [weak self] _ in
+            self?.welcomeWindow.show()
+        }
         NotificationCenter.default.addObserver(forName: Settings.open, object: nil, queue: .main) { [weak self] _ in
             self?.settingsWindow.show()
         }
@@ -34,6 +39,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.registerShortcut()
         }
         Rates.shared.refreshIfStale()
+        // The first launch, or any launch without Accessibility, opens the welcome screen.
+        if !UserDefaults.standard.bool(forKey: Settings.welcomed) || !Accessibility.isTrusted {
+            welcomeWindow.show()
+        }
     }
 
     /// Registers the shortcut chosen in Settings. If another app holds it (Spotlight still on ⌘Space),

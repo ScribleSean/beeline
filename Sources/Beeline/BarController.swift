@@ -49,7 +49,13 @@ final class BarController: NSObject, NSWindowDelegate {
             switch Int(event.keyCode) {
             case kVK_Escape:
                 // The first Escape backs out of a plan; the second closes the bar.
-                if self.model.isShowingPlan { self.model.clearPlan() } else { self.hide() }
+                if self.model.isShowingPlan {
+                    self.model.clearPlan()
+                } else if self.model.armedID != nil {
+                    self.model.armedID = nil
+                } else {
+                    self.hide()
+                }
             case kVK_DownArrow: self.model.move(1)
             case kVK_UpArrow: self.model.move(-1)
             case kVK_Return, kVK_ANSI_KeypadEnter: self.model.runSelected()

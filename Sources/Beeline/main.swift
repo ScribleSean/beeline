@@ -39,7 +39,17 @@ if let flag = CommandLine.arguments.firstIndex(of: "--preview"), CommandLine.arg
     model.catalogue.prepareMeaningNow()
     model.catalogue.loadFilesNow(for: CommandLine.arguments[flag + 1])
     model.query = CommandLine.arguments[flag + 1]
-    let size = NSSize(width: 720, height: 520)
+    // "arm" shows the confirm step for the top result; "plan" shows a sample Claude plan.
+    if CommandLine.arguments.contains("arm") { model.runSelected() }
+    if CommandLine.arguments.contains("plan") {
+        let icon = { (name: String) in NSWorkspace.shared.icon(forFile: "/System/Applications/\(name).app") }
+        model.plan = Plan(steps: [
+            PlanStep(text: "Open the app Notes and put it on the left half of the screen", icon: icon("Notes"), run: {}),
+            PlanStep(text: "Turn Wi-Fi Off", icon: NSImage(systemSymbolName: "wifi.slash", accessibilityDescription: nil), run: {}),
+            PlanStep(text: "Keep Mac Awake for 1 Hour", icon: NSImage(systemSymbolName: "cup.and.saucer", accessibilityDescription: nil), run: {}),
+        ], note: "Notes on the left, Wi-Fi off, and the Mac kept awake for an hour.")
+    }
+    let size = NSSize(width: 720, height: 460)
     let backdrop = NSView(frame: NSRect(origin: .zero, size: size))
     backdrop.wantsLayer = true
     backdrop.layer?.backgroundColor = (dark ? NSColor(white: 0.18, alpha: 1) : NSColor(red: 0.86, green: 0.85, blue: 0.82, alpha: 1)).cgColor
@@ -54,6 +64,13 @@ if let flag = CommandLine.arguments.firstIndex(of: "--preview"), CommandLine.arg
     let rep = backdrop.bitmapImageRepForCachingDisplay(in: backdrop.bounds)!
     backdrop.cacheDisplay(in: backdrop.bounds, to: rep)
     try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: CommandLine.arguments[flag + 2]))
+    exit(0)
+}
+
+// `Beeline --preview-welcome out.png` renders the welcome screen.
+if let flag = CommandLine.arguments.firstIndex(of: "--preview-welcome"), CommandLine.arguments.count > flag + 1 {
+    NSApplication.shared.setActivationPolicy(.prohibited)
+    WelcomeWindowController.renderPreview(to: CommandLine.arguments[flag + 1])
     exit(0)
 }
 

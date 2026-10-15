@@ -8,6 +8,9 @@ final class Clipboard {
     struct Entry {
         let text: String
         let copied: Date
+        /// The app in front when it was copied, which is almost always where it came from.
+        let app: String?
+        let icon: NSImage?
     }
 
     private(set) var entries: [Entry] = []
@@ -39,27 +42,33 @@ final class Clipboard {
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         // Copying something already in the list moves it to the top instead of repeating it.
         entries.removeAll { $0.text == text }
-        entries.insert(Entry(text: text, copied: Date()), at: 0)
+        let source = NSWorkspace.shared.frontmostApplication
+        entries.insert(Entry(text: text, copied: Date(), app: source?.localizedName, icon: source?.icon), at: 0)
         if entries.count > 100 { entries.removeLast(entries.count - 100) }
     }
 
-    /// "clip" lists recent entries; "clip invoice" narrows them to ones containing "invoice".
+    /// "clip" lists recent entries; "clip invoice" narrows them to ones containing "invoice"; "clip links" to web links.
     func results(for query: String, limit: Int) -> [Item]? {
         let words = query.lowercased().split(separator: " ").map(String.init)
         guard let first = words.first, ["clip", "clipboard", "clips", "copied", "paste"].contains(first) else { return nil }
-        let filter = words.dropFirst().joined(separator: " ")
+        var filter = words.dropFirst().joined(separator: " ")
+        let linksOnly = filter == "links" || filter == "link"
+        if linksOnly { filter = "" }
         let relative = RelativeDateTimeFormatter()
         relative.unitsStyle = .short
         return entries
             .filter { filter.isEmpty || $0.text.lowercased().contains(filter) }
+            .filter { !linksOnly || $0.text.hasPrefix("http://") || $0.text.hasPrefix("https://") }
             .prefix(limit)
             .enumerated()
             .map { index, entry in
                 let line = entry.text.split(whereSeparator: \.isNewline).first.map(String.init) ?? entry.text
                 let shown = line.split(whereSeparator: \.isWhitespace).joined(separator: " ")
                 return Item(id: "clip:\(index):\(entry.copied.timeIntervalSince1970)", kind: .clipboard, verb: "Paste",
-                            title: String(shown.prefix(90)), subtitle: relative.localizedString(for: entry.copied, relativeTo: Date()),
-                            keywords: "", icon: NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: nil)) {
+                            title: String(shown.prefix(90)),
+                            subtitle: [entry.app, relative.localizedString(for: entry.copied, relativeTo: Date())]
+                                .compactMap { $0 }.joined(separator: " · "),
+                            keywords: "", icon: entry.icon ?? NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: nil)) {
                     Self.paste(entry.text)
                 }
             }

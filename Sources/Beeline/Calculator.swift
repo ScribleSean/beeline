@@ -20,6 +20,14 @@ enum Calculator {
         return value
     }
 
+    /// The result as an answer for the bar, with the sum written out underneath.
+    static func answer(_ text: String) -> Answer? {
+        guard let value = evaluate(text) else { return nil }
+        let sum = text.replacingOccurrences(of: "*", with: " × ").replacingOccurrences(of: "/", with: " ÷ ")
+            .split(separator: " ").joined(separator: " ")
+        return Answer(label: "Calculation", value: format(value), detail: "\(sum) =")
+    }
+
     static func format(_ value: Double) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
