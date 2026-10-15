@@ -45,6 +45,7 @@ build/Beeline.app/Contents/MacOS/Beeline --query "night shift"
 build/Beeline.app/Contents/MacOS/Beeline --ai "make my mac quieter"
 build/Beeline.app/Contents/MacOS/Beeline --plan "mute and open sound settings"   # prints Claude's plan, runs nothing
 build/Beeline.app/Contents/MacOS/Beeline --controls Safari   # lists the controls offered in Safari's front window, presses nothing
+build/Beeline.app/Contents/MacOS/Beeline --preview "notes" bar.png [dark]   # renders the bar with real results to an image
 ```
 
 ## Layout

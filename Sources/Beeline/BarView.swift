@@ -1,20 +1,33 @@
 import SwiftUI
 
-/// Bee yellow and stripe black, the colours of the app icon.
+/// Honey glass: frosted glass with a faint honey warmth, a white search capsule, and a calm list where
+/// the chosen row is raised and outlined in bee yellow. Every colour adapts to light and dark mode.
 enum Theme {
-    /// The brand yellow, #FFC21A. Fills the selected row in light and dark mode alike.
+    /// The brand yellow, #FFC21A, used for the selection outline and small marks.
     static let yellow = Color(red: 1.0, green: 0.761, blue: 0.102)
-    /// A deeper yellow for chips sitting on the yellow row.
-    static let deepYellow = Color(red: 0.878, green: 0.659, blue: 0.0)
-    /// Near-black, #1A1407, for text on yellow.
+    /// Near-black, #1A1407.
     static let ink = Color(red: 0.102, green: 0.078, blue: 0.027)
-    /// Icons and hints on the bar's own background: yellow in dark mode, and a darker gold in light mode,
-    /// where plain yellow is too faint to read.
-    static let accent = Color(nsColor: NSColor(name: nil) { appearance in
-        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor(red: 1.0, green: 0.761, blue: 0.102, alpha: 1)
-            : NSColor(red: 0.66, green: 0.48, blue: 0.0, alpha: 1)
-    })
+
+    private static func adaptive(light: NSColor, dark: NSColor) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+        })
+    }
+
+    /// Icons and hints: a readable gold in light mode, bee yellow in dark mode.
+    static let accent = adaptive(light: NSColor(red: 0.69, green: 0.52, blue: 0.0, alpha: 1),
+                                 dark: NSColor(red: 1.0, green: 0.761, blue: 0.102, alpha: 1))
+    /// Laid over the glass to warm it slightly.
+    static let warmth = adaptive(light: NSColor(red: 0.984, green: 0.953, blue: 0.863, alpha: 0.55),
+                                 dark: NSColor(red: 0.16, green: 0.13, blue: 0.06, alpha: 0.35))
+    static let capsule = adaptive(light: .white, dark: NSColor(white: 1, alpha: 0.08))
+    static let capsuleEdge = adaptive(light: NSColor(red: 0.925, green: 0.902, blue: 0.84, alpha: 1),
+                                      dark: NSColor(white: 1, alpha: 0.09))
+    static let raised = adaptive(light: .white, dark: NSColor(white: 1, alpha: 0.1))
+    /// The small tile behind symbol icons, and the Return keycap.
+    static let honeyTile = adaptive(light: NSColor(red: 1.0, green: 0.953, blue: 0.80, alpha: 1),
+                                    dark: NSColor(red: 1.0, green: 0.761, blue: 0.102, alpha: 0.16))
+    static let panelEdge = adaptive(light: NSColor(white: 1, alpha: 0.7), dark: NSColor(white: 1, alpha: 0.1))
 }
 
 final class BarModel: ObservableObject {
@@ -201,7 +214,8 @@ struct BarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
+            // The search capsule.
+            HStack(spacing: 12) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(Theme.accent)
@@ -211,71 +225,139 @@ struct BarView: View {
                     .focused($focused)
             }
             .padding(.horizontal, 16)
-            .frame(height: 54)
+            .frame(height: 50)
+            .background(Theme.capsule, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.capsuleEdge, lineWidth: 1))
 
             if model.isShowingPlan {
-                Divider().opacity(0.5)
-                PlanSection(model: model)
-            } else {
-                ForEach(Array(model.results.enumerated()), id: \.element.id) { index, item in
-                    Divider().opacity(0.5)
-                    ResultRow(item: item, isSelected: index == model.selected, isArmed: model.armedID == item.id)
-                        .contentShape(Rectangle())
-                        .onTapGesture { model.run(item) }
+                PlanSection(model: model).padding(.top, 6)
+            } else if !model.results.isEmpty {
+                VStack(spacing: 2) {
+                    ForEach(Array(model.results.enumerated()), id: \.element.id) { index, item in
+                        if let title = sectionTitle(at: index) {
+                            Text(title)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 12)
+                                .padding(.top, index == 0 ? 4 : 8)
+                                .padding(.bottom, 2)
+                        }
+                        ResultRow(item: item, isSelected: index == model.selected, isArmed: model.armedID == item.id)
+                            .contentShape(Rectangle())
+                            .onTapGesture { model.run(item) }
+                    }
                 }
+                .padding(.top, 6)
             }
 
             if showDetails, !model.isShowingPlan, model.results.indices.contains(model.selected),
                model.results[model.selected].id != BarModel.claudeRowID {
-                Divider().opacity(0.5)
                 DetailStrip(item: model.results[model.selected], searchMilliseconds: model.searchMilliseconds,
                             modelMilliseconds: model.modelMilliseconds)
             }
 
             if model.isThinking {
-                Divider().opacity(0.5)
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Thinking…")
-                    Spacer()
-                }
-                .font(.system(size: 12))
-                .foregroundStyle(Theme.accent)
-                .padding(.horizontal, 16)
-                .frame(height: 32)
+                hint(icon: AnyView(ProgressView().controlSize(.small)), text: "Thinking…")
             }
 
             if model.needsAccess {
-                Divider().opacity(0.5)
-                HStack(spacing: 8) {
-                    Image(systemName: "lock.open")
-                    Text("Allow Accessibility to search windows and menu commands")
-                    Spacer(minLength: 8)
-                    Text("Allow")
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 2)
-                        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Theme.accent, lineWidth: 0.5))
+                hint(icon: AnyView(Image(systemName: "lock.open")), text: "Allow Accessibility to search windows and menu commands",
+                     trailing: "Allow")
+                    .contentShape(Rectangle())
+                    .onTapGesture { model.onRequestAccess() }
+            }
+
+            if !model.results.isEmpty, !model.isShowingPlan {
+                HStack(spacing: 16) {
+                    Text("↑↓ move")
+                    Text("↩ open")
+                    Spacer()
+                    Text("esc close")
                 }
-                .font(.system(size: 12))
-                .foregroundStyle(Theme.accent)
-                .padding(.horizontal, 16)
-                .frame(height: 32)
-                .contentShape(Rectangle())
-                .onTapGesture { model.onRequestAccess() }
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
             }
         }
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(.primary.opacity(0.12), lineWidth: 0.5)
-        )
-        .shadow(color: .black.opacity(0.25), radius: 24, y: 10)
+        .padding(10)
+        .background {
+            ZStack {
+                Glass()
+                Theme.warmth
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Theme.panelEdge, lineWidth: 1))
+        .shadow(color: .black.opacity(0.2), radius: 28, y: 12)
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onChange(of: model.focusTick) { focused = true }
         .onAppear { focused = true }
     }
+
+    /// A small heading above a result: "Top hit" for the first, then one each time the kind changes.
+    private func sectionTitle(at index: Int) -> String? {
+        let results = model.results
+        let item = results[index]
+        let single: Set<Kind> = [.calculation, .clipboard]
+        if index == 0 {
+            if single.contains(item.kind) { return title(for: item) }
+            return results.count > 1 ? "Top hit" : nil
+        }
+        if index == 1 || title(for: results[index - 1]) != title(for: item) { return title(for: item) }
+        return nil
+    }
+
+    private func title(for item: Item) -> String {
+        if item.id == BarModel.claudeRowID { return "Claude" }
+        switch item.kind {
+        case .app: return "Apps"
+        case .setting: return "Settings"
+        case .action: return "Actions"
+        case .tab: return "Tabs"
+        case .window: return "Windows"
+        case .menu: return "Menu commands"
+        case .file: return "Files"
+        case .calculation: return "Answer"
+        case .control: return "In this window"
+        case .clipboard: return "Clipboard"
+        }
+    }
+
+    private func hint(icon: AnyView, text: String, trailing: String? = nil) -> some View {
+        HStack(spacing: 8) {
+            icon
+            Text(text)
+            Spacer(minLength: 8)
+            if let trailing {
+                Text(trailing)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                    .background(Theme.honeyTile, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+        }
+        .font(.system(size: 12))
+        .foregroundStyle(Theme.accent)
+        .padding(.horizontal, 12)
+        .frame(height: 32)
+        .padding(.top, 4)
+    }
+}
+
+/// The frosted glass behind the bar. Always drawn as active, so it stays bright even though
+/// Beeline itself never becomes the active app.
+private struct Glass: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .popover
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
 private struct ResultRow: View {
@@ -283,96 +365,111 @@ private struct ResultRow: View {
     let isSelected: Bool
     /// True when an irreversible action has had its first Return and is waiting for the second.
     let isArmed: Bool
-    @Environment(\.colorScheme) private var scheme
-
-    private var foreground: Color {
-        if isArmed { return .red }
-        guard isSelected else { return .secondary }
-        return Theme.ink
-    }
 
     var body: some View {
-        HStack(spacing: 10) {
-            if let icon = item.icon {
-                Image(nsImage: icon).resizable().frame(width: 22, height: 22)
-            }
-            (Text(item.verb.isEmpty ? "" : item.verb + " ") + Text(item.title).fontWeight(.medium))
+        HStack(spacing: 12) {
+            icon
+            (Text(item.verb.isEmpty ? "" : item.verb + " ").foregroundStyle(.secondary)
+                + Text(item.title).fontWeight(isSelected ? .medium : .regular))
+                .font(.system(size: 14))
                 .lineLimit(1)
                 .truncationMode(.middle)
-            Text(item.subtitle)
-                .font(.system(size: 11))
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
-                .background(isSelected ? Theme.deepYellow : Color.primary.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-            if isArmed {
-                Text("This can't be undone")
-                    .font(.system(size: 11))
-            } else if item.isGuess {
-                Text("best guess")
-                    .font(.system(size: 11))
-                    .foregroundStyle(isSelected ? Theme.ink.opacity(0.6) : .secondary)
-            }
             Spacer(minLength: 8)
+            if isArmed {
+                Text("This can't be undone").foregroundStyle(.red)
+            } else if item.isGuess {
+                Text("best guess").foregroundStyle(.tertiary)
+            }
+            Text(item.subtitle)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.head)
+                .frame(maxWidth: 180, alignment: .trailing)
             if isSelected {
-                Text(isArmed ? "Return again" : "Return")
-                    .font(.system(size: 11))
+                Text(isArmed ? "↩ again" : "↩")
+                    .foregroundStyle(isArmed ? Color.red : Theme.accent)
                     .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .strokeBorder(isArmed ? Color.red : Theme.ink, lineWidth: 0.5))
+                    .padding(.vertical, 1)
+                    .background(isArmed ? Color.red.opacity(0.12) : Theme.honeyTile,
+                                in: RoundedRectangle(cornerRadius: 6, style: .continuous))
             }
         }
-        .font(.system(size: 14))
-        .foregroundStyle(foreground)
-        .padding(.horizontal, 16)
+        .font(.system(size: 12))
+        .padding(.horizontal, 10)
         .frame(height: 40)
-        .background(isArmed ? Color.red.opacity(0.12) : isSelected ? Theme.yellow : Color.clear)
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(Theme.raised)
+                    .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+                    .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .strokeBorder(isArmed ? Color.red : Theme.yellow, lineWidth: 1.5))
+            }
+        }
+    }
+
+    /// App icons are shown as they are; symbol icons sit on a small honey tile.
+    @ViewBuilder private var icon: some View {
+        if let image = item.icon {
+            if image.isTemplate {
+                Image(nsImage: image)
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 15, height: 15)
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 26, height: 26)
+                    .background(Theme.honeyTile, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            } else {
+                Image(nsImage: image).resizable().frame(width: 26, height: 26)
+            }
+        } else {
+            Color.clear.frame(width: 26, height: 26)
+        }
     }
 }
 
 /// Claude's proposed steps, shown for approval. Return runs them all; Escape goes back.
 private struct PlanSection: View {
     @ObservedObject var model: BarModel
-    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if model.isAskingClaude {
-                footer(leading: { ProgressView().controlSize(.small) }, text: "Asking Claude…", key: "Esc to cancel")
+                footer(leading: { ProgressView().controlSize(.small) }, text: "Asking Claude…", key: "esc to cancel")
             } else if let problem = model.planProblem {
-                footer(leading: { Image(systemName: "exclamationmark.circle") }, text: problem, key: "Esc to go back")
+                footer(leading: { Image(systemName: "exclamationmark.circle") }, text: problem, key: "esc to go back")
             } else if let plan = model.plan {
                 if !plan.note.isEmpty {
                     Text(plan.note)
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 10)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 6)
                         .padding(.bottom, 6)
                 }
-                ForEach(Array(plan.steps.enumerated()), id: \.element.id) { index, step in
-                    HStack(spacing: 10) {
-                        Text("\(index + 1)")
-                            .font(.system(size: 11, weight: .medium))
-                            .frame(width: 18, height: 18)
-                            .foregroundStyle(Theme.ink)
-                            .background(Theme.yellow)
-                            .clipShape(Circle())
-                        if let icon = step.icon {
-                            Image(nsImage: icon).resizable().frame(width: 18, height: 18)
+                VStack(spacing: 2) {
+                    ForEach(Array(plan.steps.enumerated()), id: \.element.id) { index, step in
+                        HStack(spacing: 12) {
+                            Text("\(index + 1)")
+                                .font(.system(size: 11, weight: .semibold))
+                                .frame(width: 20, height: 20)
+                                .foregroundStyle(Theme.ink)
+                                .background(Theme.yellow, in: Circle())
+                            if let icon = step.icon {
+                                Image(nsImage: icon).resizable().frame(width: 20, height: 20)
+                            }
+                            Text(step.text).lineLimit(1).truncationMode(.middle)
+                            Spacer(minLength: 0)
                         }
-                        Text(step.text).lineLimit(1).truncationMode(.middle)
-                        Spacer(minLength: 0)
+                        .font(.system(size: 14))
+                        .padding(.horizontal, 10)
+                        .frame(height: 36)
+                        .background(Theme.raised.opacity(0.6), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
                     }
-                    .font(.system(size: 14))
-                    .foregroundStyle(.primary)
-                    .padding(.horizontal, 16)
-                    .frame(height: 32)
                 }
-                Divider().opacity(0.5).padding(.top, 4)
                 footer(leading: { Image(systemName: "sparkles") },
-                       text: "Claude's plan. Nothing has run yet.", key: "Return to run · Esc to go back")
+                       text: "Claude's plan. Nothing has run yet.", key: "↩ run · esc back")
             }
         }
     }
@@ -386,7 +483,7 @@ private struct PlanSection: View {
         }
         .font(.system(size: 12))
         .foregroundStyle(Theme.accent)
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 12)
         .frame(minHeight: 34)
     }
 }

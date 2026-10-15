@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 Settings.registerDefaults()
 
@@ -24,6 +25,35 @@ if let flag = CommandLine.arguments.firstIndex(of: "--controls"), CommandLine.ar
     } else {
         print("\(name) is not running")
     }
+    exit(0)
+}
+
+// `Beeline --preview "strem" out.png [dark]` renders the bar with real results to an image, for checking
+// the design without opening it. The frosted glass cannot be captured offscreen, so a backdrop stands in.
+if let flag = CommandLine.arguments.firstIndex(of: "--preview"), CommandLine.arguments.count > flag + 2 {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.prohibited)
+    let dark = CommandLine.arguments.contains("dark")
+    app.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+    let model = BarModel()
+    model.catalogue.prepareMeaningNow()
+    model.catalogue.loadFilesNow(for: CommandLine.arguments[flag + 1])
+    model.query = CommandLine.arguments[flag + 1]
+    let size = NSSize(width: 720, height: 520)
+    let backdrop = NSView(frame: NSRect(origin: .zero, size: size))
+    backdrop.wantsLayer = true
+    backdrop.layer?.backgroundColor = (dark ? NSColor(white: 0.18, alpha: 1) : NSColor(red: 0.86, green: 0.85, blue: 0.82, alpha: 1)).cgColor
+    let host = NSHostingView(rootView: BarView(model: model))
+    host.frame = backdrop.bounds
+    backdrop.addSubview(host)
+    let window = NSWindow(contentRect: backdrop.frame, styleMask: .borderless, backing: .buffered, defer: false)
+    window.appearance = app.appearance
+    window.contentView = backdrop
+    backdrop.layoutSubtreeIfNeeded()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+    let rep = backdrop.bitmapImageRepForCachingDisplay(in: backdrop.bounds)!
+    backdrop.cacheDisplay(in: backdrop.bounds, to: rep)
+    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: CommandLine.arguments[flag + 2]))
     exit(0)
 }
 
