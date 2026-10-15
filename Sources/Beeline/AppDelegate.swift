@@ -55,11 +55,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case "control": modifier = controlKey
         default: modifier = cmdKey
         }
-        let open: () -> Void = { [weak self] in self?.bar.toggle() }
+        let pressed: () -> Void = { [weak self] in self?.bar.shortcutPressed() }
+        let released: () -> Void = { [weak self] in self?.bar.shortcutReleased() }
         var label = Settings.shortcutLabel
-        hotKey = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(modifier), action: open)
+        hotKey = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(modifier), pressed: pressed, released: released)
         if hotKey == nil {
-            hotKey = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey), action: open)
+            hotKey = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey), pressed: pressed, released: released)
             label = "⌥Space, since \(Settings.shortcutLabel) is taken"
         }
         openItem.title = "Open Beeline (\(label))"

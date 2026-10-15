@@ -1,20 +1,27 @@
 import Carbon.HIToolbox
 
-/// A system-wide hotkey. Uses the Carbon hotkey API, which needs no permission.
+/// A system-wide hotkey. Uses the Carbon hotkey API, which needs no permission, and reports both the
+/// press and the release, so a tap and a hold can mean different things.
 final class HotKey {
     private var hotKeyRef: EventHotKeyRef?
     private var handlerRef: EventHandlerRef?
-    private let action: () -> Void
+    private let pressed: () -> Void
+    private let released: () -> Void
 
-    init?(keyCode: UInt32, modifiers: UInt32, action: @escaping () -> Void) {
-        self.action = action
+    init?(keyCode: UInt32, modifiers: UInt32, pressed: @escaping () -> Void, released: @escaping () -> Void = {}) {
+        self.pressed = pressed
+        self.released = released
 
-        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, userData in
-            guard let userData else { return noErr }
-            Unmanaged<HotKey>.fromOpaque(userData).takeUnretainedValue().action()
+        var specs = [
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased)),
+        ]
+        InstallEventHandler(GetApplicationEventTarget(), { _, event, userData in
+            guard let userData, let event else { return noErr }
+            let hotKey = Unmanaged<HotKey>.fromOpaque(userData).takeUnretainedValue()
+            if GetEventKind(event) == UInt32(kEventHotKeyPressed) { hotKey.pressed() } else { hotKey.released() }
             return noErr
-        }, 1, &spec, Unmanaged.passUnretained(self).toOpaque(), &handlerRef)
+        }, 2, &specs, Unmanaged.passUnretained(self).toOpaque(), &handlerRef)
 
         let id = EventHotKeyID(signature: OSType(0x42454C4E), id: 1)
         let status = RegisterEventHotKey(keyCode, modifiers, id, GetApplicationEventTarget(), 0, &hotKeyRef)

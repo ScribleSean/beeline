@@ -129,6 +129,9 @@ final class BarModel: ObservableObject {
 
     var isShowingPlan: Bool { plan != nil || isAskingClaude || planProblem != nil || claudeAnswer != nil }
 
+    /// Shown while listening, or why listening could not start.
+    @Published var voiceNote: String?
+
     /// An example shown under the empty bar, different each time it opens.
     @Published var tip = BarModel.tips[0]
     static let tips = [
@@ -311,6 +314,20 @@ struct BarView: View {
                model.results[model.selected].id != BarModel.claudeRowID {
                 DetailStrip(item: model.results[model.selected], searchMilliseconds: model.searchMilliseconds,
                             modelMilliseconds: model.modelMilliseconds)
+            }
+
+            if let note = model.voiceNote {
+                HStack(spacing: 8) {
+                    Image(systemName: note.hasPrefix("Listening") ? "mic.fill" : "mic.slash")
+                        .foregroundStyle(note.hasPrefix("Listening") ? Theme.ink : Color.secondary)
+                        .frame(width: 22, height: 22)
+                        .background(note.hasPrefix("Listening") ? Theme.yellow : Theme.honeyTile, in: Circle())
+                    Text(note).foregroundStyle(.primary)
+                }
+                .font(.system(size: 12))
+                .frame(maxWidth: .infinity)
+                .frame(height: 32)
+                .padding(.top, 4)
             }
 
             if model.isThinking, !model.isShowingPlan {

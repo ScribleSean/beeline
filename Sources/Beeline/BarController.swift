@@ -99,6 +99,57 @@ final class BarController: NSObject, NSWindowDelegate {
         return NSApp.sendAction(action, to: nil, from: nil)
     }
 
+    private let voice = Voice()
+    private var holdTimer: Timer?
+    private var isListening = false
+    /// True when this press of the shortcut opened the bar, so its release must not close it again.
+    private var openedByPress = false
+
+    /// A tap opens or closes the bar. Holding the shortcut opens it and listens until the key comes up.
+    func shortcutPressed() {
+        openedByPress = !isShown
+        if !isShown { show() }
+        holdTimer?.invalidate()
+        guard Settings.isOn(Settings.holdToTalk) else { return }
+        holdTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: false) { [weak self] _ in
+            self?.startListening()
+        }
+    }
+
+    func shortcutReleased() {
+        holdTimer?.invalidate()
+        holdTimer = nil
+        if isListening {
+            stopListening()
+        } else if !openedByPress {
+            hide()
+        }
+    }
+
+    private func startListening() {
+        isListening = true
+        model.query = ""
+        model.voiceNote = "Listening…"
+        voice.onText = { [weak self] text in self?.model.query = text }
+        voice.onState = { [weak self] state in
+            guard let self else { return }
+            switch state {
+            case .listening: self.model.voiceNote = "Listening… let go to stop"
+            case .stopped: self.model.voiceNote = nil
+            case .unavailable(let reason):
+                self.isListening = false
+                self.model.voiceNote = reason
+            }
+        }
+        voice.start()
+    }
+
+    private func stopListening() {
+        isListening = false
+        voice.stop()
+        if case .some(let note) = model.voiceNote, note.hasPrefix("Listening") { model.voiceNote = nil }
+    }
+
     func toggle() {
         isShown ? hide() : show()
     }
@@ -128,6 +179,7 @@ final class BarController: NSObject, NSWindowDelegate {
     }
 
     private func hide() {
+        if isListening { stopListening() }
         guard isShown else { return }
         isShown = false
         panel.orderOut(nil)

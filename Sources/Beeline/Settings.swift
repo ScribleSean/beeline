@@ -9,6 +9,7 @@ enum Settings {
     static let offerClaude = "offerClaude"
     static let learnFromUse = "learnFromUse"
     static let clipboardHistory = "clipboardHistory"
+    static let holdToTalk = "holdToTalk"
     /// Which modifier opens the bar with Space: "command", "option" or "control".
     static let shortcut = "shortcut"
     /// "system", "light" or "dark".
@@ -25,7 +26,7 @@ enum Settings {
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
             showDetails: false, useOnDeviceModel: true, offerClaude: true, learnFromUse: true,
-            clipboardHistory: true, shortcut: "command", appearance: "system", welcomed: false,
+            clipboardHistory: true, holdToTalk: true, shortcut: "command", appearance: "system", welcomed: false,
         ])
     }
 
@@ -110,6 +111,7 @@ private struct SettingsView: View {
     @ObservedObject var login: LoginItem
     @AppStorage(Settings.shortcut) private var shortcut = "command"
     @AppStorage(Settings.appearance) private var appearance = "system"
+    @AppStorage(Settings.holdToTalk) private var holdToTalk = true
     @AppStorage(Settings.showDetails) private var showDetails = false
     @AppStorage(Settings.useOnDeviceModel) private var useOnDeviceModel = true
     @AppStorage(Settings.offerClaude) private var offerClaude = true
@@ -130,6 +132,9 @@ private struct SettingsView: View {
                     label("Shortcut", "For ⌘ Space, Spotlight's shortcut must be off in Keyboard settings.")
                 }
                 .onChange(of: shortcut) { NotificationCenter.default.post(name: Settings.shortcutChanged, object: nil) }
+                Toggle(isOn: $holdToTalk) {
+                    label("Hold the shortcut to talk", "Speak instead of typing. Recognised on this Mac.")
+                }
                 Picker(selection: $appearance) {
                     Text("System").tag("system")
                     Text("Light").tag("light")

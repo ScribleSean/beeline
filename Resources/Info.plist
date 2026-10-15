@@ -26,6 +26,10 @@
     <string>Beeline adds the reminders and goals you type to Reminders.</string>
     <key>NSRemindersUsageDescription</key>
     <string>Beeline adds the reminders and goals you type to Reminders.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Beeline listens while you hold its shortcut, so you can speak a request instead of typing it.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Beeline turns what you say into the request in its bar, on this Mac.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>Beeline lists your open browser tabs so you can jump to one by typing.</string>
 </dict>
