@@ -33,6 +33,16 @@ struct Item: Identifiable {
     /// For tabs: closes the tab, and its position in its window.
     var close: (() -> Void)?
     var tabIndex: Int?
+    /// For buttons and menu commands: whether the target is still there and still the same, checked
+    /// right before acting, because the window may have changed since it was read.
+    var stillValid: (() -> Bool)?
+
+    /// Runs the item if its target is still valid. False when it was not run.
+    func runIfValid() -> Bool {
+        if let stillValid, !stillValid() { return false }
+        run()
+        return true
+    }
 }
 
 final class Catalogue {
@@ -466,22 +476,30 @@ final class Catalogue {
             // An app with no window yet cannot be tiled as a window, so opening and placing is one step.
             guard !appsWithWindows.contains(item.title) else { continue }
             let url = URL(fileURLWithPath: item.id)
+            // Checked after it settles: the app must be running before the next step relies on it.
+            let launched = { NSWorkspace.shared.runningApplications.contains { $0.bundleURL?.standardizedFileURL == url.standardizedFileURL } }
             var left = PlanStep(text: "Open the app \(item.title) and put it on the left half of the screen", icon: item.icon) {
                 Accessibility.openAndPlace(url, .left)
             }
             left.settleTime = 3
+            left.succeeded = launched
             var right = PlanStep(text: "Open the app \(item.title) and put it on the right half of the screen", icon: item.icon) {
                 Accessibility.openAndPlace(url, .right)
             }
             right.settleTime = 3
+            right.succeeded = launched
             options += [left, right]
         }
         for item in controls.prefix(60) where !item.needsConfirm {
-            options.append(PlanStep(text: "In the current window only, \(item.verb.lowercased()) the \(item.subtitle) \"\(item.title)\"",
-                                    icon: item.icon, run: item.run))
+            var step = PlanStep(text: "In the current window only, \(item.verb.lowercased()) the \(item.subtitle) \"\(item.title)\"",
+                                icon: item.icon, run: item.run)
+            step.stillValid = item.stillValid
+            options.append(step)
         }
         for item in menus.prefix(150) where !item.needsConfirm {
-            options.append(PlanStep(text: "In the current app only, run its menu command \(item.subtitle) › \(item.title)", icon: item.icon, run: item.run))
+            var step = PlanStep(text: "In the current app only, run its menu command \(item.subtitle) › \(item.title)", icon: item.icon, run: item.run)
+            step.stillValid = item.stillValid
+            options.append(step)
         }
         return options
     }

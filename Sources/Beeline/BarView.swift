@@ -587,11 +587,12 @@ private struct PlanSection: View {
                             if let icon = step.icon {
                                 Image(nsImage: icon).resizable().frame(width: 22, height: 22)
                             }
-                            Text(step.text).font(.system(size: 14)).lineLimit(1).truncationMode(.middle)
+                            Text(step.text).font(.system(size: 14)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 0)
                         }
                         .padding(.horizontal, 12)
-                        .frame(height: 42)
+                        .padding(.vertical, 8)
+                        .frame(minHeight: 42)
                         .background(Theme.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .strokeBorder(index == 0 ? Theme.yellow : Theme.capsuleEdge, lineWidth: index == 0 ? 1.5 : 1))

@@ -116,6 +116,11 @@ enum Accessibility {
                     }
                     // Menu commands like Delete or Send ask for Return twice, as buttons do.
                     item.needsConfirm = isIrreversible(title)
+                    item.stillValid = {
+                        let current: String? = attribute(child, kAXTitleAttribute)
+                        let enabled: Bool = attribute(child, kAXEnabledAttribute) ?? false
+                        return current == title && enabled
+                    }
                     items.append(item)
                 }
             }

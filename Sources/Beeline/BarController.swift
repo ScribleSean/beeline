@@ -31,11 +31,15 @@ final class BarController: NSObject, NSWindowDelegate {
         super.init()
         model.onRun = { [weak self] item in
             self?.hide()
-            item.run()
+            // A button or menu command that changed since the bar opened is not pressed.
+            if !item.runIfValid() {
+                NSSound.beep()
+                Log.append("skipped a \(item.kind) whose target changed")
+            }
         }
         model.onRunPlan = { [weak self] plan in
             self?.hide()
-            Self.execute(plan)
+            self?.execute(plan)
         }
         model.onRequestAccess = { [weak self] in
             self?.hide()
@@ -69,14 +73,35 @@ final class BarController: NSObject, NSWindowDelegate {
     private var isShown = false
 
     /// Runs a confirmed plan one step at a time, pausing so each app can catch up before the next.
-    private static func execute(_ plan: Plan) {
-        // Steps run in exactly the order previewed. Each waits for the one before to settle; opening an app
-        // and placing its window is given a few seconds.
-        var delay = 0.15
-        for step in plan.steps {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: step.run)
-            delay += step.settleTime
+    /// Runs a plan one step at a time, in the order previewed. Each step is checked before it runs and,
+    /// where it can be, after it settles. On the first step that can't run or didn't work, the plan stops
+    /// and the bar reopens to say which one.
+    private func execute(_ plan: Plan) {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            for (index, step) in plan.steps.enumerated() {
+                if let stillValid = step.stillValid, !stillValid() {
+                    self?.reportStop(at: index, of: plan, reason: "it's no longer on screen")
+                    return
+                }
+                step.run()
+                try? await Task.sleep(nanoseconds: UInt64(step.settleTime * 1_000_000_000))
+                if let succeeded = step.succeeded, !succeeded() {
+                    // Give a slow app a little longer before calling it a failure.
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    if !succeeded() {
+                        self?.reportStop(at: index, of: plan, reason: "it didn't take effect")
+                        return
+                    }
+                }
+            }
         }
+    }
+
+    private func reportStop(at index: Int, of plan: Plan, reason: String) {
+        Log.append("plan stopped at step \(index + 1) of \(plan.steps.count)")
+        show()
+        model.planProblem = "Stopped at step \(index + 1), “\(plan.steps[index].text)”, because \(reason). Later steps didn't run."
     }
 
     /// Beeline has no Edit menu, which is what normally routes ⌘C, ⌘V and the rest to a text field.

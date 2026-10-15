@@ -2,24 +2,26 @@
 
 <h1 align="center">Beeline</h1>
 
-<p align="center"><b>Type what you want. Go straight there.</b><br>
-A fast Spotlight replacement for the Mac that understands plain words.</p>
+<p align="center"><b>Beeline to anything.</b><br>
+A fast Spotlight replacement for Mac that infers commands from plain text.</p>
 
 <p align="center"><img src="docs/bar.png" width="640" alt="Beeline searching for wifi: Wi-Fi settings first, then the actions to turn Wi-Fi off or on"></p>
 
-Press ⌘Space and type it the way you'd say it. "night shift" opens the right settings pane. "close every tab about flights" closes them. "100 usd in eur" just answers. When something takes more than one step, Claude plans it and you approve it before anything runs.
-
 ## What it does
 
-- **Opens anything.** Apps, System Settings by everyday words, browser tabs, windows, files, and the menu commands and buttons of the app in front.
-- **Does things.** Sleep, lock, mute, dark mode, Wi-Fi, quit an app, put a window on half the screen, close matching tabs.
-- **Answers.** Sums, units, currencies and time zones, shown large. Return copies.
-- **Remembers.** "remind me to call Sam at 5" goes to Reminders. "save desktop as tax work" brings back the same apps, windows and tabs later.
-- **Pastes again.** "clip" lists what you copied.
-- **Listens.** Hold ⌘Space and speak.
-- **Asks Claude.** Questions are answered in the bar. Multi-step requests become a plan built only from steps Beeline offers, and nothing runs until you press Return.
-
-It learns what you pick, so what you use most comes first.
+- Opens apps, files, browser tabs and windows
+- Opens System Settings pages from everyday words, like "night shift"
+- Runs menu commands and presses buttons in the app in front
+- Sleeps, locks, mutes, switches dark mode and Wi-Fi, quits apps
+- Moves the front window to half or full screen
+- Closes browser tabs that match what you type
+- Does sums, and converts units, currencies and time zones
+- Adds reminders and goals to Reminders
+- Saves your open apps, windows and tabs, and brings them back later
+- Keeps a history of what you copied
+- Listens when you hold ⌘Space
+- Asks Claude to answer questions or plan multi-step requests, which you approve first
+- Learns what you pick and puts it first
 
 <p align="center">
   <img src="docs/answer.png" width="49%" alt="A currency conversion shown as a large answer">
@@ -28,7 +30,7 @@ It learns what you pick, so what you use most comes first.
 
 ## Install
 
-There's no release yet, so build it. You need an Apple silicon Mac with macOS 14 or later, and the Xcode Command Line Tools (`xcode-select --install`).
+Needs an Apple silicon Mac on macOS 14 or later, with the Xcode Command Line Tools (`xcode-select --install`).
 
 ```sh
 git clone https://github.com/ScribleSean/beeline
@@ -36,14 +38,7 @@ cd beeline
 bash scripts/build-app.sh && open build/Beeline.app
 ```
 
-To use ⌘Space, first turn off Spotlight's shortcut in System Settings › Keyboard › Keyboard Shortcuts › Spotlight. Beeline falls back to ⌥Space until you do.
-
-Some parts need more than that:
-
-- Rewriting loose requests ("make my mac quieter") uses the model built into macOS 26 with Apple Intelligence.
-- Ask Claude needs [Claude Code](https://claude.com/claude-code) installed and signed in.
-
-To update, choose **Update Beeline** in the menu bar. It pulls the newest commit, rebuilds and relaunches, or says you're up to date.
+To open it with ⌘Space, turn off Spotlight's shortcut in System Settings › Keyboard › Keyboard Shortcuts. Ask Claude needs [Claude Code](https://claude.com/claude-code) signed in. **Update Beeline** in the menu bar keeps it current.
 
 ## Privacy
 

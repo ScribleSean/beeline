@@ -10,6 +10,10 @@ struct PlanStep: Identifiable {
     var closingTabIndex: Int?
     /// How long to wait after this step before the next. Opening an app and placing it takes seconds.
     var settleTime = 0.35
+    /// Checked just before running: false means the target is gone or changed, and the plan stops.
+    var stillValid: (() -> Bool)?
+    /// Checked after the step settles: false means it did not take effect, and the plan stops.
+    var succeeded: (() -> Bool)?
 }
 
 struct Plan {

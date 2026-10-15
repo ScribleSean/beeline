@@ -110,6 +110,11 @@ extension Accessibility {
                 }
             }
             item.needsConfirm = !isField && isIrreversible(control.label)
+            let expected = control.label, role = control.role
+            item.stillValid = {
+                let enabled: Bool = attribute(node, kAXEnabledAttribute) ?? true
+                return enabled && label(of: node, role: role) == expected
+            }
             return item
         }
         Log.append(String(format: "controls: %d in %@ from %d nodes in %.0f ms", items.count, appName, visited,
