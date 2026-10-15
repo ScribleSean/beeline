@@ -285,7 +285,9 @@ final class Catalogue {
 
         // Meaning is the last resort, used only when the words typed matched nothing at all.
         if results.isEmpty, parsed.tokens.contains(where: { $0.count >= 3 }) {
-            let pool = parsed.hint.map { hint in all.filter { $0.kind == hint } } ?? all
+            // Menu commands and window buttons act at once, so they are never offered as a guess by meaning.
+            let guessable = all.filter { $0.kind != .menu && $0.kind != .control }
+            let pool = parsed.hint.map { hint in guessable.filter { $0.kind == hint } } ?? guessable
             results = semantic.rank(parsed.tokens.joined(separator: " "), in: pool, limit: 2).map { guess in
                 var item = guess.item
                 item.isGuess = true
@@ -422,7 +424,7 @@ final class Catalogue {
             options.append(PlanStep(text: "In the current window only, \(item.verb.lowercased()) the \(item.subtitle) \"\(item.title)\"",
                                     icon: item.icon, run: item.run))
         }
-        for item in menus.prefix(150) {
+        for item in menus.prefix(150) where !item.needsConfirm {
             options.append(PlanStep(text: "In the current app only, run its menu command \(item.subtitle) › \(item.title)", icon: item.icon, run: item.run))
         }
         return options

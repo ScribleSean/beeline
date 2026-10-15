@@ -51,8 +51,10 @@ struct Browser {
                 activate(window: window, index: index)
             }
             item.tabIndex = index
+            // Closed by address within its window, not by position: earlier tabs may have closed or moved since.
+            let address = fields[3].replacingOccurrences(of: "\\", with: "%5C").replacingOccurrences(of: "\"", with: "%22")
             item.close = {
-                let script = "tell application \"\(name)\" to close tab \(index) of window id \(window)"
+                let script = "tell application \"\(name)\" to close (every tab of window id \(window) whose URL is \"\(address)\")"
                 Self.commandQueue.async { _ = Self.osascript(script) }
             }
             return item

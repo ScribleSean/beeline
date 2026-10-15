@@ -58,7 +58,8 @@ final class BarController: NSObject, NSWindowDelegate {
                 }
             case kVK_DownArrow: self.model.move(1)
             case kVK_UpArrow: self.model.move(-1)
-            case kVK_Return, kVK_ANSI_KeypadEnter: self.model.runSelected()
+            // A held Return repeats; only a fresh press counts, so "Return twice" really takes two presses.
+            case kVK_Return, kVK_ANSI_KeypadEnter: if !event.isARepeat { self.model.runSelected() }
             default: return event
             }
             return nil
@@ -179,7 +180,10 @@ final class BarController: NSObject, NSWindowDelegate {
     }
 
     private func hide() {
-        if isListening { stopListening() }
+        // Closing the bar also cancels a hold that has not started listening yet.
+        holdTimer?.invalidate()
+        holdTimer = nil
+        if isListening { stopListening() } else { voice.stop() }
         guard isShown else { return }
         isShown = false
         panel.orderOut(nil)

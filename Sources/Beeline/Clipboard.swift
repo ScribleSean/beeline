@@ -78,8 +78,11 @@ final class Clipboard {
     private static func paste(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
-        // A moment for the bar to close and the app in front to take keystrokes again.
+        let target = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        // A moment for the bar to close and the app in front to take keystrokes again. If another app has
+        // come forward meanwhile, nothing is pasted; the text stays on the clipboard.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == target else { return }
             for isDown in [true, false] {
                 let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: isDown)
                 event?.flags = .maskCommand

@@ -65,14 +65,41 @@ enum Planner {
         guard let reply else {
             return .failure(.message("Couldn't reach Claude. Check that Claude Code is signed in."))
         }
-        // Tolerates a code fence or stray words around the JSON.
-        guard let start = reply.firstIndex(of: "{"), let end = reply.lastIndex(of: "}"),
-              let object = try? JSONSerialization.jsonObject(with: Data(reply[start...end].utf8)) as? [String: Any] else {
+        // Tolerates a code fence or stray words around the JSON, and nothing else.
+        guard reply.utf8.count < 20_000, let start = reply.firstIndex(of: "{"), let end = reply.lastIndex(of: "}"), start < end,
+              let object = try? JSONSerialization.jsonObject(with: Data(reply[start...end].utf8)) as? [String: Any],
+              let numbers = object["steps"] as? [Any] else {
             return .failure(.message("Claude's reply wasn't a plan."))
         }
-        let numbers = (object["steps"] as? [Any] ?? []).compactMap { ($0 as? NSNumber)?.intValue }
-        let steps = numbers.compactMap { options.indices.contains($0 - 1) ? options[$0 - 1] : nil }
+        // The preview must be able to show every step, so a long plan is refused rather than cut short.
+        guard numbers.count <= maxSteps else {
+            return .failure(.message("That plan has more than \(maxSteps) steps. Try a smaller request."))
+        }
+        // Each step must be a whole option number from the list, used once. Anything else rejects the plan.
+        var used = Set<Int>()
+        var steps: [PlanStep] = []
+        for value in numbers {
+            guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  let index = value as? Int, index >= 1, index <= options.count, used.insert(index).inserted else {
+                return .failure(.message("Claude's plan referred to a step that doesn't exist."))
+            }
+            steps.append(options[index - 1])
+        }
         return .success(Plan(steps: steps, note: object["note"] as? String ?? ""))
+    }
+
+    static let maxSteps = 8
+
+    /// The Claude process currently running, so Escape can stop it instead of leaving it to finish.
+    private static var running: Process?
+    private static let runningLock = NSLock()
+
+    static func cancel() {
+        runningLock.lock()
+        let process = running
+        running = nil
+        runningLock.unlock()
+        if let process, process.isRunning { process.terminate() }
     }
 
     private static func askClaude(_ prompt: String, system: String) -> String? {
@@ -81,10 +108,16 @@ enum Planner {
         // A login shell finds `claude` wherever it is installed. Every tool, MCP server and settings file
         // is switched off, so this is a plain question and answer with no way to act on the Mac.
         process.arguments = ["-lc", """
+            unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX
             claude -p --model sonnet --tools "" --strict-mcp-config --setting-sources "" \
             --no-session-persistence --output-format text --system-prompt "$BEELINE_SYSTEM"
             """]
+        // API keys are removed so the call always goes through the Claude Code subscription sign-in,
+        // never a paid API account. The login shell above unsets them again in case its profile sets them.
         var environment = ProcessInfo.processInfo.environment
+        for name in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"] {
+            environment[name] = nil
+        }
         environment["BEELINE_SYSTEM"] = system
         process.environment = environment
         process.currentDirectoryURL = FileManager.default.temporaryDirectory
@@ -95,13 +128,17 @@ enum Planner {
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
         do { try process.run() } catch { return nil }
+        cancel()
+        runningLock.lock()
+        running = process
+        runningLock.unlock()
 
-        input.fileHandleForWriting.write(Data(prompt.utf8))
-        input.fileHandleForWriting.closeFile()
         // Claude normally answers in a few seconds; never leave the bar waiting on a stuck process.
         DispatchQueue.global().asyncAfter(deadline: .now() + 40) {
             if process.isRunning { process.terminate() }
         }
+        input.fileHandleForWriting.write(Data(prompt.utf8))
+        input.fileHandleForWriting.closeFile()
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { return nil }

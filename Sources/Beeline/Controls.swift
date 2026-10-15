@@ -25,6 +25,13 @@ extension Accessibility {
         "unsubscribe", "sign out", "log out", "reset", "clear", "uninstall", "erase disk", "publish", "post", "confirm",
     ]
 
+    /// True for a label that means the action cannot be taken back. Whole words only: "Reorder" is not
+    /// "order", and "Paint format" is not "format a disk".
+    static func isIrreversible(_ label: String) -> Bool {
+        let words = " " + label.lowercased().split(whereSeparator: { !$0.isLetter }).joined(separator: " ") + " "
+        return irreversible.contains { words.contains(" \($0) ") }
+    }
+
     private static let fieldRoles: Set<String> = ["AXTextField", "AXSearchField", "AXTextArea", "AXComboBox"]
 
     /// Apps already asked to build their accessibility tree. Asked once per process.
@@ -102,9 +109,7 @@ extension Accessibility {
                     AXUIElementPerformAction(node, kAXPressAction as CFString)
                 }
             }
-            // Whole words only: "Reorder" is not "order", and "Paint format" is not "format a disk".
-            let words = " " + control.label.lowercased().split(whereSeparator: { !$0.isLetter }).joined(separator: " ") + " "
-            item.needsConfirm = !isField && irreversible.contains { words.contains(" \($0) ") }
+            item.needsConfirm = !isField && isIrreversible(control.label)
             return item
         }
         Log.append(String(format: "controls: %d in %@ from %d nodes in %.0f ms", items.count, appName, visited,

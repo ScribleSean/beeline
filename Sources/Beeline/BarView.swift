@@ -186,9 +186,10 @@ final class BarModel: ObservableObject {
             self.isAskingClaude = false
             switch result {
             case .success(let plan):
-                Log.append("plan for \"\(asked)\" from \(options.count) options: \(plan.steps.map(\.text).joined(separator: " | ")) // \(plan.note)")
+                // Counts only: requests and window or tab titles can be private, and the log is a plain file.
+                Log.append("plan: \(plan.steps.count) steps from \(options.count) options")
             case .failure(.message(let message)):
-                Log.append("plan for \"\(asked)\" failed: \(message)")
+                Log.append("plan failed: \(message)")
             }
             switch result {
             case .success(let plan) where plan.steps.isEmpty:
@@ -202,6 +203,7 @@ final class BarModel: ObservableObject {
     }
 
     func clearPlan() {
+        if planning != nil { Planner.cancel() }
         planning?.cancel()
         planning = nil
         plan = nil

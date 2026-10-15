@@ -87,8 +87,12 @@ enum Reminders {
 
     /// The Goals list, created in the default Reminders account the first time it is needed.
     private static func goalsList() -> EKCalendar? {
-        if let existing = store.calendars(for: .reminder).first(where: { $0.title == "Goals" }) { return existing }
+        // Only a Goals list in the default account counts: a shared list with the same name elsewhere must
+        // never receive personal goals.
         guard let source = store.defaultCalendarForNewReminders()?.source else { return nil }
+        if let existing = store.calendars(for: .reminder).first(where: { $0.title == "Goals" && $0.source == source }) {
+            return existing
+        }
         let list = EKCalendar(for: .reminder, eventStore: store)
         list.title = "Goals"
         list.source = source

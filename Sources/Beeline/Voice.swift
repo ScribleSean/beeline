@@ -19,14 +19,19 @@ final class Voice {
     private var task: SFSpeechRecognitionTask?
     /// Set when the key comes up before the permission prompts are answered, so listening never starts late.
     private var cancelledBeforeStart = false
+    /// Counts listening sessions. A callback from an earlier session is ignored, so an old transcript or a
+    /// slow permission answer can never act on a newer one.
+    private var generation = 0
 
     func start() {
         cancelledBeforeStart = false
+        generation += 1
+        let session = generation
         authorise { [weak self] problem in
-            guard let self else { return }
+            guard let self, session == self.generation else { return }
             if let problem { return self.onState(.unavailable(problem)) }
             guard !self.cancelledBeforeStart else { return }
-            self.begin()
+            self.begin(session)
         }
     }
 
@@ -51,15 +56,19 @@ final class Voice {
         }
     }
 
-    private func begin() {
+    private func begin(_ session: Int) {
         guard let recognizer, recognizer.isAvailable else {
             return onState(.unavailable("Speech recognition isn't available right now."))
         }
+        // Audio never leaves the Mac: without on-device recognition, Beeline does not listen at all.
+        guard recognizer.supportsOnDeviceRecognition else {
+            return onState(.unavailable("On-device speech recognition isn't available for English on this Mac."))
+        }
+        guard !engine.isRunning else { return }
         task?.cancel()
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
-        // Keep the audio on this Mac whenever the language supports it.
-        request.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
+        request.requiresOnDeviceRecognition = true
         self.request = request
 
         let input = engine.inputNode
@@ -79,8 +88,9 @@ final class Voice {
             let text = result?.bestTranscription.formattedString
             let finished = result?.isFinal == true || error != nil
             DispatchQueue.main.async {
-                if let text { self?.onText(text) }
-                if finished { self?.task = nil; self?.request = nil }
+                guard let self, session == self.generation else { return }
+                if let text { self.onText(text) }
+                if finished { self.task = nil; self.request = nil }
             }
         }
     }

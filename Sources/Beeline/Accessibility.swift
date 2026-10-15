@@ -110,10 +110,13 @@ enum Accessibility {
                     if depth < 3 { walk(child, path: path + [title], depth: depth + 1) }
                 } else if attribute(child, kAXEnabledAttribute) ?? true {
                     let location = ([name] + path).joined(separator: " › ")
-                    items.append(Item(id: "menu:\(app.processIdentifier):\(location):\(title)", kind: .menu, verb: "Run",
-                                      title: title, subtitle: location, keywords: path.joined(separator: " "), icon: app.icon) {
+                    var item = Item(id: "menu:\(app.processIdentifier):\(location):\(title)", kind: .menu, verb: "Run",
+                                    title: title, subtitle: location, keywords: path.joined(separator: " "), icon: app.icon) {
                         AXUIElementPerformAction(child, kAXPressAction as CFString)
-                    })
+                    }
+                    // Menu commands like Delete or Send ask for Return twice, as buttons do.
+                    item.needsConfirm = isIrreversible(title)
+                    items.append(item)
                 }
             }
         }
