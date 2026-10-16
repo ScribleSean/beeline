@@ -82,7 +82,11 @@ if let flag = CommandLine.arguments.firstIndex(of: "--preview-welcome"), Command
 
 // `Beeline --files "compress" a.pdf b.pdf` shows the file chores offered for those files. Runs nothing.
 if let flag = CommandLine.arguments.firstIndex(of: "--files"), CommandLine.arguments.count > flag + 2 {
-    FileTools.useSelection(CommandLine.arguments[(flag + 2)...].map { URL(fileURLWithPath: $0) })
+    // A trailing folder path ending in "/" stands for the front Finder window; the rest are selected items.
+    var paths = Array(CommandLine.arguments[(flag + 2)...])
+    let folder = paths.last.flatMap { $0.hasSuffix("/") ? URL(fileURLWithPath: $0) : nil }
+    if folder != nil { paths.removeLast() }
+    FileTools.useSelection(paths.map { URL(fileURLWithPath: $0) }, folder: folder)
     let rows = FileTools.results(for: CommandLine.arguments[flag + 1]) ?? []
     for item in rows {
         print("\(item.needsConfirm ? "!" : " ") \(item.title)  [\(item.subtitle)]")

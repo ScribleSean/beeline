@@ -7,6 +7,8 @@ import PDFKit
 enum FileTools {
     /// Finder's selection, read when the bar opens over Finder.
     private(set) static var selection: [URL] = []
+    /// The folder shown in the front Finder window, so its items can be named without selecting them.
+    private(set) static var frontFolder: URL?
 
     private static let images: Set<String> = ["jpg", "jpeg", "png", "heic", "heif", "tiff", "tif", "gif", "bmp", "webp"]
     private static let videos: Set<String> = ["mov", "mp4", "m4v"]
@@ -14,36 +16,48 @@ enum FileTools {
     /// Reads what is selected in Finder, off the main thread. Called when the bar opens with Finder in front.
     static func refreshSelection() {
         selection = []
+        frontFolder = nil
         DispatchQueue.global(qos: .userInitiated).async {
+            // The first line is the front window's folder (or "-" when there is none); the rest are selected items.
             let script = """
             tell application "Finder"
-                set out to ""
+                set out to "-"
+                try
+                    set out to POSIX path of (target of front Finder window as alias)
+                end try
+                set out to out & linefeed
                 repeat with f in (get selection as alias list)
                     set out to out & POSIX path of f & linefeed
                 end repeat
                 return out
             end tell
             """
-            let paths = (run("/usr/bin/osascript", ["-e", script]).output ?? "")
-                .split(separator: "\n").map(String.init).filter { $0.hasPrefix("/") }
-            let urls = paths.prefix(200).map { URL(fileURLWithPath: $0) }
-            DispatchQueue.main.async { selection = urls }
+            let lines = (run("/usr/bin/osascript", ["-e", script]).output ?? "").split(separator: "\n").map(String.init)
+            let folder = lines.first.flatMap { $0.hasPrefix("/") ? URL(fileURLWithPath: $0) : nil }
+            let urls = lines.dropFirst().filter { $0.hasPrefix("/") }.prefix(200).map { URL(fileURLWithPath: $0) }
+            DispatchQueue.main.async {
+                selection = urls
+                frontFolder = folder
+            }
         }
     }
 
     static func clearSelection() {
         selection = []
+        frontFolder = nil
     }
 
-    /// Sets the selection directly. Used by the command-line test mode.
-    static func useSelection(_ urls: [URL]) {
+    /// Sets the selection and front folder directly. Used by the command-line test mode.
+    static func useSelection(_ urls: [URL], folder: URL? = nil) {
         selection = urls
+        frontFolder = folder
     }
 
     // MARK: Matching what was typed
 
     /// Rows for a file chore on the selection, or nil when nothing is selected or the words aren't one.
     static func results(for query: String) -> [Item]? {
+        if let transfer = transferResults(for: query) { return transfer }
         guard !selection.isEmpty else { return nil }
         let text = query.lowercased().trimmingCharacters(in: .whitespaces)
         let words = Set(text.split(separator: " ").map(String.init))
@@ -106,6 +120,129 @@ enum FileTools {
                             "As .m4a beside the originals", "waveform") { exportVideos(movies, preset: "PresetAppleM4A", suffix: "", ext: "m4a") })
         }
         return rows.isEmpty ? nil : rows
+    }
+
+    // MARK: Copy, move and install
+
+    /// "copy packet logger to applications", "move these to desktop", "install packet logger".
+    private static func transferResults(for query: String) -> [Item]? {
+        guard !selection.isEmpty || frontFolder != nil else { return nil }
+        let text = query.trimmingCharacters(in: .whitespaces)
+        let lowered = text.lowercased()
+        var copying = true
+        var sourceText: String
+        var destinationText: String
+        // The verb is optional: "packet logger to applications" copies. Without one, only "to" or "into"
+        // joins the two halves, and both must resolve, so "100 usd to eur" never lands here.
+        if let match = lowered.firstMatch(of: try! Regex(#"^(?:(copy|move|put|send|install)\s+(.+?)\s+(?:to|into|in)|(.+?)\s+(?:to|into))\s+(.+)$"#)),
+           let source = match.output[2].range ?? match.output[3].range, let destination = match.output[4].range {
+            copying = match.output[1].substring != "move"
+            sourceText = String(text[source])
+            destinationText = String(text[destination])
+        } else if let match = lowered.firstMatch(of: try! Regex(#"^install\s+(.+)$"#)), let source = match.output[1].range {
+            sourceText = String(text[source])
+            destinationText = "applications"
+        } else {
+            return nil
+        }
+        sourceText = sourceText.replacingOccurrences(of: "^the ", with: "", options: [.regularExpression, .caseInsensitive])
+        let sources = resolveSources(sourceText)
+        guard !sources.isEmpty, let (destination, destinationName) = resolveDestination(destinationText) else { return nil }
+
+        let verb = copying ? "Copy" : "Move"
+        let what = sources.count == 1 ? "“\(sources[0].lastPathComponent)”" : "\(sources.count) items"
+        let existing = sources.filter { FileManager.default.fileExists(atPath: destination.appendingPathComponent($0.lastPathComponent).path) }
+        let from = sources[0].deletingLastPathComponent().lastPathComponent
+        var item = row("transfer", existing.isEmpty ? "\(verb) \(what) to \(destinationName)" : "\(verb) \(what) to \(destinationName), replacing what's there",
+                       existing.isEmpty ? "From \(from)" : "The old \(existing.count == 1 ? "one goes" : "ones go") to the Trash first",
+                       copying ? "doc.on.doc" : "folder") {
+            transfer(sources, to: destination, copying: copying)
+        }
+        // Replacing something needs a second Return: the old copy goes to the Trash.
+        item.needsConfirm = !existing.isEmpty
+        return [item]
+    }
+
+    /// Letters and digits only, lower case: "Packet Logger" and "PacketLogger.app" both become "packetlogger".
+    private static func squashed(_ text: String) -> String {
+        String(text.lowercased().filter { $0.isLetter || $0.isNumber })
+    }
+
+    /// The items a request names: the selection for "this", "these" or "them", otherwise the selected item or
+    /// the item in the front Finder window whose name matches best.
+    private static func resolveSources(_ text: String) -> [URL] {
+        if ["this", "these", "them", "it", "selected", "selection", "the selection", "these files"].contains(text.lowercased()) {
+            return selection
+        }
+        let wanted = squashed(text)
+        guard !wanted.isEmpty else { return [] }
+        var candidates = selection
+        if let frontFolder, let names = try? FileManager.default.contentsOfDirectory(atPath: frontFolder.path) {
+            candidates += names.filter { !$0.hasPrefix(".") }.map { frontFolder.appendingPathComponent($0) }
+        }
+        let named = candidates.map { ($0, squashed($0.deletingPathExtension().lastPathComponent)) }
+        if let exact = named.first(where: { $0.1 == wanted }) { return [exact.0] }
+        if let start = named.first(where: { $0.1.hasPrefix(wanted) }) { return [start.0] }
+        if let inside = named.first(where: { $0.1.contains(wanted) }) { return [inside.0] }
+        return []
+    }
+
+    /// A destination folder from its everyday name, a folder in the front window, or a path.
+    private static func resolveDestination(_ text: String) -> (URL, String)? {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let known: [String: (URL, String)] = [
+            "applications": (URL(fileURLWithPath: "/Applications"), "Applications"),
+            "apps": (URL(fileURLWithPath: "/Applications"), "Applications"),
+            "desktop": (home.appendingPathComponent("Desktop"), "Desktop"),
+            "documents": (home.appendingPathComponent("Documents"), "Documents"),
+            "downloads": (home.appendingPathComponent("Downloads"), "Downloads"),
+            "pictures": (home.appendingPathComponent("Pictures"), "Pictures"),
+            "music": (home.appendingPathComponent("Music"), "Music"),
+            "movies": (home.appendingPathComponent("Movies"), "Movies"),
+            "home": (home, "your home folder"),
+            "developer": (home.appendingPathComponent("Developer"), "Developer"),
+        ]
+        let cleaned = text.lowercased().replacingOccurrences(of: "^(the|my) ", with: "", options: .regularExpression)
+            .replacingOccurrences(of: " folder$", with: "", options: .regularExpression)
+        if let found = known[cleaned] { return found }
+        if text.hasPrefix("/") || text.hasPrefix("~") {
+            let url = URL(fileURLWithPath: (text as NSString).expandingTildeInPath)
+            return isFolder(url) ? (url, url.lastPathComponent) : nil
+        }
+        // A folder by that name in the front window, then in the home folder.
+        for parent in [frontFolder, home].compactMap({ $0 }) {
+            guard let names = try? FileManager.default.contentsOfDirectory(atPath: parent.path) else { continue }
+            if let name = names.first(where: { squashed($0) == squashed(text) }) {
+                let url = parent.appendingPathComponent(name)
+                if isFolder(url) { return (url, name) }
+            }
+        }
+        return nil
+    }
+
+    private static func isFolder(_ url: URL) -> Bool {
+        var folder: ObjCBool = false
+        // An app is a folder on disk but not somewhere to put things.
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &folder) && folder.boolValue && url.pathExtension != "app"
+    }
+
+    private static func transfer(_ sources: [URL], to destination: URL, copying: Bool) {
+        let done: [URL] = sources.compactMap { source in
+            let target = destination.appendingPathComponent(source.lastPathComponent)
+            guard source.standardizedFileURL != target.standardizedFileURL else { return nil }
+            if FileManager.default.fileExists(atPath: target.path) {
+                // Recoverable: the old copy goes to the Trash, never deleted outright.
+                guard (try? FileManager.default.trashItem(at: target, resultingItemURL: nil)) != nil else { return nil }
+            }
+            do {
+                if copying { try FileManager.default.copyItem(at: source, to: target) } else { try FileManager.default.moveItem(at: source, to: target) }
+                return target
+            } catch {
+                Log.append("file tools: \(copying ? "copy" : "move") failed: \(error.localizedDescription)")
+                return nil
+            }
+        }
+        finish(done, copying ? "copy" : "move")
     }
 
     private static func row(_ id: String, _ title: String, _ subtitle: String, _ symbol: String, run: @escaping () -> Void) -> Item {

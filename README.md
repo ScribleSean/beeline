@@ -18,6 +18,7 @@ A fast Spotlight replacement for Mac that infers commands from plain text.</p>
 - Does sums, and converts units, currencies and time zones
 - Adds reminders and goals to Reminders
 - Saves your open apps, windows and tabs, and brings them back later
+- Copies, moves and installs files from the Finder window, like "packet logger to applications"
 - Compresses, renames and converts the files selected in Finder, combines PDFs, and shrinks images and videos
 - Keeps a history of what you copied
 - Listens when you hold ⌘Space
