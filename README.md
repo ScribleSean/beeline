@@ -20,6 +20,7 @@ A fast Spotlight replacement for Mac that infers commands from plain text.</p>
 - Saves your open apps, windows and tabs, and brings them back later
 - Copies, moves and installs files from the Finder window, like "packet logger to applications"
 - Compresses, renames and converts the files selected in Finder, combines PDFs, and shrinks images and videos
+- Rewrites the text selected in any app, like "make this shorter" or "translate to spanish"
 - Keeps a history of what you copied
 - Listens when you hold ⌘Space
 - Asks Claude to answer questions or plan multi-step requests, which you approve first
@@ -84,6 +85,7 @@ build/Beeline.app/Contents/MacOS/Beeline --query "night shift"       # ranked re
 build/Beeline.app/Contents/MacOS/Beeline --ai "make my mac quieter"  # the on-device model's pick
 build/Beeline.app/Contents/MacOS/Beeline --plan "mute and dark mode"  # Claude's plan, runs nothing
 build/Beeline.app/Contents/MacOS/Beeline --preview "wifi" bar.png    # render the bar to an image
+build/Beeline.app/Contents/MacOS/Beeline --rewrite "more formal" "hey u free?"  # a rewrite, replaces nothing
 ```
 
 The build signs ad hoc, so macOS may ask for permissions again after each rebuild. Set `BEELINE_SIGNING_IDENTITY` to a code-signing certificate's fingerprint to keep them.

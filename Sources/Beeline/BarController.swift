@@ -193,6 +193,8 @@ final class BarController: NSObject, NSWindowDelegate {
         } else {
             FileTools.clearSelection()
         }
+        // Rewrites act on the text selected in the app in front, read before the bar takes focus.
+        Rewrite.refreshSelection { [weak self] in self?.model.refreshInBackground() }
         Rates.shared.refreshIfStale()
         model.needsAccess = !Accessibility.isTrusted
         Chooser.prewarm()

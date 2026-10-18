@@ -84,7 +84,8 @@ final class BarModel: ObservableObject {
         askedQuery = nil
         modelPicks = []
         modelMilliseconds = nil
-        guard catalogue.needsChooser(query, found) else { return }
+        let isRewrite = Rewrite.selection != nil && Rewrite.isRequest(query)
+        guard !isRewrite, catalogue.needsChooser(query, found) else { return }
 
         let asked = query
         askedQuery = asked
@@ -118,12 +119,13 @@ final class BarModel: ObservableObject {
     /// The model's picks first, then whatever word matching found that it did not.
     private func merged(_ picks: [Item], _ found: [Item]) -> [Item] {
         let picked = Set(picks.map(\.id))
-        return Array((picks + found.filter { !picked.contains($0.id) && $0.id != Self.claudeRowID }).prefix(6))
+        return Array((picks + found.filter { !picked.contains($0.id) && $0.id != Self.claudeRowID && $0.id != Self.rewriteRowID }).prefix(6))
     }
 
     // MARK: Claude plans
 
     static let claudeRowID = "ask-claude"
+    static let rewriteRowID = "rewrite-selection"
 
     /// The steps Claude proposed, waiting for Return. Nothing in a plan runs before that.
     @Published var plan: Plan?
@@ -136,7 +138,11 @@ final class BarModel: ObservableObject {
     /// Claude's reply to a question, shown in the bar. Return copies it.
     @Published var claudeAnswer: String?
 
-    var isShowingPlan: Bool { plan != nil || isAskingClaude || planProblem != nil || claudeAnswer != nil }
+    /// The selected text as Claude rewrote it, waiting for Return to replace the selection.
+    @Published var rewritten: String?
+    private var rewriteTarget: pid_t = 0
+
+    var isShowingPlan: Bool { plan != nil || isAskingClaude || planProblem != nil || claudeAnswer != nil || rewritten != nil }
 
     /// Shown while listening, or why listening could not start.
     @Published var voiceNote: String?
@@ -155,6 +161,14 @@ final class BarModel: ObservableObject {
 
     /// Adds the "Ask Claude" row under the results once the request is more than a single word.
     private func decorated(_ items: [Item]) -> [Item] {
+        // With text selected, a request like "make this shorter" is about that text, so its row leads.
+        if Settings.isOn(Settings.offerClaude), let selection = Rewrite.selection, Rewrite.isRequest(query) {
+            let preview = selection.text.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+            let row = Item(id: Self.rewriteRowID, kind: .action, verb: "", title: "Rewrite the selected text",
+                           subtitle: "“\(preview.prefix(60))\(preview.count > 60 || selection.text.contains("\n") ? "…" : "")”",
+                           keywords: "", icon: NSImage(systemSymbolName: "text.cursor", accessibilityDescription: nil), run: {})
+            return [row] + items.filter { $0.id != Self.claudeRowID }
+        }
         let words = query.split(separator: " ").count
         // An answer is complete on its own; Claude has nothing to add to "12 miles in km".
         guard words >= 2, Settings.isOn(Settings.offerClaude), items.first?.kind != .calculation else { return items }
@@ -178,6 +192,23 @@ final class BarModel: ObservableObject {
             self.isAskingClaude = false
             switch result {
             case .success(let text): self.claudeAnswer = text
+            case .failure(.message(let message)): self.planProblem = message
+            }
+        }
+    }
+
+    private func askRewrite() {
+        guard let selection = Rewrite.selection else { return }
+        clearPlan()
+        isAskingClaude = true
+        let asked = query
+        rewriteTarget = selection.app
+        planning = Task { @MainActor [weak self] in
+            let result = await Rewrite.ask(asked, text: selection.text)
+            guard let self, !Task.isCancelled, asked == self.query else { return }
+            self.isAskingClaude = false
+            switch result {
+            case .success(let text): self.rewritten = text
             case .failure(.message(let message)): self.planProblem = message
             }
         }
@@ -219,6 +250,7 @@ final class BarModel: ObservableObject {
         isAskingClaude = false
         planProblem = nil
         claudeAnswer = nil
+        rewritten = nil
     }
 
     /// The irreversible action waiting for a second Return, if any.
@@ -228,6 +260,10 @@ final class BarModel: ObservableObject {
     func run(_ item: Item) {
         if item.id == Self.claudeRowID {
             askClaude()
+            return
+        }
+        if item.id == Self.rewriteRowID {
+            askRewrite()
             return
         }
         if item.needsConfirm, armedID != item.id {
@@ -248,6 +284,13 @@ final class BarModel: ObservableObject {
     func runSelected() {
         if let plan {
             onRunPlan(plan)
+            return
+        }
+        if let rewritten {
+            let target = rewriteTarget
+            onRun(Item(id: "rewrite", kind: .calculation, verb: "", title: "", subtitle: "", keywords: "", icon: nil) {
+                Rewrite.replace(with: rewritten, in: target)
+            })
             return
         }
         if let claudeAnswer {
@@ -541,11 +584,12 @@ private struct PlanSection: View {
                 status(icon: AnyView(ProgressView().controlSize(.small)), text: "Asking Claude…", key: "esc to cancel")
             } else if let problem = model.planProblem {
                 status(icon: AnyView(Image(systemName: "exclamationmark.circle")), text: problem, key: "esc to go back")
-            } else if let answer = model.claudeAnswer {
+            } else if let answer = model.claudeAnswer ?? model.rewritten {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 6) {
                         Image(systemName: "sparkles").foregroundStyle(Theme.accent)
-                        Text("Claude").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+                        Text(model.rewritten == nil ? "Claude" : "Rewritten by Claude · nothing replaced yet")
+                            .font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
                     }
                     Text(answer)
                         .font(.system(size: 15))
@@ -558,7 +602,7 @@ private struct PlanSection: View {
                 .background(Theme.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.yellow, lineWidth: 1.5))
                 HStack {
-                    Text("↩ copy").foregroundStyle(.secondary)
+                    Text(model.rewritten == nil ? "↩ copy" : "↩ replace the selection").foregroundStyle(.secondary)
                     Spacer()
                     Text("esc back").foregroundStyle(.secondary)
                 }

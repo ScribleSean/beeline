@@ -342,7 +342,15 @@ enum FileTools {
         let made: [URL] = movies.compactMap { url in
             let output = unique(url.deletingLastPathComponent()
                 .appendingPathComponent(url.deletingPathExtension().lastPathComponent + suffix + "." + ext))
-            return run("/usr/bin/avconvert", ["--source", url.path, "--preset", preset, "--output", output.path]).ok ? output : nil
+            guard run("/usr/bin/avconvert", ["--source", url.path, "--preset", preset, "--output", output.path]).ok else { return nil }
+            // The presets encode at a fixed quality, so a video that was already well compressed can come out
+            // bigger. A "smaller" copy that isn't is no use: it is removed and the chore counts as failed.
+            if suffix == " 720p", let before = size(of: url), let after = size(of: output), after >= before {
+                try? FileManager.default.removeItem(at: output)
+                Log.append("file tools: 720p copy was not smaller, removed")
+                return nil
+            }
+            return output
         }
         finish(made, "video export")
     }
@@ -355,11 +363,15 @@ enum FileTools {
         // The command-line test mode prints instead of opening Finder windows.
         if ProcessInfo.processInfo.environment["BEELINE_FILES_TEST"] != nil {
             print("made: " + made.map(\.lastPathComponent).joined(separator: ", "))
-            return
+            exit(0)
         }
         DispatchQueue.main.async {
             if made.isEmpty { NSSound.beep() } else { NSWorkspace.shared.activateFileViewerSelecting(made) }
         }
+    }
+
+    private static func size(of url: URL) -> Int? {
+        (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int
     }
 
     /// The same name with " 2", " 3" … added when a file of that name already exists.

@@ -15,6 +15,23 @@ if let flag = CommandLine.arguments.firstIndex(of: "--query"), CommandLine.argum
     exit(0)
 }
 
+// `Beeline --rewrite "make this shorter" "some text"` shows whether the bar would offer a rewrite, then
+// prints Claude's rewrite. Replaces nothing.
+if let flag = CommandLine.arguments.firstIndex(of: "--rewrite"), CommandLine.arguments.count > flag + 2 {
+    let instruction = CommandLine.arguments[flag + 1]
+    print(Rewrite.isRequest(instruction) ? "offered: Rewrite the selected text" : "not offered")
+    let done = DispatchSemaphore(value: 0)
+    Task {
+        switch await Rewrite.ask(instruction, text: CommandLine.arguments[flag + 2]) {
+        case .success(let text): print("---\n\(text)")
+        case .failure(.message(let message)): print("failed: \(message)")
+        }
+        done.signal()
+    }
+    done.wait()
+    exit(0)
+}
+
 // `Beeline --controls Safari` lists the controls Beeline would offer in that app's front window. Presses nothing.
 if let flag = CommandLine.arguments.firstIndex(of: "--controls"), CommandLine.arguments.count > flag + 1 {
     let name = CommandLine.arguments[flag + 1]
@@ -91,10 +108,11 @@ if let flag = CommandLine.arguments.firstIndex(of: "--files"), CommandLine.argum
     for item in rows {
         print("\(item.needsConfirm ? "!" : " ") \(item.title)  [\(item.subtitle)]")
     }
-    // With BEELINE_FILES_TEST set, the first chore is run too, and what it made is printed.
+    // With BEELINE_FILES_TEST set, the first chore is run too, and what it made is printed when it finishes.
     if ProcessInfo.processInfo.environment["BEELINE_FILES_TEST"] != nil, let first = rows.first {
         first.run()
-        RunLoop.main.run(until: Date().addingTimeInterval(8))
+        RunLoop.main.run(until: Date().addingTimeInterval(600))
+        print("gave up waiting")
     }
     exit(0)
 }
