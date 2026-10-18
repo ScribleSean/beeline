@@ -8,6 +8,15 @@ final class Semantic {
     private let word = NLEmbedding.wordEmbedding(for: .english)
     private var vectors: [String: [Double]] = [:]
     private let lock = NSLock()
+    /// The embeddings are not safe to use from two threads at once: overlapping calls corrupt memory and crash.
+    /// Every call into them goes through this lock. Each takes a few milliseconds, so waits stay short.
+    private let modelLock = NSLock()
+
+    private func sentenceVector(_ text: String) -> [Double]? {
+        modelLock.lock()
+        defer { modelLock.unlock() }
+        return sentence?.vector(for: text)
+    }
 
     /// Similarity below this is treated as unrelated. Set high on purpose: on sample requests,
     /// nonsense input scored up to 0.63 and correct matches from 0.62 to 0.79, so the model
@@ -23,7 +32,7 @@ final class Semantic {
 
     /// Computes and stores vectors for new texts. Each takes about 2 ms, so call this off the main thread.
     func prepare(_ items: [Item], permanent keep: Bool = false) {
-        guard let sentence else { return }
+        guard sentence != nil else { return }
         if keep {
             lock.lock()
             permanent.formUnion(items.map(Self.text(for:)))
@@ -34,7 +43,7 @@ final class Semantic {
             lock.lock()
             let known = vectors[text] != nil
             lock.unlock()
-            guard !known, let vector = sentence.vector(for: text) else { continue }
+            guard !known, let vector = sentenceVector(text) else { continue }
             let unit = Self.normalised(vector)
             lock.lock()
             vectors[text] = unit
@@ -49,7 +58,7 @@ final class Semantic {
     /// The items closest in meaning to the query, best first, with their similarity from 0 to 1.
     func rank(_ query: String, in items: [Item], limit: Int, minimum: Double? = nil) -> [(item: Item, similarity: Double)] {
         let cutoff = minimum ?? cutoff
-        guard let sentence, let raw = sentence.vector(for: query) else { return [] }
+        guard sentence != nil, let raw = sentenceVector(query) else { return [] }
         let queryVector = Self.normalised(raw)
         let queryWords = Self.words(query)
 
@@ -74,6 +83,8 @@ final class Semantic {
     private func bestWordSimilarity(_ a: [String], _ b: [String]) -> Double {
         guard let word else { return 0 }
         var best = 0.0
+        modelLock.lock()
+        defer { modelLock.unlock() }
         for x in a where x.count >= 3 {
             for y in b where y.count >= 3 {
                 let distance = word.distance(between: x, and: y, distanceType: .cosine)
