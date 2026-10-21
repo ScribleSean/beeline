@@ -1,36 +1,50 @@
-<p align="center"><img src="docs/icon.png" width="112" alt=""></p>
+<p align="center"><img src="docs/images/icon.png" width="112" alt=""></p>
 
 <h1 align="center">Beeline</h1>
 
-<p align="center"><b>Beeline to anything.</b><br>
-A Mac assistant you type to or talk to. It works out what you mean, and a bee shows where it acts.</p>
+<p align="center"><b>Type, or hold ⌘Space and talk. A bee shows where Beeline acts.</b><br>
+A Mac assistant that works out what you mean and does it, on your Mac.</p>
 
-<p align="center"><img src="docs/bar.png" width="640" alt="Beeline searching for wifi: Wi-Fi settings first, then the actions to turn Wi-Fi off or on"></p>
+<p align="center"><img src="docs/images/bar.png" width="640" alt="Beeline searching for wifi: Wi-Fi settings first, then the actions to turn Wi-Fi off or on"></p>
 
 ## What it does
 
-- Opens apps, files, browser tabs and windows
-- Opens System Settings pages from everyday words, like "night shift"
-- Runs menu commands and presses buttons in the app in front
-- Sleeps, locks, mutes, switches dark mode and Wi-Fi, quits apps
-- Moves the front window to half or full screen
-- Closes browser tabs that match what you type
-- Does sums, and converts units, currencies and time zones
-- Adds reminders and goals to Reminders
-- Saves your open apps, windows and tabs, and brings them back later
-- Copies, moves and installs files from the Finder window, like "packet logger to applications"
-- Compresses, renames and converts the files selected in Finder, combines PDFs, and shrinks images and videos
-- Rewrites the text selected in any app, like "make this shorter" or "translate to spanish"
-- Keeps a history of what you copied
-- Listens when you hold ⌘Space, with your words filling the bar as you speak
-- Shows where it acts: a small bee flies to the button, menu or window first, then Beeline presses it. Your pointer never moves
-- Asks Claude to answer questions or plan multi-step requests, which you approve first
-- Learns what you pick and puts it first
+- **Opens anything:** apps, files, browser tabs, windows, and System Settings pages from everyday words like "night shift"
+- **Acts in the app in front:** runs its menu commands and presses its buttons, like "show ruler" in TextEdit
+- **Controls the Mac:** sleep, lock, mute, dark mode, Wi-Fi, quitting apps, and moving the front window to half or full screen
+- **Answers on the spot:** sums, units, currencies and time zones
+- **Handles chores:** reminders and goals, saved desktops of apps, windows and tabs, file moves and copies from Finder, compressing, renaming, converting and shrinking files, and rewriting selected text in any app
+- **Listens:** hold ⌘Space and speak; your words fill the bar as you talk
+- **Plans with Claude:** asks Claude to answer a question or plan a multi-step request, which you see and approve before anything runs
+- **Learns:** what you pick for a phrase comes first next time
 
 <p align="center">
-  <img src="docs/answer.png" width="49%" alt="A currency conversion shown as a large answer">
-  <img src="docs/plan.png" width="49%" alt="A three-step plan from Claude with Cancel and Run buttons">
+  <img src="docs/images/answer.png" width="49%" alt="A currency conversion shown as a large answer">
+  <img src="docs/images/plan.png" width="49%" alt="A three-step plan from Claude with Cancel and Run buttons">
 </p>
+
+## The bee
+
+When Beeline is about to press something on screen, a small bee flies there first, a yellow ring settles on the target, and a label says what it is about to do. Then it acts. Your own pointer never moves.
+
+<p align="center"><img src="docs/images/live-bar.png" width="560" alt="The bar with “show ruler” typed and TextEdit's Show Ruler command as the top hit"></p>
+<p align="center"><img src="docs/images/bee-flight.png" width="560" alt="The bee in flight over a TextEdit document"></p>
+<p align="center"><img src="docs/images/bee-landed.png" width="560" alt="The bee beside TextEdit's Format menu, ringed in yellow, with the label Run Show Ruler"></p>
+
+You stay in charge while it works:
+
+- **Escape, in any app,** stops it. Beeline only watches for Escape and never swallows it, so it still reaches the app in front.
+- **Your own click or keypress** stops it too: you have taken over. Moving the pointer doesn't.
+- **The target is checked again** when the bee lands. If the window changed on the way, nothing is pressed.
+
+The bee goes only to things with a place on screen: buttons, fields, menu commands and windows. Opening an app or a setting happens at once. Turn the bee off in Settings, and with Reduce Motion on it appears in place instead of flying.
+
+## How it works
+
+- **Matching happens on your Mac.** Beeline reads your apps, settings, windows and tabs, plus the front app's menus and buttons through Accessibility, and ranks them against what you type. The on-device language model rewrites loose requests into search words.
+- **Speech is recognised on your Mac.** Without on-device recognition for your language, Beeline doesn't listen at all.
+- **Claude only picks from a list.** For a plan, Claude sees numbered options built from what is on your Mac and replies with option numbers. It has no tools and cannot run anything. You see every step before pressing Run.
+- **Anything that can't be undone asks twice:** emptying the Trash, restarting, shutting down, logging out, ejecting disks, closing several tabs, replacing a file, and buttons or menu commands like Delete, Send, Don't Save, Close All Tabs, or OK in a dialog.
 
 ## Install
 
@@ -42,7 +56,25 @@ cd beeline
 bash scripts/build-app.sh && open build/Beeline.app
 ```
 
-To open it with ⌘Space, turn off Spotlight's shortcut in System Settings › Keyboard › Keyboard Shortcuts. Ask Claude needs [Claude Code](https://claude.com/claude-code) signed in. **Update Beeline** in the menu bar keeps it current.
+The welcome screen walks you through Accessibility. **Update Beeline** in the menu bar pulls the newest version and rebuilds it. Ask Claude needs [Claude Code](https://claude.com/claude-code) signed in on the same Mac.
+
+### ⌘Space and Spotlight
+
+Spotlight owns ⌘Space until you turn its shortcut off in System Settings › Keyboard › Keyboard Shortcuts › Spotlight. Until then Beeline opens with ⌥Space and says so; the welcome screen has a button that takes you to the right page. You can choose ⌘, ⌥ or ⌃Space in Settings.
+
+## Permissions
+
+macOS asks the first time a feature needs one. Nothing else is needed: no Input Monitoring and no Screen Recording.
+
+| Permission | Why |
+| --- | --- |
+| Accessibility | To read windows, menus and buttons in other apps and press them, paste, lock the screen, and watch for Escape while the bee works |
+| Automation | To read and switch browser tabs, switch dark mode, read Finder's selection, and empty the Trash |
+| Files & Folders | For file chores on the Desktop, Documents and Downloads |
+| Reminders | To add reminders and goals |
+| Microphone and Speech Recognition | To hear you while you hold ⌘Space |
+
+Without Accessibility, Lock Screen and paste say so instead of doing nothing. Restart, Shut Down and Log Out need no permission, and Eject uses the system directly.
 
 ## Privacy
 
@@ -53,20 +85,6 @@ Beeline runs on your Mac. It goes online only for:
 - **Search the web,** when you choose it, in your browser.
 
 Clipboard history stays in memory and ends when Beeline quits. Anything a password manager marks as private is never kept. What you pick, with the words you typed to find it, is remembered in `~/Library/Application Support/Beeline` so it ranks first next time; reminders, web searches, desktops and file chores are not recorded. Settings can clear it. Saved desktops (app, window and tab names) live in the same folder.
-
-## Permissions
-
-macOS asks the first time a feature needs one.
-
-| Permission | For |
-| --- | --- |
-| Accessibility | Windows, menu commands, buttons, pasting, Lock Screen |
-| Automation | Browser tabs, dark mode, Finder's selection, emptying the Trash |
-| Files & Folders | File chores on the Desktop, Documents and Downloads |
-| Reminders | Reminders and goals |
-| Microphone and Speech Recognition | Holding ⌘Space to talk |
-
-Without Accessibility, Lock Screen and paste say so instead of doing nothing. Restart, Shut Down and Log Out need no permission; Eject uses the system directly.
 
 ## Keys
 
@@ -79,13 +97,9 @@ Without Accessibility, Lock Screen and paste say so instead of doing nothing. Re
 | esc | Back, then close |
 | esc, in any app | Stop what the bee is doing |
 
-Clicking or typing yourself while the bee works also stops it: you have taken over. Moving the pointer doesn't. Beeline only watches for Escape and never swallows it, so it still works in the app in front. The bee can be turned off in Settings.
-
-Anything that can't be undone asks for a second ↩: emptying the Trash, restarting, shutting down, logging out, closing several tabs, replacing a file, and buttons or menu commands like Delete, Send or Don't Save (and any button in a dialog).
-
 ## Development
 
-Everything is in `Sources/Beeline`. These check behaviour without opening the bar:
+Everything is in `Sources/Beeline`. Tests run with `swift test`. These check behaviour without opening the bar:
 
 ```sh
 build/Beeline.app/Contents/MacOS/Beeline --query "night shift"       # ranked results
@@ -95,9 +109,11 @@ build/Beeline.app/Contents/MacOS/Beeline --preview "wifi" bar.png    # render th
 build/Beeline.app/Contents/MacOS/Beeline --rewrite "more formal" "hey u free?"  # a rewrite, replaces nothing
 ```
 
-Tests run with `swift test`.
+`bash scripts/live-check.sh` checks the bee on a real screen, hands-free. It runs Beeline in a throwaway TextEdit document it opens and closes itself, presses only TextEdit's ruler and zoom commands, takes screenshots, and reports pass or fail for a press, a two-step plan, Escape and a click mid-flight, and the Spotlight card. It needs the app installed in `~/Applications` with Accessibility, and Screen Recording for the terminal.
 
-Each ad hoc build is a new app to macOS, so its permissions stop working after a rebuild even though System Settings still shows Beeline switched on; the fix is to remove Beeline from the list with − and add it again. To keep permissions across rebuilds, put a code-signing certificate's name or fingerprint in an untracked `.signing-identity` file in this folder. (`BEELINE_SIGNING_IDENTITY` works too, but only for builds started from a shell that sets it: **Update Beeline** never sees variables from `~/.zshrc`.) The build prints a warning when it signs ad hoc.
+Each ad hoc build is a new app to macOS, so its permissions stop working after a rebuild even though System Settings still shows Beeline switched on; the fix is to remove Beeline from the list with − and add it again. To keep permissions across rebuilds, put a code-signing certificate's name or fingerprint in an untracked `.signing-identity` file in this folder (git worktrees use the main checkout's). `BEELINE_SIGNING_IDENTITY` works too, but only for builds started from a shell that sets it: **Update Beeline** never sees variables from `~/.zshrc`. The build prints a warning when it signs ad hoc.
+
+How the bee and the stop rules came about is in [docs/VOICE-MERGE.md](docs/VOICE-MERGE.md), which records how an earlier voice-control prototype was folded in.
 
 ## License
 
