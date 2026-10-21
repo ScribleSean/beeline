@@ -9,17 +9,20 @@ enum Actions {
         let symbol: String
         let keywords: String
         var needsConfirm = false
+        var confirmNote: String?
         let run: () -> Void
     }
 
     private static let definitions: [Definition] = [
-        Definition(title: "Sleep", symbol: "moon.zzz", keywords: "mac computer laptop suspend rest") {
+        // Generic words like "mac" or "computer" are left out of keywords on purpose: "comp" must not put
+        // the Mac to sleep.
+        Definition(title: "Sleep", symbol: "moon.zzz", keywords: "suspend rest nap") {
             run("/usr/bin/pmset", "sleepnow")
         },
         Definition(title: "Sleep Display", symbol: "display", keywords: "screen off monitor turn off dim") {
             run("/usr/bin/pmset", "displaysleepnow")
         },
-        Definition(title: "Lock Screen", symbol: "lock", keywords: "lock mac computer secure away") {
+        Definition(title: "Lock Screen", symbol: "lock", keywords: "lock secure away") {
             pressKey(kVK_ANSI_Q, flags: [.maskCommand, .maskControl])
         },
         Definition(title: "Start Screen Saver", symbol: "sparkles.tv", keywords: "screensaver") {
@@ -64,14 +67,19 @@ enum Actions {
         Definition(title: "Empty Trash", symbol: "trash", keywords: "bin delete rubbish clear", needsConfirm: true) {
             script("tell application \"Finder\" to empty trash")
         },
-        // These three ask macOS to show its own confirmation dialog, so nothing happens on one keypress.
-        Definition(title: "Restart", symbol: "arrow.clockwise", keywords: "reboot mac computer") {
+        // These three need Return twice. macOS shows its own dialog too, but that one goes ahead by itself
+        // after 60 seconds, so it is no safety net for a Return pressed by mistake. Keywords are matched
+        // whole for anything that needs confirming: "logo" or "sign" must never surface Log Out.
+        Definition(title: "Restart", symbol: "arrow.clockwise", keywords: "reboot", needsConfirm: true,
+                   confirmNote: "Open apps close. macOS asks once more, then goes ahead on its own after a minute.") {
             script("tell application \"loginwindow\" to «event aevtrrst»")
         },
-        Definition(title: "Shut Down", symbol: "power", keywords: "power off turn off mac computer shutdown") {
+        Definition(title: "Shut Down", symbol: "power", keywords: "poweroff shutdown", needsConfirm: true,
+                   confirmNote: "Open apps close. macOS asks once more, then goes ahead on its own after a minute.") {
             script("tell application \"loginwindow\" to «event aevtrsdn»")
         },
-        Definition(title: "Log Out", symbol: "rectangle.portrait.and.arrow.right", keywords: "sign out logout user") {
+        Definition(title: "Log Out", symbol: "rectangle.portrait.and.arrow.right", keywords: "signout logout", needsConfirm: true,
+                   confirmNote: "Open apps close. macOS asks once more, then goes ahead on its own after a minute.") {
             script("tell application \"loginwindow\" to «event aevtlogo»")
         },
     ]
@@ -83,6 +91,7 @@ enum Actions {
                             icon: NSImage(systemSymbolName: definition.symbol, accessibilityDescription: nil),
                             run: definition.run)
             item.needsConfirm = definition.needsConfirm
+            item.confirmNote = definition.confirmNote
             return item
         }
     }

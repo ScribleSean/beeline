@@ -316,7 +316,8 @@ final class Catalogue {
             guard var score = Matcher.score(item, parsed) else { return nil }
             // A menu command or a button acts on the app in front the moment Return is pressed, and can be
             // something like Close All. It is only offered when every typed word matches it, never as a guess.
-            if item.kind == .menu || item.kind == .control, !score.isComplete { return nil }
+            // The same goes for anything that needs a second Return: "restart chrome" must not offer Restart.
+            if item.kind == .menu || item.kind == .control || item.needsConfirm, !score.isComplete { return nil }
             // Files are plentiful and loosely named, so they need every word.
             if item.kind == .file, !score.isComplete { return nil }
             score.value += usage.habitBoost(for: item)
@@ -351,8 +352,9 @@ final class Catalogue {
 
         // Meaning is the last resort, used only when the words typed matched nothing at all.
         if results.isEmpty, parsed.tokens.contains(where: { $0.count >= 3 }) {
-            // Menu commands and window buttons act at once, so they are never offered as a guess by meaning.
-            let guessable = all.filter { $0.kind != .menu && $0.kind != .control }
+            // Menu commands and window buttons act at once, so they are never offered as a guess by meaning,
+            // and nor is anything drastic enough to need a second Return.
+            let guessable = all.filter { $0.kind != .menu && $0.kind != .control && !$0.needsConfirm }
             let pool = parsed.hint.map { hint in guessable.filter { $0.kind == hint } } ?? guessable
             results = semantic.rank(parsed.tokens.joined(separator: " "), in: pool, limit: 2).map { guess in
                 var item = guess.item
@@ -411,7 +413,7 @@ final class Catalogue {
     func needsChooser(_ query: String, _ results: [Item]) -> Bool {
         // A question wants an answer, not a guessed app: "how far is the moon" must not become Safari.
         if Matcher.isQuestion(query) { return false }
-        guard Settings.isOn(Settings.useOnDeviceModel) else { return false }
+        guard Settings.isOn(Settings.useOnDeviceModel), Chooser.isAvailable else { return false }
         guard Matcher.parse(query).tokens.contains(where: { $0.count >= 3 }) else { return false }
         return results.first?.isGuess ?? true
     }
@@ -436,8 +438,11 @@ final class Catalogue {
         guard !words.isEmpty else { return [] }
         let expanded = Matcher.Parsed(tokens: words, hint: parsed.hint)
 
-        // Menu commands are left out: a guess must never be one keypress from Close All.
-        return (actions + settings + tabs + windows + tiles + apps)
+        // Menu commands are left out: a guess must never be one keypress from Close All. Nor is anything
+        // that needs a second Return, or an action at all unless the model added words of its own: a guess
+        // scored on the typed words alone ("sleep apnea article") must not bring Sleep back.
+        let candidates = (actions.filter { !$0.needsConfirm && !extra.isEmpty } + settings + tabs + windows + tiles + apps)
+        return candidates
             .compactMap { item in Matcher.score(item, expanded, anyWord: true).map { (item, $0.value) } }
             .sorted { $0.1 > $1.1 }
             .prefix(3)
@@ -469,7 +474,7 @@ final class Catalogue {
                 options.append(PlanStep(text: "Close \(name)", icon: tab.icon, run: close, closingTabIndex: tab.tabIndex))
             }
         }
-        for item in actions + quits where !item.needsConfirm && !["Restart", "Shut Down", "Log Out"].contains(item.title) {
+        for item in actions + quits where !item.needsConfirm {
             options.append(PlanStep(text: item.title, icon: item.icon, run: item.run))
         }
         for item in settings {
