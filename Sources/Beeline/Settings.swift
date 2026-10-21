@@ -10,6 +10,8 @@ enum Settings {
     static let learnFromUse = "learnFromUse"
     static let clipboardHistory = "clipboardHistory"
     static let holdToTalk = "holdToTalk"
+    /// Whether the bee flies to what Beeline is about to act on.
+    static let showBee = "showBee"
     /// Which modifier opens the bar with Space: "command", "option" or "control".
     static let shortcut = "shortcut"
     /// "system", "light" or "dark".
@@ -28,7 +30,7 @@ enum Settings {
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
             showDetails: false, useOnDeviceModel: true, offerClaude: true, learnFromUse: true,
-            clipboardHistory: true, holdToTalk: true, shortcut: "command", appearance: "system", welcomed: false,
+            clipboardHistory: true, holdToTalk: true, showBee: true, shortcut: "command", appearance: "system", welcomed: false,
         ])
     }
 
@@ -129,6 +131,7 @@ private struct SettingsView: View {
     @AppStorage(Settings.shortcut) private var shortcut = "command"
     @AppStorage(Settings.appearance) private var appearance = "system"
     @AppStorage(Settings.holdToTalk) private var holdToTalk = true
+    @AppStorage(Settings.showBee) private var showBee = true
     @AppStorage(Settings.showDetails) private var showDetails = false
     @AppStorage(Settings.useOnDeviceModel) private var useOnDeviceModel = true
     @AppStorage(Settings.offerClaude) private var offerClaude = true
@@ -151,6 +154,9 @@ private struct SettingsView: View {
                 .onChange(of: shortcut) { NotificationCenter.default.post(name: Settings.shortcutChanged, object: nil) }
                 Toggle(isOn: $holdToTalk) {
                     label("Hold the shortcut to talk", "Speak instead of typing. Recognised on this Mac.")
+                }
+                Toggle(isOn: $showBee) {
+                    label("Show the bee", "It flies to what Beeline is about to press. Esc stops it from any app.")
                 }
                 Picker(selection: $appearance) {
                     Text("System").tag("system")

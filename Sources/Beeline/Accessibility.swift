@@ -36,6 +36,7 @@ enum Accessibility {
                 var item = Item(id: "window:\(app.processIdentifier):\(index)", kind: .window, verb: "Switch to window",
                                 title: title, subtitle: name, keywords: name, icon: app.icon, run: raise)
                 item.isCurrentWindow = focused.map { CFEqual($0, window) } ?? false
+                item.target = { frame(of: window) }
                 item.tile = { side in
                     raise()
                     place(window, side)
@@ -137,7 +138,10 @@ enum Accessibility {
         let menus: [AXUIElement] = attribute(menuBar, kAXChildrenAttribute) ?? []
         for menu in menus.dropFirst() {
             guard let title: String = attribute(menu, kAXTitleAttribute), !title.isEmpty else { continue }
+            let first = items.count
             walk(menu, path: [title], depth: 1)
+            // A closed menu's commands have no place on screen; the bee goes to the menu's title instead.
+            for index in first..<items.count { items[index].target = { frame(of: menu) } }
         }
         return items
     }

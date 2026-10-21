@@ -150,7 +150,7 @@ enum Desktops {
                 let windows: [AXUIElement] = Accessibility.attribute(element, kAXWindowsAttribute) ?? []
                 let saved: [Window] = windows.compactMap { window in
                     let minimized: Bool = Accessibility.attribute(window, kAXMinimizedAttribute) ?? false
-                    guard !minimized, let frame = frame(of: window) else { return nil }
+                    guard !minimized, let frame = Accessibility.frame(of: window) else { return nil }
                     let document: String? = Accessibility.attribute(window, kAXDocumentAttribute)
                     return Window(title: Accessibility.attribute(window, kAXTitleAttribute) ?? "", frame: frame,
                                   document: document.flatMap { URL(string: $0)?.path })
@@ -189,14 +189,6 @@ enum Desktops {
         }
     }
 
-    private static func frame(of window: AXUIElement) -> CGRect? {
-        var origin = CGPoint.zero
-        var size = CGSize.zero
-        guard let position: AXValue = Accessibility.attribute(window, kAXPositionAttribute),
-              let extent: AXValue = Accessibility.attribute(window, kAXSizeAttribute),
-              AXValueGetValue(position, .cgPoint, &origin), AXValueGetValue(extent, .cgSize, &size) else { return nil }
-        return CGRect(origin: origin, size: size)
-    }
 
     // MARK: Restoring
 

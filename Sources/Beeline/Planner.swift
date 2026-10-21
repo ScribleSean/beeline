@@ -12,6 +12,8 @@ struct PlanStep: Identifiable {
     var stillValid: (() -> Bool)?
     /// Checked after the step settles: false means it did not take effect, and the plan stops.
     var succeeded: (() -> Bool)?
+    /// Where the step acts on screen, in Accessibility coordinates, for the bee. Nil when it has no place.
+    var target: (() -> CGRect?)?
 }
 
 struct Plan {

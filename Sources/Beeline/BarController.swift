@@ -30,19 +30,20 @@ final class BarController: NSObject, NSWindowDelegate {
     override init() {
         super.init()
         model.onRun = { [weak self] item in
+            guard let self else { return }
             // Words still arriving from a hold must not land in a bar that has moved on.
-            self?.voice.cancel()
-            self?.hide()
-            // A button or menu command that changed since the bar opened is not pressed.
-            if !item.runIfValid() {
-                NSSound.beep()
-                Log.append("skipped a \(item.kind) whose target changed")
-            }
+            self.voice.cancel()
+            let origin = self.beeOrigin
+            self.hide()
+            self.perform(item, from: origin)
         }
         model.onRunPlan = { [weak self] plan in
-            self?.hide()
-            self?.execute(plan)
+            guard let self else { return }
+            let origin = self.beeOrigin
+            self.hide()
+            self.execute(plan, from: origin)
         }
+        runGuard.onStop = { [weak self] reason in self?.runStopped(reason) }
         model.onRequestAccess = { [weak self] in
             self?.hide()
             Accessibility.requestAccess()
@@ -69,8 +70,8 @@ final class BarController: NSObject, NSWindowDelegate {
             switch Int(event.keyCode) {
             case kVK_Escape:
                 // The first Escape backs out of a plan; the second closes the bar. A plan still running stops.
-                if let running = self.planTask, !running.isCancelled {
-                    self.stopPlan()
+                if self.runGuard.isRunning {
+                    self.runGuard.stop(.escape)
                 } else if self.model.isShowingPlan {
                     self.model.clearPlan()
                 } else if self.model.armedID != nil {
@@ -89,51 +90,122 @@ final class BarController: NSObject, NSWindowDelegate {
     }
 
     private var isShown = false
-    /// The plan being run, so Escape or a new plan can stop it. Two plans never run at once.
-    private var planTask: Task<Void, Never>?
+    private let bee = Bee()
+    /// Watches whatever is running on your behalf, so Escape or your own click stops it from any app.
+    private let runGuard = RunGuard()
+    /// The action or plan being run. Two never run at once.
+    private var runTask: Task<Void, Never>?
+    /// True while the run is a plan, whose stop is reported in the bar if it is open.
+    private var runIsPlan = false
 
-    /// Runs a plan one step at a time, in the order previewed. Each step is checked before it runs and,
-    /// where it can be, after it settles. On the first step that can't run or didn't work, the plan stops
-    /// and the bar reopens to say which one.
-    private func execute(_ plan: Plan) {
-        planTask?.cancel()
-        planTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            for (index, step) in plan.steps.enumerated() {
-                // Sleeping swallows cancellation, so it is checked by hand between steps.
-                if Task.isCancelled { return }
-                if let stillValid = step.stillValid, !stillValid() {
-                    self?.reportStop(at: index, of: plan, reason: "it's no longer on screen")
-                    return
-                }
-                step.run()
-                try? await Task.sleep(nanoseconds: UInt64(step.settleTime * 1_000_000_000))
-                if Task.isCancelled { return }
-                if let succeeded = step.succeeded, !succeeded() {
-                    // Give a slow app a little longer before calling it a failure.
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    if Task.isCancelled { return }
-                    if !succeeded() {
-                        self?.reportStop(at: index, of: plan, reason: "it didn't take effect")
-                        return
-                    }
-                }
+    /// Where the bee sets off from: the search field's icon, while the bar is still on screen.
+    private var beeOrigin: CGPoint? {
+        guard isShown else { return nil }
+        return CGPoint(x: panel.frame.minX + 34, y: panel.frame.maxY - 41)
+    }
+
+    /// Runs one item. Something with a place on screen gets the bee first: it flies there, rings it, and
+    /// then the item runs, so you see where Beeline acts before it does. Everything else runs at once.
+    private func perform(_ item: Item, from origin: CGPoint?) {
+        guard Bee.isEnabled, let find = item.target, item.stillValid?() ?? true, let target = find() else {
+            runNow(item)
+            return
+        }
+        let run = runGuard.begin()
+        runIsPlan = false
+        runTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let landed = await self.bee.fly(to: target, saying: BeeLabel.text(for: item), from: origin)
+            guard landed, self.runGuard.isCurrent(run) else { return }
+            self.runGuard.end(run)
+            self.runTask = nil
+            if self.runNow(item) {
+                self.bee.leave()
+            } else {
+                self.bee.say("It changed, so I left it")
+                self.bee.leave(after: 1.6)
             }
-            if !Task.isCancelled { self?.planTask = nil }
         }
     }
 
-    private func stopPlan() {
-        planTask?.cancel()
-        planTask = nil
-        Log.append("plan stopped by Escape")
-        model.planProblem = "Stopped. Steps still to come didn't run."
+    /// Runs an item now, if what it acts on is still there and still the same. False when it was not run.
+    @discardableResult
+    private func runNow(_ item: Item) -> Bool {
+        guard item.runIfValid() else {
+            NSSound.beep()
+            Log.append("skipped a \(item.kind) whose target changed")
+            return false
+        }
+        return true
+    }
+
+    /// Runs a plan one step at a time, in the order previewed. Each step is checked before it runs and,
+    /// where it can be, after it settles. A step with a place on screen gets the bee first, and is checked
+    /// again once the bee lands. On the first step that can't run or didn't work, the plan stops and the
+    /// bar reopens to say which one.
+    private func execute(_ plan: Plan, from origin: CGPoint?) {
+        let run = runGuard.begin()
+        runIsPlan = true
+        runTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            for (index, step) in plan.steps.enumerated() {
+                // The guard, not Task cancellation alone, decides: it is the one place every stop goes through.
+                guard let self, self.runGuard.isCurrent(run) else { return }
+                if let stillValid = step.stillValid, !stillValid() {
+                    return self.reportStop(run, at: index, of: plan, reason: "it's no longer on screen")
+                }
+                if Bee.isEnabled, let target = step.target?() {
+                    let landed = await self.bee.fly(to: target, saying: BeeLabel.text(for: step), from: origin)
+                    guard landed, self.runGuard.isCurrent(run) else { return }
+                    if let stillValid = step.stillValid, !stillValid() {
+                        return self.reportStop(run, at: index, of: plan, reason: "it changed while I got there")
+                    }
+                }
+                step.run()
+                try? await Task.sleep(nanoseconds: UInt64(step.settleTime * 1_000_000_000))
+                guard self.runGuard.isCurrent(run) else { return }
+                if let succeeded = step.succeeded, !succeeded() {
+                    // Give a slow app a little longer before calling it a failure.
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    guard self.runGuard.isCurrent(run) else { return }
+                    if !succeeded() {
+                        return self.reportStop(run, at: index, of: plan, reason: "it didn't take effect")
+                    }
+                }
+            }
+            guard let self, self.runGuard.isCurrent(run) else { return }
+            self.runGuard.end(run)
+            self.runTask = nil
+            self.bee.leave()
+        }
+    }
+
+    /// Every stop comes here: Escape in any app, your own click or key, sleep, or a new run replacing this one.
+    private func runStopped(_ reason: RunGuard.Reason) {
+        runTask?.cancel()
+        runTask = nil
+        switch reason {
+        case .replaced:
+            // The new run takes the bee from here.
+            return
+        case .takeover:
+            // You are in charge now; the bee gets out of the way.
+            bee.hide()
+        case .escape, .sleep:
+            bee.say("Stopped")
+            bee.leave(after: 0.9)
+        }
+        if runIsPlan, isShown {
+            model.planProblem = "Stopped. Steps still to come didn't run."
+        }
     }
 
     /// Says which step failed. A bar already open keeps what is in it; only a closed one is reopened.
-    private func reportStop(at index: Int, of plan: Plan, reason: String) {
+    private func reportStop(_ run: Int, at index: Int, of plan: Plan, reason: String) {
         Log.append("plan stopped at step \(index + 1) of \(plan.steps.count)")
-        planTask = nil
+        runGuard.end(run)
+        runTask = nil
+        bee.hide()
         if !isShown { show() }
         model.clearPlan()
         model.planProblem = "Stopped at step \(index + 1), “\(plan.steps[index].text)”, because \(reason). Later steps didn't run."

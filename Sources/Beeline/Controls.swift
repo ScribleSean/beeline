@@ -148,6 +148,7 @@ extension Accessibility {
                 let enabled: Bool = attribute(node, kAXEnabledAttribute) ?? true
                 return enabled && label(of: node, role: role) == expected
             }
+            item.target = { frame(of: node) }
             return item
         }
         Log.append(String(format: "controls: %d in %@ from %d nodes in %.0f ms", items.count, appName, visited,
@@ -178,7 +179,8 @@ extension Accessibility {
         return nil
     }
 
-    private static func frame(of node: AXUIElement) -> CGRect? {
+    /// Where an element is on screen, in Accessibility coordinates (top left of the primary screen).
+    static func frame(of node: AXUIElement) -> CGRect? {
         var origin = CGPoint.zero
         var size = CGSize.zero
         guard let position: AXValue = attribute(node, kAXPositionAttribute),

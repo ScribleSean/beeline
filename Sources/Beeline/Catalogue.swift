@@ -39,6 +39,9 @@ struct Item: Identifiable {
     /// For buttons and menu commands: whether the target is still there and still the same, checked
     /// right before acting, because the window may have changed since it was read.
     var stillValid: (() -> Bool)?
+    /// Where the item is on screen right now, in Accessibility coordinates, for the bee to fly to.
+    /// Nil for things with no place on screen (apps, settings, actions), which run without the bee.
+    var target: (() -> CGRect?)?
 
     /// Runs the item if its target is still valid. False when it was not run.
     func runIfValid() -> Bool {
@@ -233,8 +236,10 @@ final class Catalogue {
             ("Make This Window Fill the Screen", .full, "maximise maximize full big enlarge whole current"),
         ]
         return choices.map { title, side, keywords in
-            Item(id: "tile:\(title)", kind: .window, verb: "", title: title, subtitle: window.subtitle,
-                 keywords: keywords, icon: window.icon) { tile(side) }
+            var item = Item(id: "tile:\(title)", kind: .window, verb: "", title: title, subtitle: window.subtitle,
+                            keywords: keywords, icon: window.icon) { tile(side) }
+            item.target = window.target
+            return item
         }
     }
 
@@ -537,11 +542,17 @@ final class Catalogue {
         }
         for window in ordered.prefix(16) {
             let name = "window \"\(clean(window.title))\" (\(clean(window.subtitle)))" + (window.isCurrentWindow ? " [the current window]" : "")
-            options.append(PlanStep(text: "Switch to \(name)", icon: window.icon, run: window.run))
+            var switchTo = PlanStep(text: "Switch to \(name)", icon: window.icon, run: window.run)
+            switchTo.target = window.target
+            options.append(switchTo)
             if let tile = window.tile {
-                options.append(PlanStep(text: "Move \(name) to the left half of the screen", icon: window.icon) { tile(.left) })
-                options.append(PlanStep(text: "Move \(name) to the right half of the screen", icon: window.icon) { tile(.right) })
-                options.append(PlanStep(text: "Make \(name) fill the screen", icon: window.icon) { tile(.full) })
+                for (text, side) in [("Move \(name) to the left half of the screen", Accessibility.Side.left),
+                                     ("Move \(name) to the right half of the screen", .right),
+                                     ("Make \(name) fill the screen", .full)] {
+                    var step = PlanStep(text: text, icon: window.icon) { tile(side) }
+                    step.target = window.target
+                    options.append(step)
+                }
             }
         }
         for tab in tabs.prefix(40) {
@@ -593,6 +604,7 @@ final class Catalogue {
             var step = PlanStep(text: "In the current window only, \(item.verb.lowercased()) the \(item.subtitle) \"\(clean(item.title))\"",
                                 icon: item.icon, run: item.run)
             step.stillValid = item.stillValid
+            step.target = item.target
             options.append(step)
         }
         // Menus that list documents, pages or history would send their names to Claude; they stay out.
@@ -601,6 +613,7 @@ final class Catalogue {
         for item in plannable.prefix(150) where !item.needsConfirm {
             var step = PlanStep(text: "In the current app only, run its menu command \(clean(item.subtitle)) › \(clean(item.title))", icon: item.icon, run: item.run)
             step.stillValid = item.stillValid
+            step.target = item.target
             options.append(step)
         }
         return options
