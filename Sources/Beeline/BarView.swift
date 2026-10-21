@@ -61,8 +61,8 @@ final class BarModel: ObservableObject {
         // Files come from the Spotlight index a moment later, then the list is rebuilt with them in it.
         let typed = query
         catalogue.refreshFiles(for: typed) { [weak self] in
-            // A plan being asked for or previewed must not be wiped by late file results.
-            if let self, self.query == typed, !self.isShowingPlan { self.refresh() }
+            // Late file results join the list like tabs and windows do: the selection and an armed item stay.
+            if let self, self.query == typed { self.refreshInBackground() }
         }
         let started = Date()
         let found = catalogue.search(query)
@@ -100,9 +100,12 @@ final class BarModel: ObservableObject {
             self.modelMilliseconds = Date().timeIntervalSince(asking) * 1000
             self.isThinking = false
             self.modelPicks = picks
-            if !picks.isEmpty {
+            // The picks arrive a moment later. They lead the list, but the row already selected (or armed)
+            // stays where it is, so a Return in flight lands on what was shown.
+            if !picks.isEmpty, self.armedID == nil {
+                let selectedID = self.results.indices.contains(self.selected) ? self.results[self.selected].id : nil
                 self.results = self.decorated(self.merged(picks, self.results))
-                self.selected = 0
+                self.selected = selectedID.flatMap { id in self.results.firstIndex { $0.id == id } } ?? 0
             }
         }
     }
@@ -110,7 +113,13 @@ final class BarModel: ObservableObject {
     /// For results arriving in the background (tabs, windows). Leaves a plan, a confirm or a pending Claude
     /// request alone, and keeps the same item selected if it is still there.
     func refreshInBackground() {
-        guard !isShowingPlan, armedID == nil else { return }
+        guard !isShowingPlan else { return }
+        if let armedID {
+            // A fresh scan may mean the armed button or menu command no longer belongs to what is in front.
+            // Then the card is taken down rather than left promising something it would refuse to do.
+            if let armed = results.first(where: { $0.id == armedID }), armed.stillValid?() == false { self.armedID = nil }
+            return
+        }
         let selectedID = results.indices.contains(selected) ? results[selected].id : nil
         refresh()
         if let selectedID, let index = results.firstIndex(where: { $0.id == selectedID }) { selected = index }
@@ -146,6 +155,8 @@ final class BarModel: ObservableObject {
 
     /// Shown while listening, or why listening could not start.
     @Published var voiceNote: String?
+    /// The microphone's level while listening, from 0 to 1. Nil when not listening.
+    @Published var voiceLevel: Double?
 
     /// An example shown under the empty bar, different each time it opens.
     @Published var tip = BarModel.tips[0]
@@ -172,7 +183,7 @@ final class BarModel: ObservableObject {
         let words = query.split(separator: " ").count
         // An answer is complete on its own; Claude has nothing to add to "12 miles in km".
         guard words >= 2, Settings.isOn(Settings.offerClaude), items.first?.kind != .calculation else { return items }
-        let question = Matcher.isQuestion(query)
+        let question = catalogue.isQuestion(query)
         let row = Item(id: Self.claudeRowID, kind: .action, verb: "", title: question ? "Ask Claude" : "Ask Claude to work it out",
                        subtitle: question ? "answers here in a few seconds" : "takes a few seconds", keywords: "",
                        icon: NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil), run: {})
@@ -215,11 +226,11 @@ final class BarModel: ObservableObject {
     }
 
     private func askClaude() {
-        if Matcher.isQuestion(query) { return askClaudeQuestion() }
+        if catalogue.isQuestion(query) { return askClaudeQuestion() }
         clearPlan()
         isAskingClaude = true
         let asked = query
-        let options = catalogue.planOptions()
+        let options = catalogue.planOptions(for: asked)
         planning = Task { @MainActor [weak self] in
             let result = await Planner.plan(for: asked, options: options)
             guard let self, !Task.isCancelled, asked == self.query else { return }
@@ -254,7 +265,12 @@ final class BarModel: ObservableObject {
     }
 
     /// The irreversible action waiting for a second Return, if any.
-    @Published var armedID: String?
+    @Published var armedID: String? {
+        didSet { if armedID != nil, armedID != oldValue { armedAt = Date() } }
+    }
+    /// When the card went up. A click that lands on its red button within a moment of the click that
+    /// armed it (a double-click) is ignored.
+    private(set) var armedAt = Date.distantPast
 
     /// Runs the item, unless it cannot be undone and has not been confirmed yet.
     func run(_ item: Item) {
@@ -273,6 +289,22 @@ final class BarModel: ObservableObject {
         armedID = nil
         catalogue.recordUse(of: item, query: query)
         onRun(item)
+    }
+
+    /// The card's button: confirms the armed item, unless the click came too soon after the one that armed it.
+    func confirmByClick() {
+        guard Date().timeIntervalSince(armedAt) > 0.4 else { return }
+        confirmArmed()
+    }
+
+    /// Runs the armed item, by id: never whatever row the selection has moved to meanwhile.
+    private func confirmArmed() {
+        guard let armedID else { return }
+        guard let armed = results.first(where: { $0.id == armedID }) else {
+            self.armedID = nil
+            return
+        }
+        run(armed)
     }
 
     func move(_ delta: Int) {
@@ -299,8 +331,31 @@ final class BarModel: ObservableObject {
             onRun(Item(id: "copied", kind: .calculation, verb: "", title: "", subtitle: "", keywords: "", icon: nil, run: {}))
             return
         }
-        guard !isShowingPlan, results.indices.contains(selected) else { return }
+        guard !isShowingPlan else { return }
+        // While the card is up, Return means the item on the card and nothing else.
+        if armedID != nil { return confirmArmed() }
+        guard results.indices.contains(selected) else { return }
         run(results[selected])
+    }
+}
+
+/// Five soft bars that rise with your voice, brightest in the middle, like a bee's hum.
+private struct LevelMeter: View {
+    let level: Double
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 3) {
+            ForEach(0..<5, id: \.self) { index in
+                // The middle bar moves most, the outer ones less, so the meter reads as one shape.
+                let weight = [0.45, 0.75, 1.0, 0.75, 0.45][index]
+                Capsule()
+                    .fill(Theme.yellow.opacity(0.55 + 0.45 * weight))
+                    .frame(width: 3, height: 5 + 15 * level * weight)
+            }
+        }
+        .frame(height: 22)
+        .animation(.easeOut(duration: 0.09), value: level)
+        .accessibilityLabel("Listening")
     }
 }
 
@@ -313,13 +368,19 @@ struct BarView: View {
         VStack(spacing: 0) {
             // The search capsule.
             HStack(spacing: 12) {
-                Image(systemName: "magnifyingglass")
+                Image(systemName: model.voiceLevel == nil ? "magnifyingglass" : "mic.fill")
                     .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(Theme.accent)
-                TextField("Beeline to…", text: $model.query)
+                    .frame(width: 22)
+                    .contentTransition(.symbolEffect(.replace))
+                TextField(model.voiceLevel == nil ? "Beeline to…" : "Listening…", text: $model.query)
                     .textFieldStyle(.plain)
                     .font(.system(size: 20))
                     .focused($focused)
+                if let level = model.voiceLevel {
+                    LevelMeter(level: level)
+                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                }
             }
             .padding(.horizontal, 16)
             .frame(height: 50)
@@ -329,7 +390,7 @@ struct BarView: View {
             if model.isShowingPlan {
                 PlanSection(model: model).padding(.top, 8)
             } else if let armed = model.results.first(where: { $0.id == model.armedID }) {
-                ConfirmCard(item: armed, confirm: { model.run(armed) }, cancel: { model.armedID = nil })
+                ConfirmCard(item: armed, confirm: { model.confirmByClick() }, cancel: { model.armedID = nil })
                     .padding(.top, 8)
             } else if model.results.count == 1, let answer = model.results.first, answer.kind == .calculation {
                 AnswerCard(item: answer).padding(.top, 8)
@@ -358,7 +419,11 @@ struct BarView: View {
                             .contentShape(Rectangle())
                             // The row under the pointer becomes the selected one, so a click and Return agree.
                             .onHover { inside in if inside { model.selected = index } }
-                            .onTapGesture { model.run(item) }
+                            .onTapGesture {
+                                // A click arms and selects the same row, so a Return afterwards agrees with the card.
+                                model.selected = index
+                                model.run(item)
+                            }
                     }
                 }
                 .padding(.top, 6)
@@ -415,7 +480,7 @@ struct BarView: View {
                         Text("↑↓ move")
                         Text("↩ open")
                     } else {
-                        Text("\(Settings.shortcutLabel) opens Beeline anywhere")
+                        Text("\(Settings.activeShortcutLabel) opens Beeline anywhere")
                     }
                     Spacer()
                     Text("esc close")
@@ -631,7 +696,9 @@ private struct PlanSection: View {
                             if let icon = step.icon {
                                 Image(nsImage: icon).resizable().frame(width: 22, height: 22)
                             }
-                            Text(step.text).font(.system(size: 14)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                            // Cut in the middle when too long, so a long window title never hides "…to the left half".
+                            Text(step.text).font(.system(size: 14)).lineLimit(3).truncationMode(.middle)
+                                .fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 0)
                         }
                         .padding(.horizontal, 12)
@@ -733,6 +800,12 @@ private struct ConfirmCard: View {
         return count == 1 ? "1 item will be deleted permanently." : "\(count) items will be deleted permanently."
     }
 
+    /// For Eject All Disks, which disks it would eject, read when the card shows.
+    private var ejectSummary: String? {
+        guard item.id == "action:Eject All Disks" else { return nil }
+        return Actions.ejectSummary(Actions.ejectableDisks().map(\.name))
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 14) {
@@ -747,7 +820,7 @@ private struct ConfirmCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("\((item.verb.isEmpty ? "" : item.verb + " ") + item.title)?")
                         .font(.system(size: 16, weight: .semibold))
-                    Text(trashSummary ?? "This can't be undone.")
+                    Text(trashSummary ?? ejectSummary ?? item.confirmNote ?? "This can't be undone.")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }

@@ -77,10 +77,9 @@ enum Rewrite {
                 Log.append("rewrite: app changed, left on clipboard")
                 return
             }
-            for isDown in [true, false] {
-                let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: isDown)
-                event?.flags = .maskCommand
-                event?.post(tap: .cghidEventTap)
+            guard Keyboard.press("v", flags: .maskCommand) else {
+                Actions.report("Allow Accessibility for Beeline in Privacy & Security to paste. The rewrite is on the clipboard.")
+                return
             }
             // Long enough for the app to read the clipboard. Skipped if anything else was copied meanwhile.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {

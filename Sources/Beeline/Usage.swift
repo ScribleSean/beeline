@@ -19,13 +19,17 @@ final class Usage {
     private let file: URL
     private let saveQueue = DispatchQueue(label: "beeline.usage", qos: .userInitiated)
 
-    init() {
+    convenience init() {
         let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Beeline", isDirectory: true)
         // Tests point this at a scratch file so they never touch real history.
-        file = ProcessInfo.processInfo.environment["BEELINE_USAGE_FILE"].map { URL(fileURLWithPath: $0) }
-            ?? folder.appendingPathComponent("usage.json")
-        if let data = try? Data(contentsOf: file), let saved = try? JSONDecoder().decode(Store.self, from: data) {
+        self.init(file: ProcessInfo.processInfo.environment["BEELINE_USAGE_FILE"].map { URL(fileURLWithPath: $0) }
+            ?? folder.appendingPathComponent("usage.json"))
+    }
+
+    init(file: URL) {
+        self.file = file
+        if let saved = JSONStore.read(Store.self, from: file, name: "usage") {
             store = saved
         }
     }
@@ -58,9 +62,15 @@ final class Usage {
         if !typed.isEmpty {
             store.queries[typed, default: [:]][key, default: 0] += 1
         }
-        // Keep the file small: one-off requests are dropped first once it grows.
-        if store.queries.count > 1000 {
-            store.queries = store.queries.filter { $0.value.values.reduce(0, +) > 1 }
+        // Keep the file small: once it grows, the items not picked for 90 days go, then any phrase whose
+        // items have all gone. New phrases can always be learned.
+        if store.queries.count > 1000 || store.items.count > 3000 {
+            let cutoff = Date().addingTimeInterval(-90 * 86_400)
+            store.items = store.items.filter { $0.value.last > cutoff }
+            store.queries = store.queries.compactMapValues { picks in
+                let kept = picks.filter { store.items[$0.key] != nil }
+                return kept.isEmpty ? nil : kept
+            }
         }
         let snapshot = store
         // Written in the background so choosing a result never waits on the disk.
@@ -81,15 +91,17 @@ final class Usage {
         try? FileManager.default.removeItem(at: file)
     }
 
-    /// How many times this item was picked for exactly these words. Zero when never.
+    /// How many times this item was picked for exactly these words. Zero when never, or when learning is off.
     func timesPicked(_ item: Item, for query: String) -> Int {
-        store.queries[Self.normalise(query)]?[Self.key(for: item)] ?? 0
+        guard Settings.isOn(Settings.learnFromUse) else { return 0 }
+        return store.queries[Self.normalise(query)]?[Self.key(for: item)] ?? 0
     }
 
     /// Extra score for items picked often and recently, up to 40. Halves every two weeks unused.
     func habitBoost(for item: Item) -> Int {
-        guard let entry = store.items[Self.key(for: item)] else { return 0 }
-        let days = Date().timeIntervalSince(entry.last) / 86_400
+        guard Settings.isOn(Settings.learnFromUse), let entry = store.items[Self.key(for: item)] else { return 0 }
+        // A pick dated in the future (the clock was set back since) counts as fresh, never as a value Int can't hold.
+        let days = max(0, Date().timeIntervalSince(entry.last) / 86_400)
         let freshness = pow(0.5, days / 14)
         return Int(min(40, 12 * log2(1 + Double(entry.count))) * freshness)
     }

@@ -19,6 +19,8 @@ enum Desktops {
         var windows: [Window]
         /// For browsers: each window's tab addresses, in order.
         var tabs: [[String]]?
+        /// True when the app was hidden (⌘H) at the time, so it is hidden again on restore.
+        var hidden: Bool?
     }
 
     struct Desktop: Codable {
@@ -27,17 +29,23 @@ enum Desktops {
         var apps: [App]
     }
 
-    private static let file = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("Beeline/desktops.json")
+    // Tests point this at a scratch file so they never touch real saved desktops.
+    private static let file = ProcessInfo.processInfo.environment["BEELINE_DESKTOPS_FILE"].map { URL(fileURLWithPath: $0) }
+        ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Beeline/desktops.json")
 
     /// Read from disk once, then kept: every keystroke checks saved desktops.
     private static var cache: [Desktop]?
 
     static func load() -> [Desktop] {
         if let cache { return cache }
-        let read = (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode([Desktop].self, from: $0) } ?? []
+        let read = JSONStore.read([Desktop].self, from: file, name: "desktops") ?? []
         cache = read
         return read
+    }
+
+    /// Forgets what was read, so the file is read again. Used by tests.
+    static func reload() {
+        cache = nil
     }
 
     private static func store(_ desktops: [Desktop]) {
@@ -63,7 +71,9 @@ enum Desktops {
         let lowered = text.lowercased()
         let saved = load()
 
-        if let match = lowered.firstMatch(of: try! Regex(#"^(?:save|store|remember)(?: this| my)? desktop(?: as)?\s+(.+)$"#)),
+        // Matched on the text itself, case-insensitively: lower-casing can change a string's length ("İ"
+        // grows), so a range found in the lowered copy could run past the end of the original.
+        if let match = text.firstMatch(of: try! Regex(#"^(?:save|store|remember)(?: this| my)? desktop(?: as)?\s+(.+)$"#).ignoresCase()),
            let range = match.output[1].range {
             let name = cleaned(String(text[range]))
             let existing = saved.first { key($0.name) == key(name) }
@@ -71,14 +81,21 @@ enum Desktops {
             return [Item(id: "desktop-save", kind: .action, verb: "", title: title,
                          subtitle: existing == nil ? "Apps, windows, documents and tabs" : "Saved \(age(existing!.saved))",
                          keywords: "", icon: NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: nil)) {
-                save(as: existing?.name.isEmpty == false ? name : name)
+                save(as: name)
             }]
         }
 
-        if let match = lowered.firstMatch(of: try! Regex(#"^(?:delete|remove|forget) (?:saved )?desktop\s+(.+)$"#)),
+        if let match = text.firstMatch(of: try! Regex(#"^(?:delete|remove|forget) (?:saved )?desktop\s+(.+)$"#).ignoresCase()),
            let range = match.output[1].range {
-            let name = key(String(text[range]))
-            return saved.filter { key($0.name).hasPrefix(name) }.map { desktop in
+            // Any word of the name will do, as for opening: "delete desktop work" finds "Tax work". With no
+            // saved desktop matching ("remove desktop icons"), the words go on to the normal search.
+            let words = key(String(text[range])).split(separator: " ")
+            let matching = saved.filter { desktop in
+                let nameWords = key(desktop.name).split(separator: " ")
+                return words.allSatisfy { word in nameWords.contains { $0.hasPrefix(word) } }
+            }
+            guard !matching.isEmpty else { return nil }
+            return matching.map { desktop in
                 var item = Item(id: "desktop-delete:\(key(desktop.name))", kind: .action, verb: "Delete saved desktop",
                                 title: desktop.name, subtitle: "Saved \(age(desktop.saved))", keywords: "",
                                 icon: NSImage(systemSymbolName: "trash", accessibilityDescription: nil)) {
@@ -119,41 +136,59 @@ enum Desktops {
 
     private static func save(as name: String) {
         let own = NSRunningApplication.current
-        let running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular && $0 != own && !$0.isHidden }
+        // Hidden apps count too: a browser hidden with ⌘H still has the tabs you want back.
+        let running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular && $0 != own }
+        let previous = load().first { key($0.name) == key(name) }
+        let trusted = Accessibility.isTrusted
         DispatchQueue.global(qos: .userInitiated).async {
             var apps: [App] = []
+            var tabCount = 0
+            var problems: [String] = []
             for app in running {
                 guard let url = app.bundleURL else { continue }
                 let element = Accessibility.applicationElement(app)
                 let windows: [AXUIElement] = Accessibility.attribute(element, kAXWindowsAttribute) ?? []
                 let saved: [Window] = windows.compactMap { window in
                     let minimized: Bool = Accessibility.attribute(window, kAXMinimizedAttribute) ?? false
-                    guard !minimized, let frame = frame(of: window) else { return nil }
+                    guard !minimized, let frame = Accessibility.frame(of: window) else { return nil }
                     let document: String? = Accessibility.attribute(window, kAXDocumentAttribute)
                     return Window(title: Accessibility.attribute(window, kAXTitleAttribute) ?? "", frame: frame,
                                   document: document.flatMap { URL(string: $0)?.path })
                 }
                 let browser = Browser.all.first { $0.bundleID == app.bundleIdentifier }
+                var tabs = browser?.tabAddresses()
+                if let browser, tabs == nil {
+                    // The browser could not be read. An earlier save of this desktop keeps its tabs; otherwise
+                    // saving "no tabs" would look like success and only show at restore.
+                    if let kept = previous?.apps.first(where: { $0.bundleID == browser.bundleID })?.tabs {
+                        tabs = kept
+                        Log.append("desktops: kept earlier tabs for \(browser.shortName)")
+                    } else {
+                        problems.append(browser.shortName)
+                    }
+                }
+                tabCount += tabs?.reduce(0) { $0 + $1.count } ?? 0
                 apps.append(App(name: app.localizedName ?? url.lastPathComponent, path: url.path, bundleID: app.bundleIdentifier,
-                                windows: saved, tabs: browser?.tabAddresses()))
+                                windows: saved, tabs: tabs, hidden: app.isHidden ? true : nil))
             }
             DispatchQueue.main.async {
+                guard problems.isEmpty else {
+                    Actions.report("Couldn't read \(problems.joined(separator: " or "))'s tabs, so the desktop wasn't saved. "
+                        + "Allow Beeline to control it in Privacy & Security › Automation, then try again.")
+                    return
+                }
                 var desktops = load().filter { key($0.name) != key(name) }
                 desktops.append(Desktop(name: name, saved: Date(), apps: apps))
                 store(desktops)
-                Log.append("desktops: saved \(apps.count) apps")
+                let windowCount = apps.reduce(0) { $0 + $1.windows.count }
+                Log.append("desktops: saved \(apps.count) apps, \(windowCount) windows, \(tabCount) tabs")
+                if !trusted {
+                    Actions.report("Saved \(apps.count) apps and \(tabCount) tabs, but no window positions: allow Accessibility for Beeline to save those too.")
+                }
             }
         }
     }
 
-    private static func frame(of window: AXUIElement) -> CGRect? {
-        var origin = CGPoint.zero
-        var size = CGSize.zero
-        guard let position: AXValue = Accessibility.attribute(window, kAXPositionAttribute),
-              let extent: AXValue = Accessibility.attribute(window, kAXSizeAttribute),
-              AXValueGetValue(position, .cgPoint, &origin), AXValueGetValue(extent, .cgSize, &size) else { return nil }
-        return CGRect(origin: origin, size: size)
-    }
 
     // MARK: Restoring
 
@@ -170,7 +205,10 @@ enum Desktops {
                 if let tabs = saved.tabs, let browser = Browser.all.first(where: { $0.bundleID == saved.bundleID }) {
                     browser.openWindows(tabs)
                 }
-                arrange(app, saved.windows)
+                arrange(app, saved.windows) {
+                    // An app that was hidden when the desktop was saved goes back out of sight.
+                    if saved.hidden == true { DispatchQueue.main.async { app.hide() } }
+                }
             }
             if documents.isEmpty {
                 NSWorkspace.shared.openApplication(at: url, configuration: configuration, completionHandler: opened)
@@ -181,9 +219,10 @@ enum Desktops {
     }
 
     /// Moves each saved window back into place, matching by title, once the app has shown its windows.
-    private static func arrange(_ app: NSRunningApplication, _ saved: [Window]) {
-        guard !saved.isEmpty else { return }
+    private static func arrange(_ app: NSRunningApplication, _ saved: [Window], then done: @escaping () -> Void = {}) {
+        guard !saved.isEmpty else { return done() }
         DispatchQueue.global(qos: .userInitiated).async {
+            defer { done() }
             let element = Accessibility.applicationElement(app)
             // Apps take a moment to bring windows back after launch; keep looking for up to eight seconds.
             // Only a window whose title matches is moved: a window that happens to be open is never taken instead.

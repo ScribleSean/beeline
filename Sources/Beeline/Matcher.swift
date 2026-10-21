@@ -6,6 +6,10 @@ enum Matcher {
     struct Parsed {
         var tokens: [String]
         var hint: Kind?
+        /// "on" or "off" when the request says which way: "turn wifi on" must not tie with Turn Wi-Fi Off.
+        var direction: String?
+        /// The request, folded, for whole-phrase matches.
+        var text = ""
     }
 
     /// Words that carry intent but should not have to appear in a title.
@@ -39,12 +43,20 @@ enum Matcher {
     /// Typing one of these is what makes the "Quit Safari" rows appear.
     static let quitWords: Set<String> = ["quit", "close", "exit", "kill", "stop"]
 
+    /// Lower case with accents removed, so "resume" finds "Résumé" and "résumé" finds "Resume". Plain
+    /// ASCII, which is nearly everything, takes the fast path.
+    static func fold(_ text: String) -> String {
+        text.utf8.allSatisfy { $0 < 128 } ? text.lowercased() : text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+    }
+
     static func parse(_ query: String) -> Parsed {
-        let words = query.lowercased()
+        let words = fold(query)
             .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
             .map(String.init)
         var parsed = Parsed(tokens: [], hint: nil)
+        parsed.text = words.joined(separator: " ")
         for word in words {
+            if word == "on" || word == "off" { parsed.direction = word }
             if let kind = hints[word] {
                 parsed.hint = kind
             } else if !filler.contains(word) {
@@ -69,29 +81,39 @@ enum Matcher {
     /// With `anyWord`, one solid word is enough and misses cost nothing. Used for the model's keywords,
     /// which describe the target loosely and are never all expected to appear.
     static func score(_ item: Item, _ parsed: Parsed, anyWord: Bool = false) -> Score? {
-        let title = item.title.lowercased()
+        let title = fold(item.title)
         let titleWords = words(title)
-        let keywordWords = words(item.keywords.lowercased())
-        let subtitle = item.subtitle.lowercased()
+        let keywordWords = words(fold(item.keywords))
+        let subtitle = fold(item.subtitle)
 
         var total = 0
         var solid = 0
         var missed = 0
         var inTitle = 0
+        /// A whole word of three or more letters matched the title, not just a letter or two.
+        var wordInTitle = false
+        // Something that needs a second Return (Log Out, Empty Trash) is only found by a keyword typed in
+        // full: "logo" is a picture, not "logout", and "sign" is a signature, not "signout".
+        let keywordMatches: (String) -> Bool = item.needsConfirm
+            ? { token in keywordWords.contains(token) }
+            : { token in keywordWords.contains(where: { $0.hasPrefix(token) }) }
         for token in parsed.tokens {
             if title.hasPrefix(token) {
                 total += 100
                 solid += 1
                 inTitle += 1
+                wordInTitle = wordInTitle || token.count >= 3
             } else if titleWords.contains(where: { $0.hasPrefix(token) }) {
                 total += 60
                 solid += 1
                 inTitle += 1
+                wordInTitle = wordInTitle || token.count >= 3
             } else if title.contains(token) {
                 total += 40
                 solid += 1
                 inTitle += 1
-            } else if keywordWords.contains(where: { $0.hasPrefix(token) }) {
+                wordInTitle = wordInTitle || token.count >= 3
+            } else if keywordMatches(token) {
                 total += 30
                 solid += 1
             } else if subtitle.contains(token) {
@@ -99,13 +121,20 @@ enum Matcher {
             // Letters typed out of order or with gaps ("sfri" for Safari) only count against short names.
             // In a long tab or file title they turn up by chance and bring in unrelated results.
             // Only apps, settings and actions: "notes" must not find a button called "More navigation items".
+            // Never for something that needs a second Return: "logo" is not Log Out.
             } else if token.count >= 3, title.count <= 24, [Kind.app, .setting, .action].contains(item.kind),
-                      isSubsequence(token, of: title) {
+                      !item.needsConfirm, isSubsequence(token, of: title) {
                 total += 8
             } else {
                 missed += 1
                 if !anyWord { total -= 30 }
             }
+        }
+        // A phrase typed in full is the item, whatever the single words made of it.
+        if !parsed.text.isEmpty, item.phrases.contains(where: { parsed.text == fold($0) || parsed.text.hasPrefix(fold($0) + " ") }) {
+            total += 200
+            solid = parsed.tokens.count
+            missed = 0
         }
         if anyWord {
             guard solid > 0 else { return nil }
@@ -115,11 +144,16 @@ enum Matcher {
         }
         // Typing a name in full beats longer names that merely start with it.
         if title == parsed.tokens.joined(separator: " ") { total += 40 }
+        // "turn wifi on" is Turn Wi-Fi On, not the Wi-Fi pane and not Turn Wi-Fi Off.
+        if let direction = parsed.direction {
+            if titleWords.contains(direction) { total += 40 } else if titleWords.contains(direction == "on" ? "off" : "on") { total -= 50 }
+        }
         if let hint = parsed.hint, hint == item.kind { total += 50 }
         // On a tie, an app beats a menu command with the same name.
         // "sleep" and "lock" mean the action, not the settings pane of the same name. An action found
         // only through its keywords gets no lift: plain "wifi" should open Wi-Fi settings, not turn it off.
-        if item.kind == .action, inTitle > 0, item.id != "action:Beeline Settings" { total += 15 }
+        // Nor does one found by a letter or two: "s" must give Safari, not Sleep.
+        if item.kind == .action, wordInTitle, item.id != "action:Beeline Settings" { total += 15 }
         if item.kind == .app { total += 10 }
         if item.kind == .menu { total -= 5 }
         // A button sharing a name with an app or setting is the less likely meaning.
@@ -127,6 +161,16 @@ enum Matcher {
         // Prefer the tighter match: "Notes" over "Notes Helper Tool".
         total -= min(title.count, 40) / 4
         return Score(value: total, isComplete: missed == 0)
+    }
+
+    /// Whether a tab may be closed for these words: each must start a whole word of the title or the
+    /// address, and a word of one or two letters must be a whole word. "rome" is not "chrome", and "ai"
+    /// is claude.ai, not Gmail.
+    static func matchesForClose(_ item: Item, _ typed: [String]) -> Bool {
+        let haystack = words(fold(item.title)) + words(fold(item.keywords))
+        return typed.allSatisfy { word in
+            haystack.contains { word.count >= 3 ? $0.hasPrefix(word) : $0 == word }
+        }
     }
 
     private static func words(_ text: String) -> [String] {

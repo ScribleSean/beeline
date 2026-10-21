@@ -14,8 +14,17 @@ final class Clipboard {
     }
 
     private(set) var entries: [Entry] = []
-    private var lastChange = NSPasteboard.general.changeCount
+    private let board: NSPasteboard
+    private var lastChange: Int
     private var timer: Timer?
+    /// Bumped by clearing or turning history off, so a copy still being read is dropped, not saved after.
+    private var generation = 0
+
+    /// Tests pass a private pasteboard, so they never touch the real clipboard.
+    init(board: NSPasteboard = .general) {
+        self.board = board
+        lastChange = board.changeCount
+    }
 
     /// Types that password managers and similar apps use to say "do not keep this".
     private static let doNotKeep: [NSPasteboard.PasteboardType] = [
@@ -34,34 +43,54 @@ final class Clipboard {
     private func syncWithSetting() {
         if Settings.isOn(Settings.clipboardHistory) {
             guard timer == nil else { return }
-            lastChange = NSPasteboard.general.changeCount
+            lastChange = board.changeCount
             timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.check() }
         } else {
             timer?.invalidate()
             timer = nil
+            generation += 1
             entries.removeAll()
         }
     }
 
     func clear() {
+        generation += 1
         entries.removeAll()
     }
 
-    private func check() {
-        let board = NSPasteboard.general
+    /// False for a copy a password manager has marked as not to be kept.
+    static func mayKeep(_ types: [NSPasteboard.PasteboardType]) -> Bool {
+        !types.contains(where: { doNotKeep.contains($0) })
+    }
+
+    /// Reads happen here, off the main thread: an app that supplies its copy lazily (a huge spreadsheet
+    /// range, a remote desktop) renders it only when asked, and that must never stall the bar.
+    let readQueue = DispatchQueue(label: "beeline.clipboard", qos: .utility)
+
+    func check() {
+        let board = self.board
         guard board.changeCount != lastChange else { return }
-        lastChange = board.changeCount
-        guard Settings.isOn(Settings.clipboardHistory),
-              !(board.types ?? []).contains(where: { Self.doNotKeep.contains($0) }),
-              let text = board.string(forType: .string),
-              // Very large copies (a whole log, a data dump) are not kept: memory stays small.
-              text.utf16.count <= 200_000,
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        // Copying something already in the list moves it to the top instead of repeating it.
-        entries.removeAll { $0.text == text }
+        let change = board.changeCount
+        lastChange = change
+        guard Settings.isOn(Settings.clipboardHistory), Self.mayKeep(board.types ?? []) else { return }
         let source = NSWorkspace.shared.frontmostApplication
-        entries.insert(Entry(text: text, copied: Date(), app: source?.localizedName, icon: source?.icon), at: 0)
-        if entries.count > 100 { entries.removeLast(entries.count - 100) }
+        let asked = generation
+        readQueue.async { [weak self] in
+            guard let text = board.string(forType: .string),
+                  // Very large copies (a whole log, a data dump) are not kept: memory stays small.
+                  text.utf16.count <= 200_000,
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  // The text read must be the copy that was checked. Something copied since (a password,
+                  // perhaps) is dropped here; the next check looks at it on its own.
+                  board.changeCount == change, Self.mayKeep(board.types ?? []) else { return }
+            DispatchQueue.main.async {
+                guard let self, self.generation == asked, Settings.isOn(Settings.clipboardHistory) else { return }
+                // Copying something already in the list moves it to the top instead of repeating it.
+                self.entries.removeAll { $0.text == text }
+                self.entries.insert(Entry(text: text, copied: Date(), app: source?.localizedName, icon: source?.icon), at: 0)
+                if self.entries.count > 100 { self.entries.removeLast(self.entries.count - 100) }
+            }
+        }
     }
 
     /// "clip" lists recent entries; "clip invoice" narrows them to ones containing "invoice"; "clip links" to web links.
@@ -73,9 +102,13 @@ final class Clipboard {
         if linksOnly { filter = "" }
         let relative = RelativeDateTimeFormatter()
         relative.unitsStyle = .short
-        return entries
+        let matching = entries
             .filter { filter.isEmpty || $0.text.lowercased().contains(filter) }
             .filter { !linksOnly || $0.text.hasPrefix("http://") || $0.text.hasPrefix("https://") }
+        // Nothing copied matches, so the words are not about history: "paste and match style" is a menu
+        // command, and "clips" with history off is an app.
+        guard !matching.isEmpty else { return nil }
+        return matching
             .prefix(limit)
             .enumerated()
             .map { index, entry in
@@ -100,10 +133,8 @@ final class Clipboard {
         // come forward meanwhile, nothing is pasted; the text stays on the clipboard.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             guard NSWorkspace.shared.frontmostApplication?.processIdentifier == target else { return }
-            for isDown in [true, false] {
-                let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: isDown)
-                event?.flags = .maskCommand
-                event?.post(tap: .cghidEventTap)
+            if !Keyboard.press("v", flags: .maskCommand) {
+                Actions.report("Allow Accessibility for Beeline in Privacy & Security to paste. The text is on the clipboard.")
             }
         }
     }

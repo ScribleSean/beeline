@@ -29,11 +29,14 @@ enum Accessibility {
                 let raise = {
                     AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
                     AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+                    // Both ways: macOS may ignore activate() from an app that is not itself active.
+                    AXUIElementSetAttributeValue(element, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
                     app.activate()
                 }
                 var item = Item(id: "window:\(app.processIdentifier):\(index)", kind: .window, verb: "Switch to window",
                                 title: title, subtitle: name, keywords: name, icon: app.icon, run: raise)
                 item.isCurrentWindow = focused.map { CFEqual($0, window) } ?? false
+                item.target = { frame(of: window) }
                 item.tile = { side in
                     raise()
                     place(window, side)
@@ -89,14 +92,17 @@ enum Accessibility {
     static func menuCommands(of app: NSRunningApplication) -> [Item] {
         guard isTrusted else { return [] }
         let name = app.localizedName ?? ""
-        guard let menuBar: AXUIElement = attribute(applicationElement(app), kAXMenuBarAttribute) else { return [] }
+        let appElement = applicationElement(app)
+        guard let menuBar: AXUIElement = attribute(appElement, kAXMenuBarAttribute) else { return [] }
+        // Menu commands act on the focused window, so the one focused now is the one they may act on.
+        let scannedWindow: AXUIElement? = attribute(appElement, kAXFocusedWindowAttribute)
 
         var items: [Item] = []
         let deadline = Date().addingTimeInterval(0.8)
 
         func walk(_ element: AXUIElement, path: [String], depth: Int) {
             let children: [AXUIElement] = attribute(element, kAXChildrenAttribute) ?? []
-            for child in children {
+            for (position, child) in children.enumerated() {
                 // Big dynamic menus (History, Bookmarks) can hold thousands of entries.
                 guard items.count < 1500, Date() < deadline else { return }
                 let role: String = attribute(child, kAXRoleAttribute) ?? ""
@@ -110,15 +116,24 @@ enum Accessibility {
                     if depth < 3 { walk(child, path: path + [title], depth: depth + 1) }
                 } else if attribute(child, kAXEnabledAttribute) ?? true {
                     let location = ([name] + path).joined(separator: " › ")
-                    var item = Item(id: "menu:\(app.processIdentifier):\(location):\(title)", kind: .menu, verb: "Run",
+                    // The position is part of the id: two Finder windows on Downloads give the Window menu two
+                    // items with one title, and two rows with one id confuse the list.
+                    var item = Item(id: "menu:\(app.processIdentifier):\(location):\(position):\(title)", kind: .menu, verb: "Run",
                                     title: title, subtitle: location, keywords: path.joined(separator: " "), icon: app.icon) {
                         AXUIElementPerformAction(child, kAXPressAction as CFString)
                     }
                     // Menu commands like Delete or Send ask for Return twice, as buttons do.
                     item.needsConfirm = isIrreversible(title)
+                    let pid = app.processIdentifier
+                    // A menu command acts on whatever is in front, so the app must still be the front one, with
+                    // the same window focused: Close or Delete in another window of the app is another act.
                     item.stillValid = {
+                        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return false }
+                        let element = AXUIElementCreateApplication(pid)
+                        AXUIElementSetMessagingTimeout(element, 0.25)
+                        guard sameWindow(scannedWindow, attribute(element, kAXFocusedWindowAttribute)) else { return false }
                         let current: String? = attribute(child, kAXTitleAttribute)
-                        let enabled: Bool = attribute(child, kAXEnabledAttribute) ?? false
+                        let enabled: Bool = attribute(child, kAXEnabledAttribute) ?? true
                         return current == title && enabled
                     }
                     items.append(item)
@@ -130,9 +145,30 @@ enum Accessibility {
         let menus: [AXUIElement] = attribute(menuBar, kAXChildrenAttribute) ?? []
         for menu in menus.dropFirst() {
             guard let title: String = attribute(menu, kAXTitleAttribute), !title.isEmpty else { continue }
+            let first = items.count
             walk(menu, path: [title], depth: 1)
+            // A closed menu's commands have no place on screen; the bee goes to the menu's title instead.
+            for index in first..<items.count { items[index].target = { frame(of: menu) } }
         }
         return items
+    }
+
+    /// True when both are the same window, or both are no window at all.
+    static func sameWindow(_ a: AXUIElement?, _ b: AXUIElement?) -> Bool {
+        switch (a, b) {
+        case (nil, nil): return true
+        case let (a?, b?): return CFEqual(a, b)
+        default: return false
+        }
+    }
+
+    /// True when the app is in front and this window is the one it has focused.
+    static func isFrontWindow(_ window: AXUIElement, of pid: pid_t) -> Bool {
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return false }
+        let element = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(element, 0.25)
+        guard let focused: AXUIElement = attribute(element, kAXFocusedWindowAttribute) else { return false }
+        return CFEqual(focused, window)
     }
 
     static func applicationElement(_ app: NSRunningApplication) -> AXUIElement {

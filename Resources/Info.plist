@@ -30,7 +30,13 @@
     <string>Beeline listens while you hold its shortcut, so you can speak a request instead of typing it.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Beeline turns what you say into the request in its bar, on this Mac.</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>Beeline copies, moves and converts the files you ask about, and lists folders you name as a destination.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>Beeline copies, moves and converts the files you ask about, and lists folders you name as a destination.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>Beeline copies, moves and converts the files you ask about, and lists folders you name as a destination.</string>
     <key>NSAppleEventsUsageDescription</key>
-    <string>Beeline lists your open browser tabs so you can jump to one by typing.</string>
+    <string>Beeline reads your browser tabs to list them, asks Finder for the selected files and the Trash, and asks System Events to switch dark mode. Each app is asked only for what you type.</string>
 </dict>
 </plist>

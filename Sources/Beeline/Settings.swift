@@ -10,23 +10,29 @@ enum Settings {
     static let learnFromUse = "learnFromUse"
     static let clipboardHistory = "clipboardHistory"
     static let holdToTalk = "holdToTalk"
+    /// Whether the bee flies to what Beeline is about to act on.
+    static let showBee = "showBee"
     /// Which modifier opens the bar with Space: "command", "option" or "control".
     static let shortcut = "shortcut"
     /// "system", "light" or "dark".
     static let appearance = "appearance"
     /// Set once the welcome screen has been shown.
     static let welcomed = "welcomed"
+    /// Set once Accessibility has been seen on, so a later build that finds itself untrusted can explain why.
+    static let wasTrusted = "wasTrusted"
 
     static let forgetHistory = Notification.Name("BeelineForgetHistory")
     static let clearClipboard = Notification.Name("BeelineClearClipboard")
     static let shortcutChanged = Notification.Name("BeelineShortcutChanged")
+    /// Asks for the chosen shortcut again, keeping the one in use unless the chosen one can be had.
+    static let retryShortcut = Notification.Name("BeelineRetryShortcut")
     static let open = Notification.Name("BeelineOpenSettings")
     static let openWelcome = Notification.Name("BeelineOpenWelcome")
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
             showDetails: false, useOnDeviceModel: true, offerClaude: true, learnFromUse: true,
-            clipboardHistory: true, holdToTalk: true, shortcut: "command", appearance: "system", welcomed: false,
+            clipboardHistory: true, holdToTalk: true, showBee: true, shortcut: "command", appearance: "system", welcomed: false,
         ])
     }
 
@@ -43,13 +49,37 @@ enum Settings {
         }
     }
 
+    /// The shortcut chosen in Settings.
     static var shortcutLabel: String {
-        switch UserDefaults.standard.string(forKey: shortcut) {
+        label(for: UserDefaults.standard.string(forKey: shortcut) ?? "command")
+    }
+
+    static func label(for modifier: String) -> String {
+        switch modifier {
         case "option": return "⌥Space"
         case "control": return "⌃Space"
         default: return "⌘Space"
         }
     }
+
+    /// True when ⌘Space was chosen but another app (Spotlight, almost always) holds it.
+    static var spotlightHasShortcut: Bool {
+        forceSpotlightCard
+            || (UserDefaults.standard.string(forKey: shortcut) ?? "command") == "command" && activeShortcut != "command"
+    }
+
+    /// Set by the live check, to show the Spotlight card whatever the shortcut's state.
+    static var forceSpotlightCard = false
+
+    /// The shortcut that actually opens the bar right now: the chosen one, or the fallback that could be
+    /// registered when another app holds it, or "none". Every screen shows this one, never the preference.
+    static var activeShortcutLabel: String {
+        if let activeShortcut { return label(for: activeShortcut) }
+        return "No shortcut (⌘, ⌥ and ⌃Space are all taken)"
+    }
+
+    /// Set by the app when it registers the hotkey: "command", "option", "control" or nil.
+    static var activeShortcut: String? = UserDefaults.standard.string(forKey: shortcut) ?? "command"
 }
 
 /// Whether Beeline opens when you log in, through macOS's own login items list.
@@ -112,6 +142,7 @@ private struct SettingsView: View {
     @AppStorage(Settings.shortcut) private var shortcut = "command"
     @AppStorage(Settings.appearance) private var appearance = "system"
     @AppStorage(Settings.holdToTalk) private var holdToTalk = true
+    @AppStorage(Settings.showBee) private var showBee = true
     @AppStorage(Settings.showDetails) private var showDetails = false
     @AppStorage(Settings.useOnDeviceModel) private var useOnDeviceModel = true
     @AppStorage(Settings.offerClaude) private var offerClaude = true
@@ -134,6 +165,9 @@ private struct SettingsView: View {
                 .onChange(of: shortcut) { NotificationCenter.default.post(name: Settings.shortcutChanged, object: nil) }
                 Toggle(isOn: $holdToTalk) {
                     label("Hold the shortcut to talk", "Speak instead of typing. Recognised on this Mac.")
+                }
+                Toggle(isOn: $showBee) {
+                    label("Show the bee", "It flies to what Beeline is about to press. Esc stops it from any app.")
                 }
                 Picker(selection: $appearance) {
                     Text("System").tag("system")

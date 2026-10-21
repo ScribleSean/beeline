@@ -4,7 +4,12 @@ import Foundation
 /// A small hand-written parser, so malformed input returns nil instead of crashing.
 enum Calculator {
     /// Nil unless the text is a complete expression with at least one operator.
+    /// Dates and phone numbers: digits joined by "-" or "/" in date shapes, or with brackets or a leading "+".
+    private static let notASum = try! Regex(#"^\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\+[\d\s()-]+|\(\d+\)[\d\s-]+)\s*$"#)
+
     static func evaluate(_ text: String) -> Double? {
+        // "2024-01-15" is a day, not 2,008, and a phone number is not a subtraction.
+        if text.firstMatch(of: notASum) != nil { return nil }
         let cleaned = text.lowercased()
             .replacingOccurrences(of: "×", with: "*")
             .replacingOccurrences(of: "÷", with: "/")
