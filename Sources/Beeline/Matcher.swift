@@ -39,8 +39,14 @@ enum Matcher {
     /// Typing one of these is what makes the "Quit Safari" rows appear.
     static let quitWords: Set<String> = ["quit", "close", "exit", "kill", "stop"]
 
+    /// Lower case with accents removed, so "resume" finds "Résumé" and "résumé" finds "Resume". Plain
+    /// ASCII, which is nearly everything, takes the fast path.
+    static func fold(_ text: String) -> String {
+        text.utf8.allSatisfy { $0 < 128 } ? text.lowercased() : text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+    }
+
     static func parse(_ query: String) -> Parsed {
-        let words = query.lowercased()
+        let words = fold(query)
             .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
             .map(String.init)
         var parsed = Parsed(tokens: [], hint: nil)
@@ -69,10 +75,10 @@ enum Matcher {
     /// With `anyWord`, one solid word is enough and misses cost nothing. Used for the model's keywords,
     /// which describe the target loosely and are never all expected to appear.
     static func score(_ item: Item, _ parsed: Parsed, anyWord: Bool = false) -> Score? {
-        let title = item.title.lowercased()
+        let title = fold(item.title)
         let titleWords = words(title)
-        let keywordWords = words(item.keywords.lowercased())
-        let subtitle = item.subtitle.lowercased()
+        let keywordWords = words(fold(item.keywords))
+        let subtitle = fold(item.subtitle)
 
         var total = 0
         var solid = 0
@@ -145,7 +151,7 @@ enum Matcher {
     /// address, and a word of one or two letters must be a whole word. "rome" is not "chrome", and "ai"
     /// is claude.ai, not Gmail.
     static func matchesForClose(_ item: Item, _ typed: [String]) -> Bool {
-        let haystack = words(item.title.lowercased()) + words(item.keywords.lowercased())
+        let haystack = words(fold(item.title)) + words(fold(item.keywords))
         return typed.allSatisfy { word in
             haystack.contains { word.count >= 3 ? $0.hasPrefix(word) : $0 == word }
         }
