@@ -45,6 +45,7 @@ final class Bee {
         model.flight = BeeFlight.Path(from: still ? perch : start, to: perch)
         model.flightStart = Date()
         model.duration = duration
+        model.faceLeftWhenLanded = target.midX < perch.x
         model.isShown = true
         position = perch
         panel.orderFrontRegardless()
@@ -116,6 +117,8 @@ final class BeeModel: ObservableObject {
     @Published var ringStart = Date()
     @Published var label: String?
     @Published var isShown = false
+    /// True when the target is to the bee's left once it lands, so it turns to face it.
+    @Published var faceLeftWhenLanded = false
 
     /// AppKit screen coordinates to the overlay's own, which start at the top left.
     func local(_ point: CGPoint) -> CGPoint {
@@ -139,8 +142,12 @@ private struct BeeOverlay: View {
             // A slow hover once landed: a point and a half up and down.
             let bob = flying ? 0 : sin(now.timeIntervalSinceReferenceDate * 2 * .pi * 0.7) * 1.5
             let spot = model.local(model.flight.point(at: progress))
-            // Tilt into the direction of travel, a little. Screen angles point up; the overlay's y points down.
-            let tilt = flying ? max(-14, min(14, -model.flight.heading(at: progress) * 180 / .pi * 0.12)) : 0
+            // Face the way it flies, then turn toward the target once landed, and tilt a little into a climb
+            // or a dive. Screen angles point up; SwiftUI turns clockwise, hence the minus.
+            let heading = model.flight.heading(at: progress)
+            let faceLeft = flying ? cos(heading) < 0 : model.faceLeftWhenLanded
+            let climb = atan2(sin(heading), abs(cos(heading))) * 180 / .pi
+            let tilt = flying ? max(-14, min(14, -climb * 0.25)) : 0
             let onRight = spot.x + 200 < model.screen.width
 
             ZStack(alignment: .topLeading) {
@@ -149,6 +156,7 @@ private struct BeeOverlay: View {
                 }
                 BeeGlyph(time: now.timeIntervalSinceReferenceDate, flying: flying)
                     .rotationEffect(.degrees(tilt))
+                    .scaleEffect(x: faceLeft ? -1 : 1, y: 1)
                     .position(x: spot.x, y: spot.y + bob)
                 if let label = model.label, !flying {
                     Text(label)
@@ -227,24 +235,26 @@ private struct BeeGlyph: View {
                     .scaleEffect(x: 1, y: wing, anchor: .bottom).rotationEffect(.degrees(20), anchor: .bottom).offset(x: 4, y: -9)
             })
 
+            // The head sits half inside the body, so the two read as one bee.
+            Circle()
+                .fill(Theme.ink)
+                .frame(width: 9, height: 9)
+                .offset(x: 8.5, y: 0.5)
             Capsule()
-                .fill(Theme.yellow)
-                .frame(width: 20, height: 14)
+                .fill(LinearGradient(colors: [Color(red: 1, green: 0.85, blue: 0.4), Theme.yellow],
+                                     startPoint: .top, endPoint: .bottom))
+                .frame(width: 19, height: 14)
                 .overlay(
                     HStack(spacing: 3.5) {
                         Rectangle().frame(width: 2.5)
                         Rectangle().frame(width: 2.5)
                     }
                     .foregroundStyle(Theme.ink)
-                    .offset(x: -1)
+                    .offset(x: 1.5)
                 )
                 .clipShape(Capsule())
                 .overlay(Capsule().strokeBorder(Theme.ink.opacity(0.85), lineWidth: 1))
-                .offset(x: -2, y: 1)
-            Circle()
-                .fill(Theme.ink)
-                .frame(width: 8, height: 8)
-                .offset(x: 10, y: 0)
+                .offset(x: -2.5, y: 1)
         }
         .frame(width: BeeFlight.beeSize.width, height: BeeFlight.beeSize.height)
         .shadow(color: .black.opacity(0.22), radius: 3, y: 1.5)
