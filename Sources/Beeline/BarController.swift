@@ -9,7 +9,7 @@ private final class BarPanel: NSPanel {
 }
 
 final class BarController: NSObject, NSWindowDelegate {
-    private let model = BarModel()
+    let model = BarModel()
     private let size = NSSize(width: 720, height: 680)
     private var keyMonitor: Any?
 
@@ -92,7 +92,7 @@ final class BarController: NSObject, NSWindowDelegate {
     private var isShown = false
     private let bee = Bee()
     /// Watches whatever is running on your behalf, so Escape or your own click stops it from any app.
-    private let runGuard = RunGuard()
+    let runGuard = RunGuard()
     /// The action or plan being run. Two never run at once.
     private var runTask: Task<Void, Never>?
     /// True while the run is a plan, whose stop is reported in the bar if it is open.
@@ -138,8 +138,10 @@ final class BarController: NSObject, NSWindowDelegate {
         guard item.runIfValid() else {
             NSSound.beep()
             Log.append("skipped a \(item.kind) whose target changed")
+            DemoLog.note("skipped", ["title": item.title])
             return false
         }
+        DemoLog.note("pressed", ["title": item.title])
         return true
     }
 
@@ -167,6 +169,7 @@ final class BarController: NSObject, NSWindowDelegate {
                     }
                 }
                 step.run()
+                DemoLog.note("pressed", ["title": step.text, "step": index + 1])
                 try? await Task.sleep(nanoseconds: UInt64(step.settleTime * 1_000_000_000))
                 guard self.runGuard.isCurrent(run) else { return }
                 if let succeeded = step.succeeded, !succeeded() {
@@ -182,11 +185,13 @@ final class BarController: NSObject, NSWindowDelegate {
             self.runGuard.end(run)
             self.runTask = nil
             self.bee.leave()
+            DemoLog.note("plan-finished", ["steps": plan.steps.count])
         }
     }
 
     /// Every stop comes here: Escape in any app, your own click or key, sleep, or a new run replacing this one.
     private func runStopped(_ reason: RunGuard.Reason) {
+        DemoLog.note("stopped", ["reason": "\(reason)"])
         runTask?.cancel()
         runTask = nil
         switch reason {
@@ -212,6 +217,7 @@ final class BarController: NSObject, NSWindowDelegate {
     /// Says which step failed. A bar already open keeps what is in it; only a closed one is reopened.
     private func reportStop(_ run: Int, at index: Int, of plan: Plan, reason: String) {
         Log.append("plan stopped at step \(index + 1) of \(plan.steps.count)")
+        DemoLog.note("plan-stopped", ["step": index + 1, "reason": reason])
         runGuard.end(run)
         runTask = nil
         bee.hide()
@@ -310,7 +316,7 @@ final class BarController: NSObject, NSWindowDelegate {
         isShown ? hide() : show()
     }
 
-    private func show() {
+    func show() {
         isShown = true
         voice.cancel()
         model.clearPlan()

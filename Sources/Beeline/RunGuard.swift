@@ -89,17 +89,22 @@ final class RunGuard {
         var mask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
         if Accessibility.isTrusted { mask.insert(.keyDown) }
         monitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in
-            let tag = event.cgEvent?.getIntegerValueField(.eventSourceUserData) ?? 0
-            let isRepeat = event.type == .keyDown && event.isARepeat
-            let keyCode = event.type == .keyDown ? event.keyCode : 0
-            guard let reason = Self.reason(for: event.type, keyCode: keyCode, modifiers: event.modifierFlags,
-                                           isRepeat: isRepeat, tag: tag) else { return }
-            self?.stop(reason)
+            self?.handle(event)
         }
         sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
             self?.stop(.sleep)
         }
+    }
+
+    /// What the watch does with an event from another app. The live check hands it made-up events too.
+    func handle(_ event: NSEvent) {
+        let tag = event.cgEvent?.getIntegerValueField(.eventSourceUserData) ?? 0
+        let isRepeat = event.type == .keyDown && event.isARepeat
+        let keyCode = event.type == .keyDown ? event.keyCode : 0
+        guard let reason = Self.reason(for: event.type, keyCode: keyCode, modifiers: event.modifierFlags,
+                                       isRepeat: isRepeat, tag: tag) else { return }
+        stop(reason)
     }
 
     private func uninstall() {

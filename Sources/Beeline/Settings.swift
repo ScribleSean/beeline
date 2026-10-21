@@ -64,8 +64,12 @@ enum Settings {
 
     /// True when ⌘Space was chosen but another app (Spotlight, almost always) holds it.
     static var spotlightHasShortcut: Bool {
-        (UserDefaults.standard.string(forKey: shortcut) ?? "command") == "command" && activeShortcut != "command"
+        forceSpotlightCard
+            || (UserDefaults.standard.string(forKey: shortcut) ?? "command") == "command" && activeShortcut != "command"
     }
+
+    /// Set by the live check, to show the Spotlight card whatever the shortcut's state.
+    static var forceSpotlightCard = false
 
     /// The shortcut that actually opens the bar right now: the chosen one, or the fallback that could be
     /// registered when another app holds it, or "none". Every screen shows this one, never the preference.

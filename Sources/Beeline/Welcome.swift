@@ -25,6 +25,12 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
         UserDefaults.standard.set(true, forKey: Settings.welcomed)
     }
 
+    var isShowing: Bool { window?.isVisible == true }
+
+    func close() {
+        window?.close()
+    }
+
     func windowWillClose(_ notification: Notification) {
         state.stop()
     }

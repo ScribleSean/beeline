@@ -15,6 +15,9 @@ final class Bee {
     private var hideWork: DispatchWorkItem?
 
     static var isEnabled: Bool { Settings.isOn(Settings.showBee) }
+    /// How much slower than usual the bee goes. 1 normally; the live check slows it so a screenshot can
+    /// catch it in flight.
+    static var pace: Double = 1
 
     /// Flies to a target and rings it. Returns false when the flight was cancelled or the target is on no
     /// screen. `axTarget` is in Accessibility coordinates; `origin` is where to start if the bee is not
@@ -36,7 +39,7 @@ final class Bee {
                             y: min(max(start.y, screen.minY + 15), screen.maxY - 15))
         }
         let still = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        let duration = still ? 0 : BeeFlight.duration(from: start, to: perch)
+        let duration = still ? 0 : BeeFlight.duration(from: start, to: perch) * Self.pace
 
         let panel = overlay(on: screen)
         model.screen = screen
@@ -49,13 +52,16 @@ final class Bee {
         model.isShown = true
         position = perch
         panel.orderFrontRegardless()
+        DemoLog.note("bee-takeoff", ["from": DemoLog.numbers(start), "to": DemoLog.numbers(perch),
+                                     "target": DemoLog.numbers(target), "seconds": duration, "label": text])
 
         // Land, then let the ring settle before the action runs, so you see where it happens first.
         try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
         if Task.isCancelled { return false }
         model.ring = target
         model.ringStart = Date()
-        try? await Task.sleep(nanoseconds: 180_000_000)
+        DemoLog.note("bee-landed", ["at": DemoLog.numbers(perch)])
+        try? await Task.sleep(nanoseconds: UInt64(180_000_000 * Self.pace))
         return !Task.isCancelled
     }
 

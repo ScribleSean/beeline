@@ -38,6 +38,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Quit Beeline", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         statusItem.menu = menu
 
+        // The hands-free live check takes no shortcut and shows no welcome: it drives the bar itself.
+        if let scenario = Demo.requested {
+            Log.start("live check \(scenario) \(Date())")
+            Demo.start(scenario, bar: bar, welcome: welcomeWindow)
+            return
+        }
         Log.start("launched \(Date()) accessibility=\(Accessibility.isTrusted)")
         if Accessibility.isTrusted { UserDefaults.standard.set(true, forKey: Settings.wasTrusted) }
         registerShortcut()
