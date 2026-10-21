@@ -94,3 +94,95 @@ private func entries(of archive: URL) -> [String] {
     #expect(first.lastPathComponent == "Archive.zip")
     #expect(second.lastPathComponent == "Archive 2.zip")
 }
+
+// MARK: Copy, move and install (H2)
+
+/// These share the `FileTools.trash` hook, so they run one at a time.
+@Suite(.serialized) struct TransferTests {
+
+/// Routes "trash" into a folder inside the scratch so tests never touch the real Trash.
+    private func useScratchTrash(_ scratch: Scratch) throws -> URL {
+    let bin = scratch.url.appendingPathComponent("trash-bin", isDirectory: true)
+    try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+    FileTools.trash = { url in try FileManager.default.moveItem(at: url, to: bin.appendingPathComponent(url.lastPathComponent)) }
+    return bin
+}
+
+    @Test func moveNeverTrashesTheFolderHoldingTheSource() throws {
+    let scratch = try Scratch()
+    defer { scratch.remove() }
+    let bin = try useScratchTrash(scratch)
+    // ~/Downloads/Foo/Foo moved "to downloads": the target is the folder the source sits in.
+    let source = try scratch.file("Foo", "inside", in: "Downloads/Foo")
+    let downloads = scratch.url.appendingPathComponent("Downloads")
+
+    let moved = FileTools.transfer([source], to: downloads, copying: false, replacing: ["Foo"])
+    #expect(moved.isEmpty)
+    #expect(scratch.exists("Downloads/Foo/Foo"))
+    #expect(try FileManager.default.contentsOfDirectory(atPath: bin.path).isEmpty)
+}
+
+    @Test func moveSkipsTwoItemsWithTheSameName() throws {
+    let scratch = try Scratch()
+    defer { scratch.remove() }
+    let bin = try useScratchTrash(scratch)
+    let first = try scratch.file("notes.txt", "first", in: "a")
+    let second = try scratch.file("notes.txt", "second", in: "b")
+    let desktop = scratch.url.appendingPathComponent("Desktop")
+    try FileManager.default.createDirectory(at: desktop, withIntermediateDirectories: true)
+
+    let moved = FileTools.transfer([first, second], to: desktop, copying: false, replacing: [])
+    #expect(moved.isEmpty)
+    #expect(scratch.exists("a/notes.txt") && scratch.exists("b/notes.txt"))
+    #expect(try FileManager.default.contentsOfDirectory(atPath: bin.path).isEmpty)
+}
+
+    @Test func copyOntoItselfByAnotherSpellingDoesNothing() throws {
+    let scratch = try Scratch()
+    defer { scratch.remove() }
+    let bin = try useScratchTrash(scratch)
+    let source = try scratch.file("Notes.txt", "keep", in: "Desktop")
+    // Only meaningful on a case-insensitive volume, which the default macOS disk is.
+    let spelled = scratch.url.appendingPathComponent("desktop")
+    guard FileManager.default.fileExists(atPath: spelled.appendingPathComponent("Notes.txt").path) else { return }
+
+    #expect(FileTools.overlaps(source, spelled.appendingPathComponent("notes.txt")))
+    let copied = FileTools.transfer([source], to: spelled, copying: true, replacing: ["Notes.txt"])
+    #expect(copied.isEmpty)
+    #expect(try String(contentsOf: source, encoding: .utf8) == "keep")
+    #expect(try FileManager.default.contentsOfDirectory(atPath: bin.path).isEmpty)
+}
+
+    @Test func replaceTrashesOnlyWhatWasOnTheCard() throws {
+    let scratch = try Scratch()
+    defer { scratch.remove() }
+    let bin = try useScratchTrash(scratch)
+    let source = try scratch.file("report.pdf", "new", in: "Downloads")
+    let old = try scratch.file("report.pdf", "old", in: "Desktop")
+    let desktop = old.deletingLastPathComponent()
+
+    // Nothing was confirmed, so the old file stays and nothing is copied over it.
+    #expect(FileTools.transfer([source], to: desktop, copying: true, replacing: []).isEmpty)
+    #expect(try String(contentsOf: old, encoding: .utf8) == "old")
+
+    let copied = FileTools.transfer([source], to: desktop, copying: true, replacing: ["report.pdf"])
+    #expect(copied == [old])
+    #expect(try String(contentsOf: old, encoding: .utf8) == "new")
+    #expect(try FileManager.default.contentsOfDirectory(atPath: bin.path) == ["report.pdf"])
+    #expect(scratch.exists("Downloads/report.pdf"), "a copy leaves the source")
+}
+
+    @Test func replaceThatCannotTrashLeavesEverythingInPlace() throws {
+    let scratch = try Scratch()
+    defer { scratch.remove() }
+    FileTools.trash = { _ in throw CocoaError(.fileWriteNoPermission) }
+    let source = try scratch.file("app.txt", "new", in: "Downloads")
+    let old = try scratch.file("app.txt", "old", in: "Applications")
+
+    let moved = FileTools.transfer([source], to: old.deletingLastPathComponent(), copying: false, replacing: ["app.txt"])
+    #expect(moved.isEmpty)
+    #expect(try String(contentsOf: old, encoding: .utf8) == "old")
+    #expect(try String(contentsOf: source, encoding: .utf8) == "new", "a move that fails puts the source back")
+    #expect(try FileManager.default.contentsOfDirectory(atPath: scratch.url.appendingPathComponent("Applications").path) == ["app.txt"])
+}
+}

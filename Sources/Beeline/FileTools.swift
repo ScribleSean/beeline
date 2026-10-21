@@ -151,15 +151,26 @@ enum FileTools {
 
         let verb = copying ? "Copy" : "Move"
         let what = sources.count == 1 ? "“\(sources[0].lastPathComponent)”" : "\(sources.count) items"
-        let existing = sources.filter { FileManager.default.fileExists(atPath: destination.appendingPathComponent($0.lastPathComponent).path) }
+        // Only what is at the destination now may be sent to the Trash: the names are fixed here, shown on
+        // the confirm card, and checked again when the chore runs. Something that is the source itself, or
+        // the folder holding it, is never a replacement.
+        let replaced = sources.filter { source in
+            let target = destination.appendingPathComponent(source.lastPathComponent)
+            return FileManager.default.fileExists(atPath: target.path) && !overlaps(source, target)
+        }.map(\.lastPathComponent)
         let from = sources[0].deletingLastPathComponent().lastPathComponent
-        var item = row("transfer", existing.isEmpty ? "\(verb) \(what) to \(destinationName)" : "\(verb) \(what) to \(destinationName), replacing what's there",
-                       existing.isEmpty ? "From \(from)" : "The old \(existing.count == 1 ? "one goes" : "ones go") to the Trash first",
+        var item = row("transfer", replaced.isEmpty ? "\(verb) \(what) to \(destinationName)" : "\(verb) \(what) to \(destinationName), replacing what's there",
+                       replaced.isEmpty ? "From \(from)" : "The old \(replaced.count == 1 ? "one goes" : "ones go") to the Trash first",
                        copying ? "doc.on.doc" : "folder") {
-            transfer(sources, to: destination, copying: copying)
+            _ = transfer(sources, to: destination, copying: copying, replacing: Set(replaced), report: true)
         }
         // Replacing something needs a second Return: the old copy goes to the Trash.
-        item.needsConfirm = !existing.isEmpty
+        item.needsConfirm = !replaced.isEmpty
+        if !replaced.isEmpty {
+            let names = replaced.prefix(3).map { "“\($0)”" }.joined(separator: ", ")
+            item.confirmNote = "\(replaced.count > 3 ? "\(replaced.count) items in \(destinationName), including \(names)," : "The old \(names) in \(destinationName)") "
+                + "\(replaced.count == 1 ? "goes" : "go") to the Trash first."
+        }
         return [item]
     }
 
@@ -226,23 +237,74 @@ enum FileTools {
         return FileManager.default.fileExists(atPath: url.path, isDirectory: &folder) && folder.boolValue && url.pathExtension != "app"
     }
 
-    private static func transfer(_ sources: [URL], to destination: URL, copying: Bool) {
+    /// Sends an item to the Trash. Tests swap this for a move into a scratch folder.
+    static var trash: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
+
+    /// True when the two paths are the same item, or one holds the other. Compared by file identity, not
+    /// by spelling: on a Mac's usual disk "~/desktop/Notes" and "~/Desktop/Notes" are one file.
+    static func overlaps(_ a: URL, _ b: URL) -> Bool {
+        if sameItem(a, b) { return true }
+        let pathA = a.standardizedFileURL.resolvingSymlinksInPath().path.lowercased()
+        let pathB = b.standardizedFileURL.resolvingSymlinksInPath().path.lowercased()
+        return pathA.hasPrefix(pathB + "/") || pathB.hasPrefix(pathA + "/")
+    }
+
+    private static func sameItem(_ a: URL, _ b: URL) -> Bool {
+        let idA = try? a.resourceValues(forKeys: [.fileResourceIdentifierKey]).fileResourceIdentifier
+        let idB = try? b.resourceValues(forKeys: [.fileResourceIdentifierKey]).fileResourceIdentifier
+        if let idA, let idB { return idA.isEqual(idB) }
+        return a.standardizedFileURL.path.lowercased() == b.standardizedFileURL.path.lowercased()
+    }
+
+    /// Copies or moves each source into the destination folder and returns what arrived. Only an item whose
+    /// name is in `replacing` (the names shown on the confirm card) may send what is there to the Trash. The
+    /// new item is put beside the target first and swapped in only once it has arrived whole, so a copy
+    /// that fails halfway leaves the old item where it was.
+    @discardableResult
+    static func transfer(_ sources: [URL], to destination: URL, copying: Bool, replacing: Set<String>, report: Bool = false) -> [URL] {
+        var counts: [String: Int] = [:]
+        for source in sources { counts[source.lastPathComponent, default: 0] += 1 }
         let done: [URL] = sources.compactMap { source in
-            let target = destination.appendingPathComponent(source.lastPathComponent)
-            guard source.standardizedFileURL != target.standardizedFileURL else { return nil }
-            if FileManager.default.fileExists(atPath: target.path) {
-                // Recoverable: the old copy goes to the Trash, never deleted outright.
-                guard (try? FileManager.default.trashItem(at: target, resultingItemURL: nil)) != nil else { return nil }
-            }
-            do {
-                if copying { try FileManager.default.copyItem(at: source, to: target) } else { try FileManager.default.moveItem(at: source, to: target) }
-                return target
-            } catch {
-                Log.append("file tools: \(copying ? "copy" : "move") failed: \(error.localizedDescription)")
+            let name = source.lastPathComponent
+            // Two selected items with the same name would replace each other; neither is touched.
+            guard counts[name] == 1 else {
+                Log.append("file tools: two items share a name, skipped")
                 return nil
             }
+            let target = destination.appendingPathComponent(name)
+            // The target is the source itself, the folder holding it, or inside it: nothing to do, and
+            // nothing to trash.
+            guard !overlaps(source, target) else { return nil }
+            guard FileManager.default.fileExists(atPath: target.path) else {
+                return (try? deliver(source, to: target, copying: copying)) == nil ? nil : target
+            }
+            // Something is in the way, and it was not on the card: leave it alone.
+            guard replacing.contains(name), let scratch = scratchFolder(near: destination) else { return nil }
+            defer { try? FileManager.default.removeItem(at: scratch) }
+            let staged = scratch.appendingPathComponent(name)
+            guard (try? deliver(source, to: staged, copying: copying)) != nil else { return nil }
+            do {
+                // Recoverable: the old item goes to the Trash, never deleted outright.
+                try trash(target)
+            } catch {
+                Log.append("file tools: could not trash the old item (\((error as NSError).code))")
+                if !copying { try? FileManager.default.moveItem(at: staged, to: source) }
+                return nil
+            }
+            return (try? FileManager.default.moveItem(at: staged, to: target)) == nil ? nil : target
         }
-        finish(done, copying ? "copy" : "move")
+        if report { finish(done, copying ? "copy" : "move") }
+        return done
+    }
+
+    private static func deliver(_ source: URL, to target: URL, copying: Bool) throws {
+        do {
+            if copying { try FileManager.default.copyItem(at: source, to: target) } else { try FileManager.default.moveItem(at: source, to: target) }
+        } catch {
+            // The code, not the description: the log is a plain file and the description names files.
+            Log.append("file tools: \(copying ? "copy" : "move") failed (\((error as NSError).code))")
+            throw error
+        }
     }
 
     private static func row(_ id: String, _ title: String, _ subtitle: String, _ symbol: String, run: @escaping () -> Void) -> Item {

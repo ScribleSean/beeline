@@ -26,6 +26,8 @@ struct Item: Identifiable {
     var source = Source.words
     /// True for actions that cannot be undone. The bar asks for Return twice.
     var needsConfirm = false
+    /// What the confirm card says under the title, when "This can't be undone" is not the whole story.
+    var confirmNote: String?
     /// For windows: moves and resizes the window to a side of the screen, or to fill it.
     var tile: ((Accessibility.Side) -> Void)?
     /// For windows: true when this is the window the user was working in.

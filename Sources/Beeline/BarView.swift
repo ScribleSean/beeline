@@ -747,7 +747,7 @@ private struct ConfirmCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("\((item.verb.isEmpty ? "" : item.verb + " ") + item.title)?")
                         .font(.system(size: 16, weight: .semibold))
-                    Text(trashSummary ?? "This can't be undone.")
+                    Text(trashSummary ?? item.confirmNote ?? "This can't be undone.")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }
