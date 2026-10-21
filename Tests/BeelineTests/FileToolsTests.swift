@@ -83,6 +83,32 @@ private func entries(of archive: URL) -> [String] {
     #expect(!scratch.exists("Archive.zip"))
 }
 
+// Codex 5: a link inside a selected folder is stored as a link, never as what it points to.
+@Test func compressKeepsLinksAsLinks() throws {
+    let scratch = try Scratch()
+    defer { scratch.remove() }
+    let secret = try scratch.file("secret.txt", "private", in: "elsewhere")
+    let note = try scratch.file("note.txt", "hello", in: "project")
+    let other = try scratch.file("other.txt")
+    try FileManager.default.createSymbolicLink(at: note.deletingLastPathComponent().appendingPathComponent("link"),
+                                               withDestinationURL: secret.deletingLastPathComponent())
+    let archive = try #require(FileTools.archive([note.deletingLastPathComponent(), other]))
+    let listed = entries(of: archive)
+    #expect(listed.contains("project/link"))
+    #expect(!listed.contains { $0.contains("secret.txt") })
+}
+
+// Codex 6: same-named items from two folders are refused, not merged into one entry.
+@Test func compressRefusesTwoItemsWithOneName() throws {
+    let scratch = try Scratch()
+    defer { scratch.remove() }
+    let a = try scratch.file("report.txt", "first", in: "one")
+    let b = try scratch.file("Report.txt", "second", in: "two")
+    #expect(FileTools.sharedName([a, b]) == "Report.txt")
+    #expect(FileTools.archive([a, b]) == nil)
+    #expect(!scratch.exists("one/Archive.zip"))
+}
+
 // M19: a second archive beside the first gets its own name, never the first one's.
 @Test func compressNeverReplacesAnExistingArchive() throws {
     let scratch = try Scratch()

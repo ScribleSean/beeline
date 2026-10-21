@@ -365,14 +365,26 @@ enum FileTools {
     // MARK: The chores
 
     private static func compress(_ files: [URL]) {
+        if let name = sharedName(files) {
+            Actions.report("Two of the selected items are called “\(name)”, and a zip can hold only one. Rename one and try again.")
+            return finish([], "compress")
+        }
         finish(archive(files).map { [$0] } ?? [], "compress")
+    }
+
+    /// A name two of the files share, if any. Compared without case, as most Mac disks do.
+    static func sharedName(_ files: [URL]) -> String? {
+        var seen = Set<String>()
+        return files.map(\.lastPathComponent).first { !seen.insert($0.lowercased()).inserted }
     }
 
     /// Zips the files beside the first one and returns the archive, or nil when zip failed. The archive is
     /// written in a scratch folder and moved into place at the end, so a failure leaves nothing behind and
     /// two chores can never pick the same name.
     static func archive(_ files: [URL]) -> URL? {
-        guard let first = files.first else { return nil }
+        // Two items with one name from different folders would land on one entry, the second quietly
+        // overwriting the first (Codex 6).
+        guard let first = files.first, sharedName(files) == nil else { return nil }
         let folder = first.deletingLastPathComponent()
         let name = files.count == 1 ? first.deletingPathExtension().lastPathComponent : "Archive"
         guard let scratch = scratchFolder(near: folder) else { return nil }
@@ -395,7 +407,9 @@ enum FileTools {
             }
             for parent in order {
                 let names = byFolder[parent]!.map { "./" + $0.lastPathComponent }
-                guard run("/usr/bin/zip", ["-r", "-q", "-MM", output.path, "--"] + names, in: parent).ok else { ok = false; break }
+                // -y stores a link as a link: without it, a link inside a selected folder pulls in whatever it
+                // points to, from anywhere on the disk (Codex 5). ditto, above, keeps links as links already.
+                guard run("/usr/bin/zip", ["-r", "-y", "-q", "-MM", output.path, "--"] + names, in: parent).ok else { ok = false; break }
             }
         }
         guard ok, FileManager.default.fileExists(atPath: output.path) else { return nil }

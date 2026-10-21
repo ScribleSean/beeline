@@ -800,6 +800,12 @@ private struct ConfirmCard: View {
         return count == 1 ? "1 item will be deleted permanently." : "\(count) items will be deleted permanently."
     }
 
+    /// For Eject All Disks, which disks it would eject, read when the card shows.
+    private var ejectSummary: String? {
+        guard item.id == "action:Eject All Disks" else { return nil }
+        return Actions.ejectSummary(Actions.ejectableDisks().map(\.name))
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 14) {
@@ -814,7 +820,7 @@ private struct ConfirmCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("\((item.verb.isEmpty ? "" : item.verb + " ") + item.title)?")
                         .font(.system(size: 16, weight: .semibold))
-                    Text(trashSummary ?? item.confirmNote ?? "This can't be undone.")
+                    Text(trashSummary ?? ejectSummary ?? item.confirmNote ?? "This can't be undone.")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }

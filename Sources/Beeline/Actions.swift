@@ -63,7 +63,8 @@ enum Actions {
                 app.hide()
             }
         },
-        Definition(title: "Eject All Disks", symbol: "eject", keywords: "unmount drives usb external remove") {
+        // Twice: a disk still being written to can lose what was on its way (Codex 7). The card names them.
+        Definition(title: "Eject All Disks", symbol: "eject", keywords: "unmount drives usb external remove", needsConfirm: true) {
             ejectAll()
         },
         Definition(title: "Empty Trash", symbol: "trash", keywords: "bin delete rubbish clear", needsConfirm: true) {
@@ -150,20 +151,36 @@ enum Actions {
 
     /// Ejects every ejectable volume through the system, which reports what could not be ejected and needs
     /// no Automation permission.
+    /// The disks Eject All Disks would eject, by name.
+    static func ejectableDisks() -> [(url: URL, name: String)] {
+        let keys: [URLResourceKey] = [.volumeIsEjectableKey, .volumeIsRootFileSystemKey, .volumeLocalizedNameKey]
+        let volumes = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? []
+        return volumes.compactMap { volume in
+            guard let values = try? volume.resourceValues(forKeys: Set(keys)), values.volumeIsEjectable == true,
+                  values.volumeIsRootFileSystem != true else { return nil }
+            return (volume, values.volumeLocalizedName ?? volume.lastPathComponent)
+        }
+    }
+
+    /// What the confirm card says for Eject All Disks: which disks go.
+    static func ejectSummary(_ names: [String]) -> String {
+        switch names.count {
+        case 0: return "No disks are connected that can be ejected."
+        case 1: return "\(names[0]) is ejected. Anything still copying to it stops."
+        default: return "\(names.dropLast().joined(separator: ", ")) and \(names.last!) are ejected. Anything still copying to them stops."
+        }
+    }
+
     private static func ejectAll() {
         DispatchQueue.global(qos: .userInitiated).async {
-            let keys: [URLResourceKey] = [.volumeIsEjectableKey, .volumeIsInternalKey, .volumeIsRootFileSystemKey, .volumeLocalizedNameKey]
-            let volumes = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? []
             var ejected = 0
             var stuck: [String] = []
-            for volume in volumes {
-                guard let values = try? volume.resourceValues(forKeys: Set(keys)), values.volumeIsEjectable == true,
-                      values.volumeIsRootFileSystem != true else { continue }
+            for disk in ejectableDisks() {
                 do {
-                    try NSWorkspace.shared.unmountAndEjectDevice(at: volume)
+                    try NSWorkspace.shared.unmountAndEjectDevice(at: disk.url)
                     ejected += 1
                 } catch {
-                    stuck.append(values.volumeLocalizedName ?? volume.lastPathComponent)
+                    stuck.append(disk.name)
                 }
             }
             Log.append("eject: \(ejected) ejected, \(stuck.count) in use")

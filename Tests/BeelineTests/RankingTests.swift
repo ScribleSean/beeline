@@ -48,9 +48,19 @@ private func titles(_ query: String) -> [String] {
 
 @Test func plansNeverIncludeActionsThatNeedConfirming() {
     let texts = sharedCatalogue.planOptions().map(\.text)
-    for title in ["Restart", "Shut Down", "Log Out", "Empty Trash"] {
+    for title in ["Restart", "Shut Down", "Log Out", "Empty Trash", "Eject All Disks"] {
         #expect(!texts.contains(title))
     }
+}
+
+// Codex 7: ejecting every disk asks first, and the card says which ones.
+@Test func ejectAllDisksNeedsConfirming() {
+    let item = sharedCatalogue.search("eject all disks").first { $0.title == "Eject All Disks" }
+    #expect(item?.needsConfirm == true)
+    #expect(item?.id == "action:Eject All Disks")
+    #expect(Actions.ejectSummary([]) == "No disks are connected that can be ejected.")
+    #expect(Actions.ejectSummary(["Backup"]).hasPrefix("Backup is ejected."))
+    #expect(Actions.ejectSummary(["Backup", "Photos", "USB"]).hasPrefix("Backup, Photos and USB are ejected."))
 }
 
 // M11: everyday requests act instead of turning into questions or the wrong direction.
