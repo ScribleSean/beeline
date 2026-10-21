@@ -14,14 +14,13 @@ enum Calculator {
             .replacingOccurrences(of: "×", with: "*")
             .replacingOccurrences(of: "÷", with: "/")
             .replacingOccurrences(of: " of ", with: "*")
-            .replacingOccurrences(of: ",", with: "")
-            .filter { !$0.isWhitespace }
+        let numbers = Self.decimalPoints(cleaned).replacingOccurrences(of: ",", with: "").filter { !$0.isWhitespace }
         // Long or deeply nested input is refused rather than risk running out of stack.
-        guard cleaned.count <= 200, cleaned.contains(where: \.isNumber),
-              cleaned.contains(where: { "+-*/^%x".contains($0) }),
-              cleaned.allSatisfy({ $0.isNumber || "+-*/^%x().".contains($0) }) else { return nil }
+        guard numbers.count <= 200, numbers.contains(where: \.isNumber),
+              numbers.contains(where: { "+-*/^%x".contains($0) }),
+              numbers.allSatisfy({ $0.isNumber || "+-*/^%x().".contains($0) }) else { return nil }
 
-        var parser = Parser(characters: Array(cleaned))
+        var parser = Parser(characters: Array(numbers))
         guard let value = parser.expression(), parser.isAtEnd, value.isFinite else { return nil }
         return value
     }
@@ -34,10 +33,31 @@ enum Calculator {
         return Answer(label: "Calculation", value: format(value), detail: "\(sum) =")
     }
 
+    /// Commas as people type them: "1,500" and "1,234,567" group thousands, while "2,5" and "2,50" are
+    /// decimal commas, as most of Europe writes them (L7). A comma followed by exactly three digits groups;
+    /// any other comma between digits is a decimal point.
+    static func decimalPoints(_ text: String) -> String {
+        var text = text
+        // Repeated, because "1,234,567" groups twice and each pass sees one comma at a time.
+        while true {
+            let next = text.replacingOccurrences(of: #"(\d),(\d{3})(?!\d)"#, with: "$1$2", options: .regularExpression)
+            if next == text { break }
+            text = next
+        }
+        return text.replacingOccurrences(of: #"(\d),(\d)"#, with: "$1.$2", options: .regularExpression)
+    }
+
     static func format(_ value: Double) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
-        formatter.maximumFractionDigits = 8
+        if value != 0, abs(value) < 0.0001 {
+            // A tiny answer keeps its meaningful digits instead of showing, and copying, as 0 (L7).
+            formatter.numberStyle = .scientific
+            formatter.maximumSignificantDigits = 6
+            formatter.usesSignificantDigits = true
+        } else {
+            formatter.maximumFractionDigits = 8
+        }
         return formatter.string(from: NSNumber(value: value)) ?? String(value)
     }
 

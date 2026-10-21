@@ -32,7 +32,7 @@ enum Converter {
     private static func split(_ text: String) -> (Double, String, String)? {
         let pattern = #"^(-?[0-9][0-9.,]*)\s*([a-z][a-z0-9/ ]*?)\s+(?:in|to|into|as)\s+([a-z][a-z0-9/ ]*)$"#
         guard let match = text.firstMatch(of: try! Regex(pattern)),
-              let number = Double(String(match.output[1].substring ?? "").replacingOccurrences(of: ",", with: "")),
+              let number = Double(Calculator.decimalPoints(String(match.output[1].substring ?? "")).replacingOccurrences(of: ",", with: "")),
               let from = match.output[2].substring, let to = match.output[3].substring else { return nil }
         return (number, String(from).trimmingCharacters(in: .whitespaces), String(to).trimmingCharacters(in: .whitespaces))
     }
@@ -43,6 +43,8 @@ enum Converter {
         if money {
             formatter.minimumFractionDigits = 2
             formatter.maximumFractionDigits = 2
+        } else if abs(value) < 0.0001, value != 0 {
+            return Calculator.format(value)
         } else if abs(value) < 1, value != 0 {
             // Small values keep four meaningful digits: 0.4536, not 0.453592 or 0.454.
             formatter.usesSignificantDigits = true
@@ -80,8 +82,11 @@ enum Converter {
         add(UnitVolume.milliliters, "ml", "ml milliliter milliliters millilitre millilitres")
         add(UnitVolume.liters, "l", "l liter liters litre litres")
         add(UnitVolume.gallons, "gal", "gal gallon gallons")
-        add(UnitVolume.cups, "cups", "cup cups")
+        // A US cup, 236.6 ml, like the other US units here. Foundation's cup is the 240 ml metric one (L7).
+        add(usCup, "cups", "cup cups")
         add(UnitVolume.fluidOunces, "fl oz", "floz")
+        // Two-word names, as typed.
+        for name in ["fl oz", "fluid ounce", "fluid ounces"] { table[name] = (UnitVolume.fluidOunces, "fl oz") }
         add(UnitVolume.tablespoons, "tbsp", "tbsp tablespoon tablespoons")
         add(UnitVolume.teaspoons, "tsp", "tsp teaspoon teaspoons")
         add(UnitSpeed.kilometersPerHour, "km/h", "kmh kph km/h")
@@ -103,11 +108,24 @@ enum Converter {
         return table
     }()
 
+    static let usCup = UnitVolume(symbol: "cup", converter: UnitConverterLinear(coefficient: 0.2365882365))
+
+    /// "oz" is a weight, unless the other side is a volume: "8 oz in ml" means fluid ounces.
+    private static func unit(_ name: String, other: String) -> (Dimension, String)? {
+        guard let found = unitNames[name] else { return nil }
+        if found.0 == UnitMass.ounces, let partner = unitNames[other], partner.0 is UnitVolume {
+            return (UnitVolume.fluidOunces, "fl oz")
+        }
+        return found
+    }
+
     private static func units(_ text: String) -> Answer? {
         guard let (value, fromName, toName) = split(text),
-              let (from, fromLabel) = unitNames[fromName], let (to, label) = unitNames[toName],
+              let (from, fromLabel) = unit(fromName, other: toName), let (to, label) = unit(toName, other: fromName),
               // Converting between different kinds (length to mass) would crash, so it is refused.
-              type(of: from) == type(of: to) else { return nil }
+              // Compared by base unit: Foundation's own units are private subclasses, so a unit made here (the
+              // US cup) would never match theirs by type.
+              type(of: from).baseUnit().symbol == type(of: to).baseUnit().symbol else { return nil }
         let result = Measurement(value: value, unit: from).converted(to: to).value
         // Checked with `is`, because Foundation hands back private subclasses of these unit types.
         let kind = from is UnitLength ? "Length" : from is UnitMass ? "Weight" : from is UnitTemperature ? "Temperature"
@@ -192,6 +210,9 @@ enum Converter {
         return (hour, minute)
     }
 
+    /// Words that name a time zone but, before "time", mean something else.
+    private static let notPlaces: Set<String> = ["christmas", "easter", "wake"]
+
     private static func time(_ text: String) -> Answer? {
         let display = DateFormatter()
         display.dateFormat = "h:mm a, EEE"
@@ -199,6 +220,8 @@ enum Converter {
         // "time in tokyo", "tokyo time", "what time is it in tokyo"
         for pattern in [#"^(?:what )?time(?: is it)? in (.+)$"#, #"^(.+) time$"#] {
             if let match = text.firstMatch(of: try! Regex(pattern)), let place = match.output[1].substring,
+               // "christmas time" is a season, not Christmas Island's clock; same for Easter and Wake (L7).
+               !(pattern.hasSuffix(" time$") && notPlaces.contains(String(place))),
                let target = zone(String(place)) {
                 display.timeZone = target
                 return Answer(label: "Time in \(name(of: target))", value: display.string(from: Date()),
