@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 Settings.registerDefaults()
+Planner.ignoreBrokenPipes()
 
 // `Beeline --query "wifi"` prints the ranked matches and exits, for checking the matcher without the UI.
 if let flag = CommandLine.arguments.firstIndex(of: "--query"), CommandLine.arguments.count > flag + 1 {

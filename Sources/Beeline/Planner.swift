@@ -45,15 +45,7 @@ enum Planner {
 
     /// A short spoken-style answer to a question, shown in the bar. Same sign-in, still no tools.
     static func answer(_ question: String) async -> Result<String, Failure> {
-        let reply: String? = await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(returning: askClaude(question, system: answerSystem))
-            }
-        }
-        guard let text = reply?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
-            return .failure(.message("Couldn't reach Claude. Check that Claude Code is signed in."))
-        }
-        return .success(text)
+        await ask(question, system: answerSystem)
     }
 
     private static let rewriteSystem = """
@@ -64,29 +56,33 @@ enum Planner {
 
     /// The selected text rewritten as asked. Same sign-in, still no tools.
     static func rewrite(_ text: String, instruction: String) async -> Result<String, Failure> {
-        let prompt = "Instruction: \(instruction)\n<text>\n\(text)\n</text>"
-        let reply: String? = await withCheckedContinuation { continuation in
+        await ask("Instruction: \(instruction)\n<text>\n\(text)\n</text>", system: rewriteSystem)
+    }
+
+    /// Claude's reply, trimmed, or why there is none.
+    private static func ask(_ prompt: String, system: String) async -> Result<String, Failure> {
+        let result: Result<String, Failure> = await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(returning: askClaude(prompt, system: rewriteSystem))
+                continuation.resume(returning: askClaude(prompt, system: system))
             }
         }
-        guard let result = reply?.trimmingCharacters(in: .whitespacesAndNewlines), !result.isEmpty else {
-            return .failure(.message("Couldn't reach Claude. Check that Claude Code is signed in."))
+        switch result {
+        case .success(let reply):
+            let text = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? .failure(.message("Claude sent an empty reply.")) : .success(text)
+        case .failure(let failure):
+            return .failure(failure)
         }
-        return .success(result)
     }
 
     static func plan(for request: String, options: [PlanStep]) async -> Result<Plan, Failure> {
         let list = options.enumerated().map { "\($0.offset + 1). \($0.element.text)" }.joined(separator: "\n")
         let prompt = "Request: \(request)\nOptions:\n\(list)"
 
-        let reply: String? = await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(returning: askClaude(prompt, system: system))
-            }
-        }
-        guard let reply else {
-            return .failure(.message("Couldn't reach Claude. Check that Claude Code is signed in."))
+        let reply: String
+        switch await ask(prompt, system: system) {
+        case .success(let text): reply = text
+        case .failure(let failure): return .failure(failure)
         }
         // Tolerates a code fence or stray words around the JSON, and nothing else.
         guard reply.utf8.count < 20_000, let start = reply.firstIndex(of: "{"), let end = reply.lastIndex(of: "}"), start < end,
@@ -125,46 +121,140 @@ enum Planner {
         if let process, process.isRunning { process.terminate() }
     }
 
-    private static func askClaude(_ prompt: String, system: String) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        // A login shell finds `claude` wherever it is installed. Every tool, MCP server and settings file
-        // is switched off, so this is a plain question and answer with no way to act on the Mac.
-        process.arguments = ["-lc", """
-            unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX
-            claude -p --model sonnet --tools "" --strict-mcp-config --setting-sources "" \
-            --no-session-persistence --output-format text --system-prompt "$BEELINE_SYSTEM"
-            """]
-        // API keys are removed so the call always goes through the Claude Code subscription sign-in,
-        // never a paid API account. The login shell above unsets them again in case its profile sets them.
-        var environment = ProcessInfo.processInfo.environment
-        for name in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"] {
-            environment[name] = nil
+    /// Makes a write into a pipe whose reader has gone an error instead of a signal that kills the app.
+    /// Called once at launch. The prompt for a plan can exceed what a pipe holds, so the write can still be
+    /// under way when `claude` exits, or when Escape ends it.
+    static func ignoreBrokenPipes() {
+        signal(SIGPIPE, SIG_IGN)
+    }
+
+    /// Writes everything to the pipe and closes it. False when the reader had already gone.
+    static func feed(_ data: Data, to pipe: Pipe) -> Bool {
+        let handle = pipe.fileHandleForWriting
+        defer { try? handle.close() }
+        do {
+            try handle.write(contentsOf: data)
+            return true
+        } catch {
+            return false
         }
-        environment["BEELINE_SYSTEM"] = system
+    }
+
+    /// Where the `claude` command is. Beeline starts from launchd with a bare PATH, and a bash login shell
+    /// never reads zsh's profile, where Claude Code's installer and Homebrew add themselves. So the usual
+    /// places are checked directly, then the user's own shell is asked. Remembered once found.
+    private static var cachedClaude: URL?
+    private static let claudeLock = NSLock()
+
+    static func claudePath() -> URL? {
+        claudeLock.lock()
+        defer { claudeLock.unlock() }
+        if let cachedClaude { return cachedClaude }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        var candidates = [home.appendingPathComponent(".local/bin/claude"), URL(fileURLWithPath: "/opt/homebrew/bin/claude"),
+                          URL(fileURLWithPath: "/usr/local/bin/claude")]
+        candidates += (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":")
+            .map { URL(fileURLWithPath: String($0)).appendingPathComponent("claude") }
+        let found = find(in: candidates) ?? askShellForClaude()
+        cachedClaude = found
+        return found
+    }
+
+    /// The first candidate that is an executable file.
+    static func find(in candidates: [URL]) -> URL? {
+        candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }
+    }
+
+    private static func askShellForClaude() -> URL? {
+        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: shell)
+        process.arguments = ["-lic", "command -v claude"]
+        process.standardInput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        do { try process.run() } catch { return nil }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 5) { if process.isRunning { process.terminate() } }
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        process.waitUntilExit()
+        let path = output.split(whereSeparator: \.isNewline).last.map { String($0).trimmingCharacters(in: .whitespaces) } ?? ""
+        guard path.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: path) else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+
+    static let notFoundMessage = "Claude Code isn't installed, or isn't in ~/.local/bin, Homebrew or /usr/local/bin."
+
+    private static func askClaude(_ prompt: String, system: String) -> Result<String, Failure> {
+        guard let claude = claudePath() else { return .failure(.message(notFoundMessage)) }
+        let process = Process()
+        process.executableURL = claude
+        // Every tool, MCP server and settings file is switched off, so this is a plain question and
+        // answer with no way to act on the Mac.
+        process.arguments = ["-p", "--model", "sonnet", "--tools", "", "--strict-mcp-config", "--setting-sources", "",
+                             "--no-session-persistence", "--output-format", "text", "--system-prompt", system]
+        // Only a few named variables are passed on. API keys and provider switches (Bedrock, Vertex, a keyed
+        // proxy) are left out whatever they are called, so the call goes through the Claude Code sign-in
+        // already on this Mac and never a paid API account.
+        let inherited = ProcessInfo.processInfo.environment
+        var environment: [String: String] = [:]
+        for name in ["HOME", "USER", "LOGNAME", "LANG", "TMPDIR", "SHELL"] {
+            if let value = inherited[name] { environment[name] = value }
+        }
+        environment["PATH"] = [claude.deletingLastPathComponent().path, "/usr/bin", "/bin", "/usr/sbin", "/sbin"].joined(separator: ":")
         process.environment = environment
         process.currentDirectoryURL = FileManager.default.temporaryDirectory
 
         let input = Pipe()
         let output = Pipe()
+        let errors = Pipe()
         process.standardInput = input
         process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { return nil }
+        process.standardError = errors
+        do { try process.run() } catch { return .failure(.message("Couldn't start Claude Code (\((error as NSError).code)).")) }
         cancel()
         runningLock.lock()
         running = process
         runningLock.unlock()
 
         // Claude normally answers in a few seconds; never leave the bar waiting on a stuck process.
+        var timedOut = false
         DispatchQueue.global().asyncAfter(deadline: .now() + 40) {
-            if process.isRunning { process.terminate() }
+            if process.isRunning {
+                timedOut = true
+                process.terminate()
+            }
         }
-        input.fileHandleForWriting.write(Data(prompt.utf8))
-        input.fileHandleForWriting.closeFile()
+        // The prompt is written while the reply is read: a prompt bigger than the pipe would otherwise
+        // block until claude drains it, and a write into a pipe claude has left is an error, not a crash.
+        let fed = DispatchQueue(label: "beeline.claude-input")
+        fed.async { _ = feed(Data(prompt.utf8), to: input) }
+        var errorText = ""
+        let errorsRead = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            errorText = String(data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            errorsRead.signal()
+        }
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return nil }
-        return String(data: data, encoding: .utf8)
+        errorsRead.wait()
+        fed.sync {}
+        runningLock.lock()
+        let wasCancelled = running !== process
+        running = nil
+        runningLock.unlock()
+
+        guard process.terminationStatus == 0 else {
+            if wasCancelled { return .failure(.message("Cancelled.")) }
+            if timedOut { return .failure(.message("Claude didn't answer within 40 seconds.")) }
+            let lowered = errorText.lowercased()
+            let firstLine = errorText.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+            Log.append("claude failed (\(process.terminationStatus)): \(firstLine.prefix(200))")
+            if lowered.contains("log in") || lowered.contains("login") || lowered.contains("auth") || lowered.contains("api key") {
+                return .failure(.message("Claude Code isn't signed in. Run “claude” in Terminal to sign in."))
+            }
+            return .failure(.message(firstLine.isEmpty ? "Claude Code stopped with an error." : "Claude Code said: \(firstLine.prefix(120))"))
+        }
+        return .success(String(data: data, encoding: .utf8) ?? "")
     }
 }
