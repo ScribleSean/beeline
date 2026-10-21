@@ -19,17 +19,34 @@ extension Accessibility {
         "AXDisclosureTriangle": ("Toggle", "disclosure"),
     ]
 
-    /// Labels that mean the press cannot be taken back. These need Return twice.
+    /// Labels that mean the press cannot be taken back. These need Return twice. Apostrophes are dropped
+    /// before comparing, so "Don't Save" is "dont save" here.
     private static let irreversible = [
         "delete", "remove", "discard", "erase", "trash", "send", "buy", "pay", "purchase", "order", "submit",
         "unsubscribe", "sign out", "log out", "reset", "clear", "uninstall", "erase disk", "publish", "post", "confirm",
+        "dont save", "replace", "overwrite", "force quit", "empty bin", "empty trash", "bin", "delete all", "remove all",
     ]
+
+    /// Buttons in a dialog that are safe however the dialog is worded.
+    private static let harmless: Set<String> = ["cancel", "ok", "save", "stop", "keep both", "dont replace", "not now", "later", "close"]
 
     /// True for a label that means the action cannot be taken back. Whole words only: "Reorder" is not
     /// "order", and "Paint format" is not "format a disk".
     static func isIrreversible(_ label: String) -> Bool {
-        let words = " " + label.lowercased().split(whereSeparator: { !$0.isLetter }).joined(separator: " ") + " "
+        let words = " " + labelWords(label) + " "
         return irreversible.contains { words.contains(" \($0) ") }
+    }
+
+    /// True for a button in a sheet or dialog that is not plainly safe. Dialogs are where "Don't Save",
+    /// "Replace" and "Force Quit" live, in every language, so their buttons need Return twice whatever
+    /// they say.
+    static func needsConfirmInDialog(_ label: String) -> Bool {
+        !harmless.contains(labelWords(label))
+    }
+
+    private static func labelWords(_ label: String) -> String {
+        label.lowercased().replacingOccurrences(of: "['’]", with: "", options: .regularExpression)
+            .split(whereSeparator: { !$0.isLetter }).joined(separator: " ")
     }
 
     private static let fieldRoles: Set<String> = ["AXTextField", "AXSearchField", "AXTextArea", "AXComboBox"]
@@ -46,16 +63,19 @@ extension Accessibility {
         guard let window: AXUIElement = attribute(element, kAXFocusedWindowAttribute) ?? windows.first,
               let windowFrame = frame(of: window) else { return [] }
 
-        var found: [(element: AXUIElement, role: String, subrole: String, label: String, frame: CGRect)] = []
+        var found: [(element: AXUIElement, role: String, subrole: String, label: String, frame: CGRect, inDialog: Bool)] = []
         var visited = 0
         var deadline = started.addingTimeInterval(0.6)
+        let windowSubrole: String = attribute(window, kAXSubroleAttribute) ?? ""
+        let windowIsDialog = windowSubrole == "AXDialog" || windowSubrole == "AXSystemDialog"
 
-        func walk(_ node: AXUIElement, depth: Int) {
+        func walk(_ node: AXUIElement, depth: Int, inDialog: Bool) {
             guard visited < 4000, depth < 40, Date() < deadline else { return }
             visited += 1
             let role: String = attribute(node, kAXRoleAttribute) ?? ""
             // A closed menu hides thousands of zero-sized items.
             if role == kAXMenuRole || role == kAXMenuBarRole { return }
+            let inDialog = inDialog || role == "AXSheet"
             let box = frame(of: node)
             // Containers often report an empty frame while their children are real, so only a container with
             // a genuine size that lies wholly outside the window is skipped with everything inside it.
@@ -64,14 +84,14 @@ extension Accessibility {
             // scrolled-out nodes behind as slivers.
             if roles[role] != nil, let box, box.width >= 4, box.height >= 4, box.intersects(windowFrame),
                let label = label(of: node, role: role) {
-                found.append((node, role, attribute(node, kAXSubroleAttribute) ?? "", label, box))
+                found.append((node, role, attribute(node, kAXSubroleAttribute) ?? "", label, box, inDialog))
                 // A control's insides (its icon, its text) are part of it, not separate controls.
                 return
             }
             let children: [AXUIElement] = attribute(node, kAXChildrenAttribute) ?? []
-            for child in children { walk(child, depth: depth + 1) }
+            for child in children { walk(child, depth: depth + 1, inDialog: inDialog) }
         }
-        walk(window, depth: 0)
+        walk(window, depth: 0, inDialog: windowIsDialog)
 
         // Electron and Chromium apps (Claude, Slack, VS Code) expose almost nothing until a screen reader
         // asks for the full tree through this flag. Ask once, give the app a moment, and look again.
@@ -84,7 +104,7 @@ extension Accessibility {
             deadline = Date().addingTimeInterval(0.6)
             found.removeAll()
             visited = 0
-            walk(window, depth: 0)
+            walk(window, depth: 0, inDialog: windowIsDialog)
         }
 
         // A label that appears more than once gets where it sits, so the two can be told apart.
@@ -111,7 +131,7 @@ extension Accessibility {
                     AXUIElementPerformAction(node, kAXPressAction as CFString)
                 }
             }
-            item.needsConfirm = !isField && isIrreversible(control.label)
+            item.needsConfirm = !isField && (isIrreversible(control.label) || (control.inDialog && needsConfirmInDialog(control.label)))
             if item.needsConfirm, !windowTitle.isEmpty {
                 item.confirmNote = "In “\(windowTitle)” (\(appName)). This can't be undone."
             }
