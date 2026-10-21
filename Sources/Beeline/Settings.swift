@@ -16,6 +16,8 @@ enum Settings {
     static let appearance = "appearance"
     /// Set once the welcome screen has been shown.
     static let welcomed = "welcomed"
+    /// Set once Accessibility has been seen on, so a later build that finds itself untrusted can explain why.
+    static let wasTrusted = "wasTrusted"
 
     static let forgetHistory = Notification.Name("BeelineForgetHistory")
     static let clearClipboard = Notification.Name("BeelineClearClipboard")
@@ -43,13 +45,28 @@ enum Settings {
         }
     }
 
+    /// The shortcut chosen in Settings.
     static var shortcutLabel: String {
-        switch UserDefaults.standard.string(forKey: shortcut) {
+        label(for: UserDefaults.standard.string(forKey: shortcut) ?? "command")
+    }
+
+    static func label(for modifier: String) -> String {
+        switch modifier {
         case "option": return "⌥Space"
         case "control": return "⌃Space"
         default: return "⌘Space"
         }
     }
+
+    /// The shortcut that actually opens the bar right now: the chosen one, or the fallback that could be
+    /// registered when another app holds it, or "none". Every screen shows this one, never the preference.
+    static var activeShortcutLabel: String {
+        if let activeShortcut { return label(for: activeShortcut) }
+        return "No shortcut (⌘, ⌥ and ⌃Space are all taken)"
+    }
+
+    /// Set by the app when it registers the hotkey: "command", "option", "control" or nil.
+    static var activeShortcut: String? = UserDefaults.standard.string(forKey: shortcut) ?? "command"
 }
 
 /// Whether Beeline opens when you log in, through macOS's own login items list.

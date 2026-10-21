@@ -49,6 +49,8 @@ extension WelcomeWindowController {
 /// it is open, so the card turns green as soon as the switch is flipped in System Settings.
 private final class WelcomeState: ObservableObject {
     @Published var trusted = Accessibility.isTrusted
+    /// True when an earlier build was trusted, so a grant that no longer matches is the likely cause.
+    var wasTrustedBefore: Bool { UserDefaults.standard.bool(forKey: Settings.wasTrusted) }
     private var timer: Timer?
 
     func stop() {
@@ -82,7 +84,7 @@ private struct WelcomeView: View {
                 Text("Your Mac, a few words away.").font(.system(size: 14)).foregroundStyle(.secondary)
             }
             HStack(spacing: 6) {
-                ForEach(Array(Settings.shortcutLabel.replacingOccurrences(of: "Space", with: "").map(String.init)) + ["Space"], id: \.self) { key in
+                ForEach(Array((Settings.activeShortcut.map { Settings.label(for: $0) } ?? "⌘Space").replacingOccurrences(of: "Space", with: "").map(String.init)) + ["Space"], id: \.self) { key in
                     Text(key)
                         .font(.system(size: 13, weight: .medium))
                         .padding(.horizontal, 10)
@@ -90,7 +92,8 @@ private struct WelcomeView: View {
                         .background(Theme.capsule, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(Theme.capsuleEdge, lineWidth: 1))
                 }
-                Text("opens it, wherever you are.").font(.system(size: 13)).foregroundStyle(.secondary)
+                Text(Settings.activeShortcut == nil ? "would open it, but ⌘, ⌥ and ⌃Space are all taken by other apps."
+                     : "opens it, wherever you are.").font(.system(size: 13)).foregroundStyle(.secondary)
             }
 
             VStack(alignment: .leading, spacing: 10) {
@@ -112,6 +115,12 @@ private struct WelcomeView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("1.  Click Open System Settings").font(.system(size: 12))
                         Text("2.  Switch on Beeline in the list").font(.system(size: 12))
+                        if state.wasTrustedBefore {
+                            // An ad hoc rebuild is a new app to macOS: the old grant shows as on but no longer counts.
+                            Text("If Beeline is already listed and on, this build isn't the one that was allowed: select it, remove it with −, then add it again with +.")
+                                .font(.system(size: 12))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                     .foregroundStyle(.secondary)
                     .padding(.leading, 48)

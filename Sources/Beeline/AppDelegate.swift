@@ -16,9 +16,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.25)
         Settings.applyAppearance()
         NotificationCenter.default.addObserver(forName: Settings.openWelcome, object: nil, queue: .main) { [weak self] _ in
+            self?.retryShortcutIfNeeded()
             self?.welcomeWindow.show()
         }
         NotificationCenter.default.addObserver(forName: Settings.open, object: nil, queue: .main) { [weak self] _ in
+            self?.retryShortcutIfNeeded()
             self?.settingsWindow.show()
         }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -38,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = menu
 
         Log.start("launched \(Date()) accessibility=\(Accessibility.isTrusted)")
+        if Accessibility.isTrusted { UserDefaults.standard.set(true, forKey: Settings.wasTrusted) }
         registerShortcut()
         NotificationCenter.default.addObserver(forName: Settings.shortcutChanged, object: nil, queue: .main) { [weak self] _ in
             self?.registerShortcut()
@@ -50,28 +53,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Registers the shortcut chosen in Settings. If another app holds it (Spotlight still on ⌘Space),
-    /// falls back to ⌥Space so Beeline can always be opened.
+    /// tries the other two so Beeline can still be opened, and publishes which one is in effect.
     private func registerShortcut() {
         hotKey = nil
-        let modifier: Int
-        switch UserDefaults.standard.string(forKey: Settings.shortcut) {
-        case "option": modifier = optionKey
-        case "control": modifier = controlKey
-        default: modifier = cmdKey
-        }
+        let preferred = UserDefaults.standard.string(forKey: Settings.shortcut) ?? "command"
+        let modifiers = ["command": cmdKey, "option": optionKey, "control": controlKey]
         let pressed: () -> Void = { [weak self] in self?.bar.shortcutPressed() }
         let released: () -> Void = { [weak self] in self?.bar.shortcutReleased() }
-        var label = Settings.shortcutLabel
-        hotKey = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(modifier), pressed: pressed, released: released)
-        if hotKey == nil {
-            hotKey = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey), pressed: pressed, released: released)
-            label = "⌥Space, since \(Settings.shortcutLabel) is taken"
+        var active: String?
+        for name in [preferred] + ["command", "option", "control"].filter({ $0 != preferred }) {
+            hotKey = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(modifiers[name]!), pressed: pressed, released: released)
+            if hotKey != nil {
+                active = name
+                break
+            }
         }
+        Settings.activeShortcut = active
+        let label = active == nil ? Settings.activeShortcutLabel
+            : active == preferred ? Settings.shortcutLabel : "\(Settings.label(for: active!)), since \(Settings.shortcutLabel) is taken"
         openItem.title = "Open Beeline (\(label))"
         Log.append("shortcut: \(label)")
     }
 
+    /// Tries the chosen shortcut again when it was not the one registered: Spotlight's may have been
+    /// turned off since launch, as the README suggests.
+    private func retryShortcutIfNeeded() {
+        let preferred = UserDefaults.standard.string(forKey: Settings.shortcut) ?? "command"
+        if Settings.activeShortcut != preferred { registerShortcut() }
+    }
+
     @objc private func openSettings() {
+        retryShortcutIfNeeded()
         settingsWindow.show()
     }
 
