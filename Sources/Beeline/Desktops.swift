@@ -27,8 +27,9 @@ enum Desktops {
         var apps: [App]
     }
 
-    private static let file = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("Beeline/desktops.json")
+    // Tests point this at a scratch file so they never touch real saved desktops.
+    private static let file = ProcessInfo.processInfo.environment["BEELINE_DESKTOPS_FILE"].map { URL(fileURLWithPath: $0) }
+        ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Beeline/desktops.json")
 
     /// Read from disk once, then kept: every keystroke checks saved desktops.
     private static var cache: [Desktop]?
@@ -63,7 +64,9 @@ enum Desktops {
         let lowered = text.lowercased()
         let saved = load()
 
-        if let match = lowered.firstMatch(of: try! Regex(#"^(?:save|store|remember)(?: this| my)? desktop(?: as)?\s+(.+)$"#)),
+        // Matched on the text itself, case-insensitively: lower-casing can change a string's length ("İ"
+        // grows), so a range found in the lowered copy could run past the end of the original.
+        if let match = text.firstMatch(of: try! Regex(#"^(?:save|store|remember)(?: this| my)? desktop(?: as)?\s+(.+)$"#).ignoresCase()),
            let range = match.output[1].range {
             let name = cleaned(String(text[range]))
             let existing = saved.first { key($0.name) == key(name) }
@@ -71,11 +74,11 @@ enum Desktops {
             return [Item(id: "desktop-save", kind: .action, verb: "", title: title,
                          subtitle: existing == nil ? "Apps, windows, documents and tabs" : "Saved \(age(existing!.saved))",
                          keywords: "", icon: NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: nil)) {
-                save(as: existing?.name.isEmpty == false ? name : name)
+                save(as: name)
             }]
         }
 
-        if let match = lowered.firstMatch(of: try! Regex(#"^(?:delete|remove|forget) (?:saved )?desktop\s+(.+)$"#)),
+        if let match = text.firstMatch(of: try! Regex(#"^(?:delete|remove|forget) (?:saved )?desktop\s+(.+)$"#).ignoresCase()),
            let range = match.output[1].range {
             let name = key(String(text[range]))
             return saved.filter { key($0.name).hasPrefix(name) }.map { desktop in

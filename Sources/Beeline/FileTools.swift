@@ -59,8 +59,10 @@ enum FileTools {
     static func results(for query: String) -> [Item]? {
         if let transfer = transferResults(for: query) { return transfer }
         guard !selection.isEmpty else { return nil }
-        let text = query.lowercased().trimmingCharacters(in: .whitespaces)
-        let words = Set(text.split(separator: " ").map(String.init))
+        // Matched and cut as one string: lower-casing can change a string's length ("İ" grows), so
+        // positions found in a lowered copy would run past the end of the original.
+        let text = query.trimmingCharacters(in: .whitespaces)
+        let words = Set(text.lowercased().split(separator: " ").map(String.init))
         let files = selection
         let pdfs = files.filter { $0.pathExtension.lowercased() == "pdf" }
         let pictures = files.filter { images.contains($0.pathExtension.lowercased()) }
@@ -76,12 +78,10 @@ enum FileTools {
             rows.append(row("combine", "Combine \(pdfs.count) PDFs into one", "Combined.pdf beside them, in name order",
                             "doc.on.doc") { combine(pdfs) })
         }
-        if let match = text.firstMatch(of: try! Regex(#"^rename(?: (?:these|them|this|it|the files|files))? (?:to|as) (.+)$"#)),
+        if let match = text.firstMatch(of: try! Regex(#"^rename(?: (?:these|them|this|it|the files|files))? (?:to|as) (.+)$"#).ignoresCase()),
            let range = match.output[1].range {
             // The new name keeps the capitals as typed.
-            let start = query.index(query.startIndex, offsetBy: text.distance(from: text.startIndex, to: range.lowerBound),
-                                    limitedBy: query.endIndex) ?? query.endIndex
-            let base = String(query[start...]).trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "/", with: "-")
+            let base = String(text[range]).trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "/", with: "-")
             if !base.isEmpty {
                 let example = renamed(files, base: base).first.map { "“\($0.lastPathComponent)”" } ?? ""
                 var item = row("rename", files.count == 1 ? "Rename to \(example)" : "Rename \(files.count) files to \(example), …",
@@ -90,7 +90,7 @@ enum FileTools {
                 rows.append(item)
             }
         }
-        if text.hasPrefix("rename"), !words.isDisjoint(with: ["date", "dated"]) {
+        if text.lowercased().hasPrefix("rename"), !words.isDisjoint(with: ["date", "dated"]) {
             let ext = files[0].pathExtension.isEmpty ? "" : "." + files[0].pathExtension
             var item = row("rename-date", "Rename \(count) by date", "Like “2026-10-15 at 10.41.03\(ext)”, in place",
                            "calendar") { renameByDate(files) }
@@ -128,18 +128,18 @@ enum FileTools {
     private static func transferResults(for query: String) -> [Item]? {
         guard !selection.isEmpty || frontFolder != nil else { return nil }
         let text = query.trimmingCharacters(in: .whitespaces)
-        let lowered = text.lowercased()
         var copying = true
         var sourceText: String
         var destinationText: String
         // The verb is optional: "packet logger to applications" copies. Without one, only "to" or "into"
         // joins the two halves, and both must resolve, so "100 usd to eur" never lands here.
-        if let match = lowered.firstMatch(of: try! Regex(#"^(?:(copy|move|put|send|install)\s+(.+?)\s+(?:to|into|in)|(.+?)\s+(?:to|into))\s+(.+)$"#)),
+        // Matched on the text itself, case-insensitively, so the ranges cut the string they came from.
+        if let match = text.firstMatch(of: try! Regex(#"^(?:(copy|move|put|send|install)\s+(.+?)\s+(?:to|into|in)|(.+?)\s+(?:to|into))\s+(.+)$"#).ignoresCase()),
            let source = match.output[2].range ?? match.output[3].range, let destination = match.output[4].range {
-            copying = match.output[1].substring != "move"
+            copying = match.output[1].substring?.lowercased() != "move"
             sourceText = String(text[source])
             destinationText = String(text[destination])
-        } else if let match = lowered.firstMatch(of: try! Regex(#"^install\s+(.+)$"#)), let source = match.output[1].range {
+        } else if let match = text.firstMatch(of: try! Regex(#"^install\s+(.+)$"#).ignoresCase()), let source = match.output[1].range {
             sourceText = String(text[source])
             destinationText = "applications"
         } else {

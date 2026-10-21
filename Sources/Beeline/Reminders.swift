@@ -13,13 +13,16 @@ enum Reminders {
 
     /// Nil unless the request starts like a reminder or a goal.
     static func results(for query: String) -> [Item]? {
-        let lowered = query.lowercased().trimmingCharacters(in: .whitespaces)
+        // Trimmed once, then matched and cut as the same string, so leading spaces never shift the cut.
+        let text = query.trimmingCharacters(in: .whitespaces)
+        let lowered = text.lowercased()
         let prefixes: [(String, Kind)] = [
             ("remind me to ", .reminder), ("remind me ", .reminder), ("reminder to ", .reminder), ("reminder ", .reminder),
             ("add reminder ", .reminder), ("new goal ", .goal), ("add goal ", .goal), ("goal ", .goal),
         ]
-        guard let (prefix, kind) = prefixes.first(where: { lowered.hasPrefix($0.0) }) else { return nil }
-        let rest = String(query.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+        guard let (prefix, kind) = prefixes.first(where: { lowered.hasPrefix($0.0) }),
+              lowered.count == text.count else { return nil }
+        let rest = String(text.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
         guard !rest.isEmpty else { return [] }
 
         let (title, due) = splitDate(rest)
