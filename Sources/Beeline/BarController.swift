@@ -46,6 +46,11 @@ final class BarController: NSObject, NSWindowDelegate {
         model.onRequestAccess = { [weak self] in
             self?.hide()
             Accessibility.requestAccess()
+            // The system prompt shows nothing once Beeline is listed, which is the case after an unsigned
+            // rebuild. The pane itself is where the fix (remove and re-add) happens.
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                NSWorkspace.shared.open(url)
+            }
         }
         model.catalogue.startWatching()
         Chooser.prewarm()
@@ -61,8 +66,10 @@ final class BarController: NSObject, NSWindowDelegate {
             if self.handleEditShortcut(event) { return nil }
             switch Int(event.keyCode) {
             case kVK_Escape:
-                // The first Escape backs out of a plan; the second closes the bar.
-                if self.model.isShowingPlan {
+                // The first Escape backs out of a plan; the second closes the bar. A plan still running stops.
+                if let running = self.planTask, !running.isCancelled {
+                    self.stopPlan()
+                } else if self.model.isShowingPlan {
                     self.model.clearPlan()
                 } else if self.model.armedID != nil {
                     self.model.armedID = nil
@@ -80,36 +87,53 @@ final class BarController: NSObject, NSWindowDelegate {
     }
 
     private var isShown = false
+    /// The plan being run, so Escape or a new plan can stop it. Two plans never run at once.
+    private var planTask: Task<Void, Never>?
 
-    /// Runs a confirmed plan one step at a time, pausing so each app can catch up before the next.
     /// Runs a plan one step at a time, in the order previewed. Each step is checked before it runs and,
     /// where it can be, after it settles. On the first step that can't run or didn't work, the plan stops
     /// and the bar reopens to say which one.
     private func execute(_ plan: Plan) {
-        Task { @MainActor [weak self] in
+        planTask?.cancel()
+        planTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 150_000_000)
             for (index, step) in plan.steps.enumerated() {
+                // Sleeping swallows cancellation, so it is checked by hand between steps.
+                if Task.isCancelled { return }
                 if let stillValid = step.stillValid, !stillValid() {
                     self?.reportStop(at: index, of: plan, reason: "it's no longer on screen")
                     return
                 }
                 step.run()
                 try? await Task.sleep(nanoseconds: UInt64(step.settleTime * 1_000_000_000))
+                if Task.isCancelled { return }
                 if let succeeded = step.succeeded, !succeeded() {
                     // Give a slow app a little longer before calling it a failure.
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    if Task.isCancelled { return }
                     if !succeeded() {
                         self?.reportStop(at: index, of: plan, reason: "it didn't take effect")
                         return
                     }
                 }
             }
+            self?.planTask = nil
         }
     }
 
+    private func stopPlan() {
+        planTask?.cancel()
+        planTask = nil
+        Log.append("plan stopped by Escape")
+        model.planProblem = "Stopped. Steps still to come didn't run."
+    }
+
+    /// Says which step failed. A bar already open keeps what is in it; only a closed one is reopened.
     private func reportStop(at index: Int, of plan: Plan, reason: String) {
         Log.append("plan stopped at step \(index + 1) of \(plan.steps.count)")
-        show()
+        planTask = nil
+        if !isShown { show() }
+        model.clearPlan()
         model.planProblem = "Stopped at step \(index + 1), “\(plan.steps[index].text)”, because \(reason). Later steps didn't run."
     }
 

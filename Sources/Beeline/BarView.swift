@@ -452,7 +452,7 @@ struct BarView: View {
                         Text("↑↓ move")
                         Text("↩ open")
                     } else {
-                        Text("\(Settings.shortcutLabel) opens Beeline anywhere")
+                        Text("\(Settings.activeShortcutLabel) opens Beeline anywhere")
                     }
                     Spacer()
                     Text("esc close")
@@ -668,7 +668,9 @@ private struct PlanSection: View {
                             if let icon = step.icon {
                                 Image(nsImage: icon).resizable().frame(width: 22, height: 22)
                             }
-                            Text(step.text).font(.system(size: 14)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                            // Cut in the middle when too long, so a long window title never hides "…to the left half".
+                            Text(step.text).font(.system(size: 14)).lineLimit(3).truncationMode(.middle)
+                                .fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 0)
                         }
                         .padding(.horizontal, 12)
