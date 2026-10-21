@@ -100,10 +100,8 @@ final class Clipboard {
         // come forward meanwhile, nothing is pasted; the text stays on the clipboard.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             guard NSWorkspace.shared.frontmostApplication?.processIdentifier == target else { return }
-            for isDown in [true, false] {
-                let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: isDown)
-                event?.flags = .maskCommand
-                event?.post(tap: .cghidEventTap)
+            if !Keyboard.press("v", flags: .maskCommand) {
+                Actions.report("Allow Accessibility for Beeline in Privacy & Security to paste. The text is on the clipboard.")
             }
         }
     }

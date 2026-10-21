@@ -23,7 +23,7 @@ enum Actions {
             run("/usr/bin/pmset", "displaysleepnow")
         },
         Definition(title: "Lock Screen", symbol: "lock", keywords: "lock secure away") {
-            pressKey(kVK_ANSI_Q, flags: [.maskCommand, .maskControl])
+            lockScreen()
         },
         Definition(title: "Start Screen Saver", symbol: "sparkles.tv", keywords: "screensaver") {
             run("/usr/bin/open", "-a", "ScreenSaverEngine")
@@ -122,12 +122,38 @@ enum Actions {
         run("/usr/bin/osascript", "-e", source)
     }
 
-    private static func pressKey(_ key: Int, flags: CGEventFlags) {
-        for isDown in [true, false] {
-            let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(key), keyDown: isDown)
-            event?.flags = flags
-            event?.post(tap: .cghidEventTap)
+    /// Posted when an action could not do what it said, with the reason under "message". The bar reopens
+    /// and shows it, so a failure never looks like success.
+    static let failed = Notification.Name("BeelineActionFailed")
+
+    static func report(_ message: String) {
+        DispatchQueue.main.async {
+            NSSound.beep()
+            NotificationCenter.default.post(name: failed, object: nil, userInfo: ["message": message])
         }
+    }
+
+    /// Locks with the ⌃⌘Q keystroke, then checks that it took. macOS drops posted keystrokes from an app
+    /// without Accessibility, so without the check the bar would close as if the Mac were locked.
+    private static func lockScreen() {
+        guard Keyboard.canPostKeys else {
+            CGRequestPostEventAccess()
+            report("Allow Accessibility for Beeline in Privacy & Security to lock the screen.")
+            return
+        }
+        // The bar is still closing; a keystroke posted that instant can land in it instead of macOS.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            Keyboard.press("q", flags: [.maskCommand, .maskControl])
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                if isScreenLocked == false { report("The Mac didn't lock. Check that ⌃⌘Q still locks the screen in Keyboard settings.") }
+            }
+        }
+    }
+
+    /// Whether the login window is up. Nil when macOS does not say.
+    static var isScreenLocked: Bool? {
+        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else { return nil }
+        return (session["CGSSessionScreenIsLocked"] as? Bool) ?? (session["CGSSessionScreenIsLocked"] as? Int).map { $0 != 0 }
     }
 
     private static func setWiFi(_ state: String) {

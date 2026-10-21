@@ -47,6 +47,13 @@ final class BarController: NSObject, NSWindowDelegate {
         }
         model.catalogue.startWatching()
         Chooser.prewarm()
+        // An action that found it could not do its job says so here, instead of failing in silence.
+        NotificationCenter.default.addObserver(forName: Actions.failed, object: nil, queue: .main) { [weak self] note in
+            guard let self, let message = note.userInfo?["message"] as? String else { return }
+            if !self.isShown { self.show() }
+            self.model.clearPlan()
+            self.model.planProblem = message
+        }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.panel.isKeyWindow else { return event }
             if self.handleEditShortcut(event) { return nil }
