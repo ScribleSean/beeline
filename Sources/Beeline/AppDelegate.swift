@@ -232,7 +232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         // Wait for this copy to quit, so the new one doesn't find Option+Space still taken.
-        process.arguments = ["-c", "sleep 0.6; open \"$0\"", appPath]
+        process.arguments = ["-c", "sleep 1; open \"$0\"", appPath]
         try? process.run()
         NSApp.terminate(nil)
     }

@@ -48,10 +48,10 @@ To open it with ⌘Space, turn off Spotlight's shortcut in System Settings › K
 Beeline runs on your Mac. It goes online only for:
 
 - **Currency rates,** from the European Central Bank through [Frankfurter](https://frankfurter.dev), twice a day. Nothing about you is sent.
-- **Ask Claude,** when you choose it. Your request goes to Claude, and for a plan, so do the names of your open windows and tabs.
+- **Ask Claude,** when you choose it. Your request goes to Claude. For a plan, so does what it can be built from: the names of your running apps, open windows and tabs, the front app's menu commands (except Open Recent, History, Bookmarks and the like) and the labels of buttons and links in the front window. Those labels can include names and file names in apps like Mail or Slack.
 - **Search the web,** when you choose it, in your browser.
 
-Clipboard history stays in memory and ends when Beeline quits. Anything a password manager marks as private is never kept. What you pick is remembered in `~/Library/Application Support/Beeline`, and Settings can clear it.
+Clipboard history stays in memory and ends when Beeline quits. Anything a password manager marks as private is never kept. What you pick, with the words you typed to find it, is remembered in `~/Library/Application Support/Beeline` so it ranks first next time; reminders, web searches, desktops and file chores are not recorded. Settings can clear it. Saved desktops (app, window and tab names) live in the same folder.
 
 ## Permissions
 
@@ -59,10 +59,13 @@ macOS asks the first time a feature needs one.
 
 | Permission | For |
 | --- | --- |
-| Accessibility | Windows, menu commands, buttons, pasting |
-| Automation | Browser tabs, dark mode, emptying the Trash |
+| Accessibility | Windows, menu commands, buttons, pasting, Lock Screen |
+| Automation | Browser tabs, dark mode, Finder's selection, emptying the Trash |
+| Files & Folders | File chores on the Desktop, Documents and Downloads |
 | Reminders | Reminders and goals |
 | Microphone and Speech Recognition | Holding ⌘Space to talk |
+
+Without Accessibility, Lock Screen and paste say so instead of doing nothing. Restart, Shut Down and Log Out need no permission; Eject uses the system directly.
 
 ## Keys
 
@@ -74,7 +77,7 @@ macOS asks the first time a feature needs one.
 | ↩ | Open, run or copy |
 | esc | Back, then close |
 
-Anything that can't be undone, like emptying the Trash, asks for a second ↩.
+Anything that can't be undone asks for a second ↩: emptying the Trash, restarting, shutting down, logging out, closing several tabs, replacing a file, and buttons or menu commands like Delete, Send or Don't Save (and any button in a dialog).
 
 ## Development
 
@@ -88,7 +91,9 @@ build/Beeline.app/Contents/MacOS/Beeline --preview "wifi" bar.png    # render th
 build/Beeline.app/Contents/MacOS/Beeline --rewrite "more formal" "hey u free?"  # a rewrite, replaces nothing
 ```
 
-The build signs ad hoc, so macOS may ask for permissions again after each rebuild. Set `BEELINE_SIGNING_IDENTITY` to a code-signing certificate's fingerprint to keep them.
+Tests run with `swift test`.
+
+Each ad hoc build is a new app to macOS, so its permissions stop working after a rebuild even though System Settings still shows Beeline switched on; the fix is to remove Beeline from the list with − and add it again. To keep permissions across rebuilds, put a code-signing certificate's name or fingerprint in an untracked `.signing-identity` file in this folder. (`BEELINE_SIGNING_IDENTITY` works too, but only for builds started from a shell that sets it: **Update Beeline** never sees variables from `~/.zshrc`.) The build prints a warning when it signs ad hoc.
 
 ## License
 

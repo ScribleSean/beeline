@@ -190,12 +190,19 @@ if let flag = CommandLine.arguments.firstIndex(of: "--plan"), CommandLine.argume
 }
 
 // One copy at a time: a second menu-bar icon, clipboard poller and pick history writer would fight the first.
-// An update relaunch is fine, because the old copy has quit before the new one starts.
-let others = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
-    .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
-if !others.isEmpty {
-    Log.append("another copy is running, quitting")
-    exit(0)
+// After an update the old copy may still be on its way out, so it is given a few seconds to go.
+if let bundleID = Bundle.main.bundleIdentifier {
+    let me = ProcessInfo.processInfo.processIdentifier
+    var others: [NSRunningApplication] = []
+    for _ in 0..<50 {
+        others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).filter { $0.processIdentifier != me && !$0.isTerminated }
+        if others.isEmpty { break }
+        Thread.sleep(forTimeInterval: 0.1)
+    }
+    if !others.isEmpty {
+        Log.append("another copy is running, quitting")
+        exit(0)
+    }
 }
 
 let app = NSApplication.shared
