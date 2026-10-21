@@ -80,8 +80,9 @@ struct Browser {
         "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 
-    /// Every window's tab addresses, in order, for saving a desktop.
-    func tabAddresses() -> [[String]] {
+    /// Every window's tab addresses, in order, for saving a desktop. Nil when the browser could not be
+    /// read at all (Automation denied or unanswered, a hung browser), as opposed to having no tabs.
+    func tabAddresses() -> [[String]]? {
         let script = """
         set sep to (ASCII character 9)
         set out to ""
@@ -97,7 +98,7 @@ struct Browser {
         end tell
         return out
         """
-        guard let output = Self.osascript(script) else { return [] }
+        guard let output = Self.osascript(script) else { return nil }
         return output.split(separator: "\n").map { line in
             line.split(separator: "\t").map(String.init).filter { $0.hasPrefix("http://") || $0.hasPrefix("https://") }
         }.filter { !$0.isEmpty }

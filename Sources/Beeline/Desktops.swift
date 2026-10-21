@@ -19,6 +19,8 @@ enum Desktops {
         var windows: [Window]
         /// For browsers: each window's tab addresses, in order.
         var tabs: [[String]]?
+        /// True when the app was hidden (⌘H) at the time, so it is hidden again on restore.
+        var hidden: Bool?
     }
 
     struct Desktop: Codable {
@@ -36,9 +38,14 @@ enum Desktops {
 
     static func load() -> [Desktop] {
         if let cache { return cache }
-        let read = (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode([Desktop].self, from: $0) } ?? []
+        let read = JSONStore.read([Desktop].self, from: file, name: "desktops") ?? []
         cache = read
         return read
+    }
+
+    /// Forgets what was read, so the file is read again. Used by tests.
+    static func reload() {
+        cache = nil
     }
 
     private static func store(_ desktops: [Desktop]) {
@@ -122,9 +129,14 @@ enum Desktops {
 
     private static func save(as name: String) {
         let own = NSRunningApplication.current
-        let running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular && $0 != own && !$0.isHidden }
+        // Hidden apps count too: a browser hidden with ⌘H still has the tabs you want back.
+        let running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular && $0 != own }
+        let previous = load().first { key($0.name) == key(name) }
+        let trusted = Accessibility.isTrusted
         DispatchQueue.global(qos: .userInitiated).async {
             var apps: [App] = []
+            var tabCount = 0
+            var problems: [String] = []
             for app in running {
                 guard let url = app.bundleURL else { continue }
                 let element = Accessibility.applicationElement(app)
@@ -137,14 +149,35 @@ enum Desktops {
                                   document: document.flatMap { URL(string: $0)?.path })
                 }
                 let browser = Browser.all.first { $0.bundleID == app.bundleIdentifier }
+                var tabs = browser?.tabAddresses()
+                if let browser, tabs == nil {
+                    // The browser could not be read. An earlier save of this desktop keeps its tabs; otherwise
+                    // saving "no tabs" would look like success and only show at restore.
+                    if let kept = previous?.apps.first(where: { $0.bundleID == browser.bundleID })?.tabs {
+                        tabs = kept
+                        Log.append("desktops: kept earlier tabs for \(browser.shortName)")
+                    } else {
+                        problems.append(browser.shortName)
+                    }
+                }
+                tabCount += tabs?.reduce(0) { $0 + $1.count } ?? 0
                 apps.append(App(name: app.localizedName ?? url.lastPathComponent, path: url.path, bundleID: app.bundleIdentifier,
-                                windows: saved, tabs: browser?.tabAddresses()))
+                                windows: saved, tabs: tabs, hidden: app.isHidden ? true : nil))
             }
             DispatchQueue.main.async {
+                guard problems.isEmpty else {
+                    Actions.report("Couldn't read \(problems.joined(separator: " or "))'s tabs, so the desktop wasn't saved. "
+                        + "Allow Beeline to control it in Privacy & Security › Automation, then try again.")
+                    return
+                }
                 var desktops = load().filter { key($0.name) != key(name) }
                 desktops.append(Desktop(name: name, saved: Date(), apps: apps))
                 store(desktops)
-                Log.append("desktops: saved \(apps.count) apps")
+                let windowCount = apps.reduce(0) { $0 + $1.windows.count }
+                Log.append("desktops: saved \(apps.count) apps, \(windowCount) windows, \(tabCount) tabs")
+                if !trusted {
+                    Actions.report("Saved \(apps.count) apps and \(tabCount) tabs, but no window positions: allow Accessibility for Beeline to save those too.")
+                }
             }
         }
     }
@@ -173,7 +206,10 @@ enum Desktops {
                 if let tabs = saved.tabs, let browser = Browser.all.first(where: { $0.bundleID == saved.bundleID }) {
                     browser.openWindows(tabs)
                 }
-                arrange(app, saved.windows)
+                arrange(app, saved.windows) {
+                    // An app that was hidden when the desktop was saved goes back out of sight.
+                    if saved.hidden == true { DispatchQueue.main.async { app.hide() } }
+                }
             }
             if documents.isEmpty {
                 NSWorkspace.shared.openApplication(at: url, configuration: configuration, completionHandler: opened)
@@ -184,9 +220,10 @@ enum Desktops {
     }
 
     /// Moves each saved window back into place, matching by title, once the app has shown its windows.
-    private static func arrange(_ app: NSRunningApplication, _ saved: [Window]) {
-        guard !saved.isEmpty else { return }
+    private static func arrange(_ app: NSRunningApplication, _ saved: [Window], then done: @escaping () -> Void = {}) {
+        guard !saved.isEmpty else { return done() }
         DispatchQueue.global(qos: .userInitiated).async {
+            defer { done() }
             let element = Accessibility.applicationElement(app)
             // Apps take a moment to bring windows back after launch; keep looking for up to eight seconds.
             // Only a window whose title matches is moved: a window that happens to be open is never taken instead.
