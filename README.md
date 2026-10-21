@@ -3,7 +3,7 @@
 <h1 align="center">Beeline</h1>
 
 <p align="center"><b>Beeline to anything.</b><br>
-A fast Spotlight replacement for Mac that infers commands from plain text.</p>
+A Mac assistant you type to or talk to. It works out what you mean, and a bee shows where it acts.</p>
 
 <p align="center"><img src="docs/bar.png" width="640" alt="Beeline searching for wifi: Wi-Fi settings first, then the actions to turn Wi-Fi off or on"></p>
 
@@ -22,7 +22,8 @@ A fast Spotlight replacement for Mac that infers commands from plain text.</p>
 - Compresses, renames and converts the files selected in Finder, combines PDFs, and shrinks images and videos
 - Rewrites the text selected in any app, like "make this shorter" or "translate to spanish"
 - Keeps a history of what you copied
-- Listens when you hold ⌘Space
+- Listens when you hold ⌘Space, with your words filling the bar as you speak
+- Shows where it acts: a small bee flies to the button, menu or window first, then Beeline presses it. Your pointer never moves
 - Asks Claude to answer questions or plan multi-step requests, which you approve first
 - Learns what you pick and puts it first
 
@@ -76,6 +77,9 @@ Without Accessibility, Lock Screen and paste say so instead of doing nothing. Re
 | ↑ ↓ | Move |
 | ↩ | Open, run or copy |
 | esc | Back, then close |
+| esc, in any app | Stop what the bee is doing |
+
+Clicking or typing yourself while the bee works also stops it: you have taken over. Moving the pointer doesn't. Beeline only watches for Escape and never swallows it, so it still works in the app in front. The bee can be turned off in Settings.
 
 Anything that can't be undone asks for a second ↩: emptying the Trash, restarting, shutting down, logging out, closing several tabs, replacing a file, and buttons or menu commands like Delete, Send or Don't Save (and any button in a dialog).
 

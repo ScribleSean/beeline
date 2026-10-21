@@ -47,11 +47,19 @@ If Spotlight still owns ⌘Space, Beeline falls back to ⌥Space, then ⌃Space,
 
 Unchanged: Accessibility, Automation, Files & Folders, Reminders, Microphone and Speech Recognition. Watching Escape while a plan runs uses Accessibility, which plans already need. **No Input Monitoring.**
 
-## Design decisions for Sean
+## Sean's design decisions (21 Oct 2026)
 
-Asked in one question card before any UI work; answers recorded below.
+| Question | Choice | How it was built |
+| --- | --- | --- |
+| After you let go of ⌘Space | Words fill the bar; you press Return; then the bee does the work. Sean wants it to feel like a smart decision maker over time | Unchanged flow: live words in the bar, ranking picks the top row, Return runs it. "Smarter" (acting without Return) is left for a later conversation |
+| The bee | Flies to each step | `Bee.swift`: a drawn bee (yellow body, ink bands, beating wings) in a click-through overlay. It leaves from the bar's search icon on an eased arc (0.3–0.62 s), faces where it flies, rests just off the target's corner, a thin yellow ring settles on the target with one soft pulse, and a small pill says what it is doing ("Press Send"). Then the action runs. It leaves after the last step. Reduce Motion: it appears in place, no flight. Your real pointer never moves |
+| Voice and typing | One bar | While you hold ⌘Space the search icon becomes a mic, the placeholder says Listening…, and a five-bar level meter breathes at the right of the field |
+| ⌘Space and Spotlight | Keep ⌘Space, guide the user | The welcome screen shows a card while Spotlight holds ⌘Space, with a button to Keyboard settings, and retries ⌘Space every few seconds while open |
 
-- How hold-to-talk feels after you let go
-- What the bee looks like and when it shows
-- Whether voice and typing share the bar
-- ⌘Space and Spotlight
+Open-source check: CursorVoice (MIT) uses a floating panel with a halo and moves the real pointer; jasPreMar/this has a separate "ghost cursor" for running tasks (no license, so nothing was taken). Beeline's bee follows the ghost-cursor idea of a separate cursor and draws its own.
+
+## What has a bee, and what doesn't
+
+The bee flies only to things with a place on screen: buttons, links, fields and checkboxes in the front window, menu commands (it goes to the menu's title), windows and window tiling. Opening apps, settings, actions, tabs and files run at once, as before.
+
+Before flying, the target is checked; after landing it is checked again, so nothing is pressed if the window changed while the bee was on its way.
