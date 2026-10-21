@@ -25,6 +25,20 @@ import Testing
         #expect(FileTools.results(for: "copy İ to desktop")?.first?.title == "Copy “İmage.png” to Desktop")
     }
 
+    // M5: with Finder in front, "go to downloads" must not become a copy of a file that has "go" in its name.
+    @Test func navigationPhrasesAreNotCopies() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let logo = try scratch.file("logo.png")
+        FileTools.useSelection([], folder: scratch.url)
+        defer { FileTools.clearSelection() }
+        #expect(FileTools.results(for: "go to downloads") == nil)
+        #expect(FileTools.results(for: "lo to downloads") == nil)
+        #expect(FileTools.results(for: "logo to downloads")?.first?.title == "Copy “logo.png” to Downloads")
+        #expect(FileTools.results(for: "copy lo to downloads")?.first?.title == "Copy “logo.png” to Downloads")
+        _ = logo
+    }
+
     // L3: positions from a trimmed copy were applied to the untrimmed text.
     @Test func leadingSpacesDoNotCutLettersOffNames() throws {
         let scratch = try Scratch()
@@ -34,4 +48,19 @@ import Testing
         #expect(FileTools.results(for: "  rename to Trip")?.first?.title == "Rename to “Trip.jpg”")
         #expect(Reminders.results(for: "  remind me to call mom")?.first?.title == "call mom")
     }
+}
+
+// M6: a time with no day that has already passed today means tomorrow.
+@Test func aPastTimeWithNoDayMeansTomorrow() throws {
+    let calendar = Calendar.current
+    let now = calendar.date(bySettingHour: 15, minute: 0, second: 0, of: Date())!
+    let (title, due) = Reminders.splitDate("call Sam at 9am", now: now)
+    #expect(title == "call Sam")
+    let date = try #require(due)
+    #expect(date > now)
+    #expect(calendar.component(.hour, from: date) == 9)
+    #expect(calendar.isDate(date, inSameDayAs: calendar.date(byAdding: .day, value: 1, to: now)!))
+    // A time still to come today stays today.
+    let (_, later) = Reminders.splitDate("call Sam at 5pm", now: now)
+    #expect(calendar.isDate(try #require(later), inSameDayAs: now))
 }

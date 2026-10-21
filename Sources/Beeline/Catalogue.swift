@@ -271,8 +271,10 @@ final class Catalogue {
         if let desktops = Desktops.results(for: query) {
             return desktops
         }
+        // File chores lead the list but do not own it: "sound" with a video selected still reaches Sound settings.
         if let chores = FileTools.results(for: query) {
-            return chores
+            let ids = Set(chores.map(\.id))
+            return Array((chores + search(words: query, limit: limit).filter { !ids.contains($0.id) }).prefix(limit))
         }
         // Arithmetic and conversions answer in a single row; Return copies the answer.
         // The answer card shows the value large, its kind above it, and the working underneath.

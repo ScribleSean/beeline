@@ -131,12 +131,14 @@ enum FileTools {
         var copying = true
         var sourceText: String
         var destinationText: String
+        var hasVerb = true
         // The verb is optional: "packet logger to applications" copies. Without one, only "to" or "into"
         // joins the two halves, and both must resolve, so "100 usd to eur" never lands here.
         // Matched on the text itself, case-insensitively, so the ranges cut the string they came from.
         if let match = text.firstMatch(of: try! Regex(#"^(?:(copy|move|put|send|install)\s+(.+?)\s+(?:to|into|in)|(.+?)\s+(?:to|into))\s+(.+)$"#).ignoresCase()),
            let source = match.output[2].range ?? match.output[3].range, let destination = match.output[4].range {
             copying = match.output[1].substring?.lowercased() != "move"
+            hasVerb = match.output[1].range != nil
             sourceText = String(text[source])
             destinationText = String(text[destination])
         } else if let match = text.firstMatch(of: try! Regex(#"^install\s+(.+)$"#).ignoresCase()), let source = match.output[1].range {
@@ -146,7 +148,8 @@ enum FileTools {
             return nil
         }
         sourceText = sourceText.replacingOccurrences(of: "^the ", with: "", options: [.regularExpression, .caseInsensitive])
-        let sources = resolveSources(sourceText)
+        // Without a verb the name must match in full: "go to downloads" is not a request to copy logo.png.
+        let sources = resolveSources(sourceText, exactly: !hasVerb)
         guard !sources.isEmpty, let (destination, destinationName) = resolveDestination(destinationText) else { return nil }
 
         let verb = copying ? "Copy" : "Move"
@@ -181,7 +184,7 @@ enum FileTools {
 
     /// The items a request names: the selection for "this", "these" or "them", otherwise the selected item or
     /// the item in the front Finder window whose name matches best.
-    private static func resolveSources(_ text: String) -> [URL] {
+    private static func resolveSources(_ text: String, exactly: Bool = false) -> [URL] {
         if ["this", "these", "them", "it", "selected", "selection", "the selection", "these files"].contains(text.lowercased()) {
             return selection
         }
@@ -193,6 +196,7 @@ enum FileTools {
         }
         let named = candidates.map { ($0, squashed($0.deletingPathExtension().lastPathComponent)) }
         if let exact = named.first(where: { $0.1 == wanted }) { return [exact.0] }
+        guard !exactly else { return [] }
         if let start = named.first(where: { $0.1.hasPrefix(wanted) }) { return [start.0] }
         if let inside = named.first(where: { $0.1.contains(wanted) }) { return [inside.0] }
         return []
