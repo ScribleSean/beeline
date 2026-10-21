@@ -255,17 +255,63 @@ enum FileTools {
     // MARK: The chores
 
     private static func compress(_ files: [URL]) {
-        let folder = files[0].deletingLastPathComponent()
-        let name = files.count == 1 ? files[0].deletingPathExtension().lastPathComponent : "Archive"
-        let output = unique(folder.appendingPathComponent(name + ".zip"))
-        let result: Bool
+        finish(archive(files).map { [$0] } ?? [], "compress")
+    }
+
+    /// Zips the files beside the first one and returns the archive, or nil when zip failed. The archive is
+    /// written in a scratch folder and moved into place at the end, so a failure leaves nothing behind and
+    /// two chores can never pick the same name.
+    static func archive(_ files: [URL]) -> URL? {
+        guard let first = files.first else { return nil }
+        let folder = first.deletingLastPathComponent()
+        let name = files.count == 1 ? first.deletingPathExtension().lastPathComponent : "Archive"
+        guard let scratch = scratchFolder(near: folder) else { return nil }
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let output = scratch.appendingPathComponent(name + ".zip")
+        var ok = true
         if files.count == 1 {
-            result = run("/usr/bin/ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", files[0].path, output.path]).ok
+            ok = run("/usr/bin/ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", first.path, output.path]).ok
         } else {
-            // zip stores the names relative to the folder they sit in.
-            result = run("/usr/bin/zip", ["-r", "-q", output.path] + files.map(\.lastPathComponent), in: folder).ok
+            // zip stores names relative to the folder it runs in, so the selection is zipped one folder at a
+            // time (a search window or expanded list can span several). Names follow "--" and start with "./",
+            // so a file called "-m" or "-TT" is a file, never an option: zip reads options from anywhere on its
+            // command line, and "-m" would delete the originals. -MM makes a name that cannot be read a failure.
+            var byFolder: [URL: [URL]] = [:]
+            var order: [URL] = []
+            for file in files {
+                let parent = file.deletingLastPathComponent().standardizedFileURL
+                if byFolder[parent] == nil { order.append(parent) }
+                byFolder[parent, default: []].append(file)
+            }
+            for parent in order {
+                let names = byFolder[parent]!.map { "./" + $0.lastPathComponent }
+                guard run("/usr/bin/zip", ["-r", "-q", "-MM", output.path, "--"] + names, in: parent).ok else { ok = false; break }
+            }
         }
-        finish(result ? [output] : [], "compress")
+        guard ok, FileManager.default.fileExists(atPath: output.path) else { return nil }
+        return place(output, in: folder)
+    }
+
+    /// A scratch folder on the same volume as `folder`, so finished files can be moved into place in one step.
+    private static func scratchFolder(near folder: URL) -> URL? {
+        let base = (try? FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: folder, create: true))
+            ?? FileManager.default.temporaryDirectory
+        let scratch = base.appendingPathComponent("beeline-" + UUID().uuidString, isDirectory: true)
+        return (try? FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)) == nil ? nil : scratch
+    }
+
+    /// Moves a finished file into `folder` under its own name, or " 2", " 3" … when that name is taken.
+    /// The name is checked and the move made together, so nothing already there is ever replaced.
+    private static func place(_ file: URL, in folder: URL) -> URL? {
+        let name = file.deletingPathExtension().lastPathComponent, ext = file.pathExtension
+        for number in 1...999 {
+            let stem = number == 1 ? name : "\(name) \(number)"
+            let target = folder.appendingPathComponent(ext.isEmpty ? stem : "\(stem).\(ext)")
+            // moveItem fails if something is already at the target, so a name taken moments ago is skipped.
+            if (try? FileManager.default.moveItem(at: file, to: target)) != nil { return target }
+            if !FileManager.default.fileExists(atPath: target.path) { return nil }
+        }
+        return nil
     }
 
     private static func combine(_ pdfs: [URL]) {
