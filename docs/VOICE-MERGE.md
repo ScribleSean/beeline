@@ -63,3 +63,19 @@ Open-source check: CursorVoice (MIT) uses a floating panel with a halo and moves
 The bee flies only to things with a place on screen: buttons, links, fields and checkboxes in the front window, menu commands (it goes to the menu's title), windows and window tiling. Opening apps, settings, actions, tabs and files run at once, as before.
 
 Before flying, the target is checked; after landing it is checked again, so nothing is pressed if the window changed while the bee was on its way.
+
+## The Voice Control review's 49 findings
+
+| Findings | What happened |
+| --- | --- |
+| #1 (High), #11, #21, #37 | The event tap is gone. Escape is watched, never swallowed, and only while something runs (`RunGuard`) |
+| #3 | Pointer movement and scrolling never stop a run; clicks and keys do (`RunGuard.reason`, tested) |
+| #8 | The bee's overlay ignores clicks and rests beside the target, never on it |
+| #16, #26, #33 | One stop path: `RunGuard.stop` → `BarController.runStopped` |
+| #32 | Screen lookup is inclusive at the edges and never force-unwraps (`BeeFlight.screen`, tested) |
+| #36, #45 | One tag, `RunGuard.eventTag`, set once on each keystroke Beeline posts |
+| #2 | Already solved in Beeline (`.signing-identity`) |
+| #4, #6, #7, #10, #20, #22, #31 | Not carried: Beeline does not type dictated text into other apps |
+| #5, #9, #12–#15, #17, #24, #25, #28–#30, #34, #35, #38–#44, #46, #49 | In code that was dropped (ledger, arbiter, executor, gate, native driver, fixture) |
+| #18, #19, #27, #47, #48 | Prototype window and docs, dropped. Beeline already rechecks permissions while its welcome screen is open |
+| #23 | Beeline lowercases without a locale already |
