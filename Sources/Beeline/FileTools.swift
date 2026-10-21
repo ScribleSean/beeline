@@ -13,10 +13,17 @@ enum FileTools {
     private static let images: Set<String> = ["jpg", "jpeg", "png", "heic", "heif", "tiff", "tif", "gif", "bmp", "webp"]
     private static let videos: Set<String> = ["mov", "mp4", "m4v"]
 
-    /// Reads what is selected in Finder, off the main thread. Called when the bar opens with Finder in front.
-    static func refreshSelection() {
+    /// Counts reads of the selection. A slow answer from an earlier bar opening is dropped, so an old
+    /// selection never appears over whatever app is in front now.
+    private static var selectionGeneration = 0
+
+    /// Reads what is selected in Finder, off the main thread. Called when the bar opens with Finder in front;
+    /// `done` runs on the main thread once the selection is in, so the results can be rebuilt with it.
+    static func refreshSelection(done: @escaping () -> Void = {}) {
         selection = []
         frontFolder = nil
+        selectionGeneration += 1
+        let generation = selectionGeneration
         DispatchQueue.global(qos: .userInitiated).async {
             // The first line is the front window's folder (or "-" when there is none); the rest are selected items.
             let script = """
@@ -34,15 +41,21 @@ enum FileTools {
             """
             let lines = (run("/usr/bin/osascript", ["-e", script]).output ?? "").split(separator: "\n").map(String.init)
             let folder = lines.first.flatMap { $0.hasPrefix("/") ? URL(fileURLWithPath: $0) : nil }
-            let urls = lines.dropFirst().filter { $0.hasPrefix("/") }.prefix(200).map { URL(fileURLWithPath: $0) }
+            // Only paths that exist: a folder name with a line break in it would otherwise split into
+            // pieces, and a piece that happens to be a real path elsewhere would become part of "these" (L4).
+            let urls = lines.dropFirst().filter { $0.hasPrefix("/") && FileManager.default.fileExists(atPath: $0) }
+                .prefix(200).map { URL(fileURLWithPath: $0) }
             DispatchQueue.main.async {
+                guard generation == selectionGeneration else { return }
                 selection = urls
                 frontFolder = folder
+                done()
             }
         }
     }
 
     static func clearSelection() {
+        selectionGeneration += 1
         selection = []
         frontFolder = nil
     }
@@ -311,10 +324,13 @@ enum FileTools {
         }
     }
 
+    /// Chores run one after another: two at once in the same folder could pick the same output name.
+    private static let choreQueue = DispatchQueue(label: "beeline.file-chores", qos: .userInitiated)
+
     private static func row(_ id: String, _ title: String, _ subtitle: String, _ symbol: String, run: @escaping () -> Void) -> Item {
         Item(id: "file-tool:\(id)", kind: .action, verb: "", title: title, subtitle: subtitle, keywords: "",
              icon: NSImage(systemSymbolName: symbol, accessibilityDescription: nil)) {
-            DispatchQueue.global(qos: .userInitiated).async(execute: run)
+            choreQueue.async(execute: run)
         }
     }
 
