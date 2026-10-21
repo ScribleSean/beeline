@@ -30,6 +30,8 @@ final class BarController: NSObject, NSWindowDelegate {
     override init() {
         super.init()
         model.onRun = { [weak self] item in
+            // Words still arriving from a hold must not land in a bar that has moved on.
+            self?.voice.cancel()
             self?.hide()
             // A button or menu command that changed since the bar opened is not pressed.
             if !item.runIfValid() {
@@ -160,7 +162,15 @@ final class BarController: NSObject, NSWindowDelegate {
         isListening = true
         model.query = ""
         model.voiceNote = "Listening…"
-        voice.onText = { [weak self] text in self?.model.query = text }
+        var lastTranscript = ""
+        voice.onText = { [weak self] text in
+            guard let self else { return }
+            // The final transcript lands a moment after the key comes up. If you have typed over the
+            // words by then, what you typed stays.
+            guard self.model.query == lastTranscript else { return }
+            lastTranscript = text
+            self.model.query = text
+        }
         voice.onState = { [weak self] state in
             guard let self else { return }
             switch state {
@@ -186,6 +196,7 @@ final class BarController: NSObject, NSWindowDelegate {
 
     private func show() {
         isShown = true
+        voice.cancel()
         model.clearPlan()
         model.newTip()
         model.query = ""
@@ -196,7 +207,7 @@ final class BarController: NSObject, NSWindowDelegate {
         model.catalogue.refreshAppsIfChanged()
         // File chores act on Finder's selection, so it is read only when the bar opens over Finder.
         if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder" {
-            FileTools.refreshSelection()
+            FileTools.refreshSelection { [weak self] in self?.model.refreshInBackground() }
         } else {
             FileTools.clearSelection()
         }
@@ -219,12 +230,18 @@ final class BarController: NSObject, NSWindowDelegate {
     }
 
     private func hide() {
-        // Closing the bar also cancels a hold that has not started listening yet.
+        // Closing the bar also cancels a hold that has not started listening yet, and drops any words
+        // still to come: a transcript landing in the next bar would overwrite what is typed there.
         holdTimer?.invalidate()
         holdTimer = nil
-        if isListening { stopListening() } else { voice.stop() }
+        if isListening { stopListening() }
+        voice.cancel()
+        // A banner about the microphone is about the last hold, not the next bar (L12).
+        model.voiceNote = nil
         guard isShown else { return }
         isShown = false
+        // A Claude request left running after the bar closes has nowhere to deliver its answer (L13).
+        model.clearPlan()
         panel.orderOut(nil)
     }
 
