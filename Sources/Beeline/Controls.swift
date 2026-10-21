@@ -25,10 +25,13 @@ extension Accessibility {
         "delete", "remove", "discard", "erase", "trash", "send", "buy", "pay", "purchase", "order", "submit",
         "unsubscribe", "sign out", "log out", "reset", "clear", "uninstall", "erase disk", "publish", "post", "confirm",
         "dont save", "replace", "overwrite", "force quit", "empty bin", "empty trash", "bin", "delete all", "remove all",
+        // Closing many at once: a browser's Close Other Tabs or Close All Windows takes everything with it.
+        "close all", "close other", "close others", "close tabs to",
     ]
 
-    /// Buttons in a dialog that are safe however the dialog is worded.
-    private static let harmless: Set<String> = ["cancel", "ok", "save", "stop", "keep both", "dont replace", "not now", "later", "close"]
+    /// Buttons in a dialog that are safe however the dialog is worded. Only ones that back out: "OK" is not
+    /// here, because "Permanently delete these items?" is answered with OK.
+    private static let harmless: Set<String> = ["cancel", "save", "stop", "keep both", "dont replace", "not now", "later", "close"]
 
     /// True for a label that means the action cannot be taken back. Whole words only: "Reorder" is not
     /// "order", and "Paint format" is not "format a disk".
@@ -42,6 +45,13 @@ extension Accessibility {
     /// they say.
     static func needsConfirmInDialog(_ label: String) -> Bool {
         !harmless.contains(labelWords(label))
+    }
+
+    /// A dialog's text on one line, cut short enough for the confirm card. Nil when it says nothing.
+    static func dialogSummary(_ text: String) -> String? {
+        let flat = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard flat.contains(where: \.isLetter) else { return nil }
+        return flat.count <= 120 ? flat : String(flat.prefix(119)) + "…"
     }
 
     private static func labelWords(_ label: String) -> String {
@@ -69,6 +79,9 @@ extension Accessibility {
         let windowSubrole: String = attribute(window, kAXSubroleAttribute) ?? ""
         let windowIsDialog = windowSubrole == "AXDialog" || windowSubrole == "AXSystemDialog"
 
+        /// What the dialog or sheet says, so the confirm card can show what its OK would agree to.
+        var dialogMessage: String?
+
         func walk(_ node: AXUIElement, depth: Int, inDialog: Bool) {
             guard visited < 4000, depth < 40, Date() < deadline else { return }
             visited += 1
@@ -76,6 +89,10 @@ extension Accessibility {
             // A closed menu hides thousands of zero-sized items.
             if role == kAXMenuRole || role == kAXMenuBarRole { return }
             let inDialog = inDialog || role == "AXSheet"
+            if inDialog, dialogMessage == nil, role == kAXStaticTextRole,
+               let text: String = attribute(node, kAXValueAttribute) {
+                dialogMessage = dialogSummary(text)
+            }
             let box = frame(of: node)
             // Containers often report an empty frame while their children are real, so only a container with
             // a genuine size that lies wholly outside the window is skipped with everything inside it.
@@ -136,7 +153,9 @@ extension Accessibility {
                 }
             }
             item.needsConfirm = !isField && (isIrreversible(control.label) || (control.inDialog && needsConfirmInDialog(control.label)))
-            if item.needsConfirm, !windowTitle.isEmpty {
+            if item.needsConfirm, control.inDialog, let message = dialogMessage {
+                item.confirmNote = "“\(message)” (\(appName)). This can't be undone."
+            } else if item.needsConfirm, !windowTitle.isEmpty {
                 item.confirmNote = "In “\(windowTitle)” (\(appName)). This can't be undone."
             }
             let expected = control.label, role = control.role

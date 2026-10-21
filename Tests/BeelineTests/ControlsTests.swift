@@ -19,5 +19,24 @@ import Testing
     #expect(Accessibility.needsConfirmInDialog("Supprimer"))
     #expect(!Accessibility.needsConfirmInDialog("Cancel"))
     #expect(!Accessibility.needsConfirmInDialog("Keep Both"))
-    #expect(!Accessibility.needsConfirmInDialog("OK"))
+    // Codex 2: "Permanently delete these items? [OK]" must not run on one Return.
+    #expect(Accessibility.needsConfirmInDialog("OK"))
+    #expect(Accessibility.needsConfirmInDialog("Ok"))
+}
+
+// Codex 2: the confirm card shows what the dialog asks, on one short line.
+@Test func theConfirmCardQuotesTheDialog() {
+    #expect(Accessibility.dialogSummary("Are you sure you want to\npermanently  delete these items?") == "Are you sure you want to permanently delete these items?")
+    #expect(Accessibility.dialogSummary("   ") == nil)
+    #expect(Accessibility.dialogSummary(String(repeating: "a", count: 300))?.count == 120)
+}
+
+// Codex 1: a browser's commands that close many tabs or windows need Return twice.
+@Test func closingManyTabsNeedsConfirming() {
+    for label in ["Close Other Tabs", "Close All Tabs", "Close All Windows", "Close Tabs to the Right", "Close Others"] {
+        #expect(Accessibility.isIrreversible(label), Comment(rawValue: label))
+    }
+    for label in ["Close Tab", "Close Window", "Close"] {
+        #expect(!Accessibility.isIrreversible(label), Comment(rawValue: label))
+    }
 }
