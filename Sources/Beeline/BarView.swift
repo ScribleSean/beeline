@@ -61,8 +61,8 @@ final class BarModel: ObservableObject {
         // Files come from the Spotlight index a moment later, then the list is rebuilt with them in it.
         let typed = query
         catalogue.refreshFiles(for: typed) { [weak self] in
-            // A plan being asked for or previewed must not be wiped by late file results.
-            if let self, self.query == typed, !self.isShowingPlan { self.refresh() }
+            // Late file results join the list like tabs and windows do: the selection and an armed item stay.
+            if let self, self.query == typed { self.refreshInBackground() }
         }
         let started = Date()
         let found = catalogue.search(query)
@@ -100,9 +100,12 @@ final class BarModel: ObservableObject {
             self.modelMilliseconds = Date().timeIntervalSince(asking) * 1000
             self.isThinking = false
             self.modelPicks = picks
-            if !picks.isEmpty {
+            // The picks arrive a moment later. They lead the list, but the row already selected (or armed)
+            // stays where it is, so a Return in flight lands on what was shown.
+            if !picks.isEmpty, self.armedID == nil {
+                let selectedID = self.results.indices.contains(self.selected) ? self.results[self.selected].id : nil
                 self.results = self.decorated(self.merged(picks, self.results))
-                self.selected = 0
+                self.selected = selectedID.flatMap { id in self.results.firstIndex { $0.id == id } } ?? 0
             }
         }
     }
@@ -260,7 +263,12 @@ final class BarModel: ObservableObject {
     }
 
     /// The irreversible action waiting for a second Return, if any.
-    @Published var armedID: String?
+    @Published var armedID: String? {
+        didSet { if armedID != nil, armedID != oldValue { armedAt = Date() } }
+    }
+    /// When the card went up. A click that lands on its red button within a moment of the click that
+    /// armed it (a double-click) is ignored.
+    private(set) var armedAt = Date.distantPast
 
     /// Runs the item, unless it cannot be undone and has not been confirmed yet.
     func run(_ item: Item) {
@@ -279,6 +287,22 @@ final class BarModel: ObservableObject {
         armedID = nil
         catalogue.recordUse(of: item, query: query)
         onRun(item)
+    }
+
+    /// The card's button: confirms the armed item, unless the click came too soon after the one that armed it.
+    func confirmByClick() {
+        guard Date().timeIntervalSince(armedAt) > 0.4 else { return }
+        confirmArmed()
+    }
+
+    /// Runs the armed item, by id: never whatever row the selection has moved to meanwhile.
+    private func confirmArmed() {
+        guard let armedID else { return }
+        guard let armed = results.first(where: { $0.id == armedID }) else {
+            self.armedID = nil
+            return
+        }
+        run(armed)
     }
 
     func move(_ delta: Int) {
@@ -305,7 +329,10 @@ final class BarModel: ObservableObject {
             onRun(Item(id: "copied", kind: .calculation, verb: "", title: "", subtitle: "", keywords: "", icon: nil, run: {}))
             return
         }
-        guard !isShowingPlan, results.indices.contains(selected) else { return }
+        guard !isShowingPlan else { return }
+        // While the card is up, Return means the item on the card and nothing else.
+        if armedID != nil { return confirmArmed() }
+        guard results.indices.contains(selected) else { return }
         run(results[selected])
     }
 }
@@ -335,7 +362,7 @@ struct BarView: View {
             if model.isShowingPlan {
                 PlanSection(model: model).padding(.top, 8)
             } else if let armed = model.results.first(where: { $0.id == model.armedID }) {
-                ConfirmCard(item: armed, confirm: { model.run(armed) }, cancel: { model.armedID = nil })
+                ConfirmCard(item: armed, confirm: { model.confirmByClick() }, cancel: { model.armedID = nil })
                     .padding(.top, 8)
             } else if model.results.count == 1, let answer = model.results.first, answer.kind == .calculation {
                 AnswerCard(item: answer).padding(.top, 8)
@@ -364,7 +391,11 @@ struct BarView: View {
                             .contentShape(Rectangle())
                             // The row under the pointer becomes the selected one, so a click and Return agree.
                             .onHover { inside in if inside { model.selected = index } }
-                            .onTapGesture { model.run(item) }
+                            .onTapGesture {
+                                // A click arms and selects the same row, so a Return afterwards agrees with the card.
+                                model.selected = index
+                                model.run(item)
+                            }
                     }
                 }
                 .padding(.top, 6)
