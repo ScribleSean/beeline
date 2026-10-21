@@ -5,6 +5,7 @@ let package = Package(
     name: "Beeline",
     platforms: [.macOS(.v14)],
     targets: [
-        .executableTarget(name: "Beeline", path: "Sources/Beeline")
+        .executableTarget(name: "Beeline", path: "Sources/Beeline"),
+        .testTarget(name: "BeelineTests", dependencies: ["Beeline"], path: "Tests/BeelineTests")
     ]
 )
