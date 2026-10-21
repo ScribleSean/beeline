@@ -141,6 +141,16 @@ enum Matcher {
         return Score(value: total, isComplete: missed == 0)
     }
 
+    /// Whether a tab may be closed for these words: each must start a whole word of the title or the
+    /// address, and a word of one or two letters must be a whole word. "rome" is not "chrome", and "ai"
+    /// is claude.ai, not Gmail.
+    static func matchesForClose(_ item: Item, _ typed: [String]) -> Bool {
+        let haystack = words(item.title.lowercased()) + words(item.keywords.lowercased())
+        return typed.allSatisfy { word in
+            haystack.contains { word.count >= 3 ? $0.hasPrefix(word) : $0 == word }
+        }
+    }
+
     private static func words(_ text: String) -> [String] {
         text.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
     }

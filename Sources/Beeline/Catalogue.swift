@@ -32,9 +32,8 @@ struct Item: Identifiable {
     var tile: ((Accessibility.Side) -> Void)?
     /// For windows: true when this is the window the user was working in.
     var isCurrentWindow = false
-    /// For tabs: closes the tab, and its position in its window.
+    /// For tabs: closes the tab.
     var close: (() -> Void)?
-    var tabIndex: Int?
     /// For buttons and menu commands: whether the target is still there and still the same, checked
     /// right before acting, because the window may have changed since it was read.
     var stillValid: (() -> Bool)?
@@ -300,9 +299,11 @@ final class Catalogue {
         guard !parsed.tokens.isEmpty else { return [] }
         let wantsClose = !Matcher.quitWords.isDisjoint(with: parsed.tokens)
         let target = parsed.tokens.filter { !Matcher.quitWords.contains($0) }
-        // "close every tab about hltv" is about tabs, not about quitting an app.
+        // "close every tab about hltv" is about tabs, not about quitting an app. When no tab matches, the
+        // words fall through to the normal search, where the browser's own Close Tab command lives.
         if wantsClose, parsed.hint == .tab {
-            return closeTabResults(matching: target, limit: limit)
+            let closes = closeTabResults(matching: target, limit: limit)
+            if !closes.isEmpty { return closes }
         }
         let all = actions + Desktops.items() + apps + settings + tabs + windows + tiles + menus + controls + (wantsClose ? quitResults(for: target) : [])
             + (filesQuery == query ? files : [])
@@ -385,22 +386,39 @@ final class Catalogue {
         }
     }
 
-    /// One row to close every matching tab, then a row for each of them.
+    /// Replaces the tabs read from the browsers. Used by tests.
+    func useTabs(_ items: [Item]) {
+        tabs = items
+    }
+
+    /// One row to close every matching tab, then a row for each of them. Closing is stricter than finding:
+    /// each word must start a whole word of the tab's title or address, the browser's name counts only as
+    /// "every tab in that browser", and closing more than one tab needs Return twice.
     private func closeTabResults(matching target: [String], limit: Int) -> [Item] {
-        // "close all tabs" with nothing to narrow it is too sweeping to offer as one keypress.
-        guard !target.isEmpty else { return [] }
-        let wanted = Matcher.Parsed(tokens: target, hint: nil)
-        let matches = tabs.filter { Matcher.score($0, wanted)?.isComplete == true && $0.close != nil }
+        var words = target
+        var pool = tabs.filter { $0.close != nil }
+        var browserNamed: String?
+        for browser in Browser.all {
+            let nameWords = browser.name.lowercased().split(separator: " ").map(String.init)
+            guard let hit = words.first(where: { word in nameWords.contains { $0 == word } }) else { continue }
+            words.removeAll { $0 == hit }
+            pool = pool.filter { $0.subtitle == browser.shortName }
+            browserNamed = browser.shortName
+        }
+        // "close all tabs" with nothing to narrow it is too sweeping to offer at all.
+        guard !words.isEmpty || browserNamed != nil else { return [] }
+        let matches = pool.filter { Matcher.matchesForClose($0, words) }
         var rows: [Item] = []
         if matches.count > 1 {
-            let closeAll = {
-                // Highest position first: closing a tab renumbers the ones after it.
-                for tab in matches.sorted(by: { ($0.tabIndex ?? 0) > ($1.tabIndex ?? 0) }) { tab.close?() }
-            }
+            let closeAll = { for tab in matches { tab.close?() } }
             let browsers = Set(matches.map(\.subtitle)).sorted().joined(separator: ", ")
-            rows.append(Item(id: "close-tabs:" + target.joined(separator: " "), kind: .tab, verb: "",
-                             title: "Close \(matches.count) Tabs Matching “\(target.joined(separator: " "))”",
-                             subtitle: browsers, keywords: "", icon: matches[0].icon, run: closeAll))
+            let about = words.isEmpty ? "in \(browserNamed ?? "")" : "Matching “\(words.joined(separator: " "))”"
+            var row = Item(id: "close-tabs:" + target.joined(separator: " "), kind: .tab, verb: "",
+                           title: "Close \(matches.count) Tabs \(about)", subtitle: browsers, keywords: "",
+                           icon: matches[0].icon, run: closeAll)
+            row.needsConfirm = true
+            row.confirmNote = "\(matches.count) tabs in \(browsers) close. Anything unsaved in them is lost."
+            rows.append(row)
         }
         rows += matches.map { tab in
             Item(id: "close:" + tab.id, kind: .tab, verb: "Close tab", title: tab.title, subtitle: tab.subtitle,
@@ -471,7 +489,7 @@ final class Catalogue {
             let name = "tab \"\(tab.title)\" (\(tab.subtitle), \(tab.keywords))"
             options.append(PlanStep(text: "Switch to \(name)", icon: tab.icon, run: tab.run))
             if let close = tab.close {
-                options.append(PlanStep(text: "Close \(name)", icon: tab.icon, run: close, closingTabIndex: tab.tabIndex))
+                options.append(PlanStep(text: "Close \(name)", icon: tab.icon, run: close))
             }
         }
         for item in actions + quits where !item.needsConfirm {

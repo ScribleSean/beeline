@@ -6,8 +6,6 @@ struct PlanStep: Identifiable {
     let text: String
     let icon: NSImage?
     let run: () -> Void
-    /// Set for "close tab" steps. Kept for reference; tabs now close by address, so order no longer matters.
-    var closingTabIndex: Int?
     /// How long to wait after this step before the next. Opening an app and placing it takes seconds.
     var settleTime = 0.35
     /// Checked just before running: false means the target is gone or changed, and the plan stops.

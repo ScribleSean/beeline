@@ -8,8 +8,16 @@ struct Browser {
     /// Safari calls a tab's title `name` and switches tabs differently from the Chromium browsers.
     let isSafari: Bool
 
-    /// Tab commands run one at a time in the order given, which closing several tabs depends on.
-    private static let commandQueue = DispatchQueue(label: "beeline.browser-commands", qos: .userInitiated)
+    /// Tab commands for this browser run one at a time, in the order given. One queue per browser, so a
+    /// browser that hangs does not hold up the others.
+    private let commandQueue: DispatchQueue
+
+    init(name: String, bundleID: String, isSafari: Bool) {
+        self.name = name
+        self.bundleID = bundleID
+        self.isSafari = isSafari
+        commandQueue = DispatchQueue(label: "beeline.browser." + bundleID, qos: .userInitiated)
+    }
 
     static let all = [
         Browser(name: "Google Chrome", bundleID: "com.google.Chrome", isSafari: false),
@@ -18,7 +26,12 @@ struct Browser {
         Browser(name: "Microsoft Edge", bundleID: "com.microsoft.edgemac", isSafari: false),
     ]
 
+    /// The name shown beside a tab: "Chrome", "Safari", "Brave Browser", "Microsoft Edge".
+    var shortName: String { name.replacingOccurrences(of: "Google ", with: "") }
+
     func tabs() -> [Item] {
+        // Chromium browsers give each tab a stable id, which is how a tab is closed or switched to later;
+        // Safari has none, so its tabs are found again by address and name when the time comes.
         let script = """
         set sep to (ASCII character 9)
         set out to ""
@@ -26,10 +39,8 @@ struct Browser {
             repeat with w in windows
                 try
                     set wid to id of w
-                    set ti to 0
                     repeat with t in tabs of w
-                        set ti to ti + 1
-                        set out to out & wid & sep & ti & sep & (\(isSafari ? "name" : "title") of t) & sep & (URL of t) & linefeed
+                        set out to out & wid & sep & (\(isSafari ? "0" : "id of t")) & sep & (\(isSafari ? "name" : "title") of t) & sep & (URL of t) & linefeed
                     end repeat
                 end try
             end repeat
@@ -40,25 +51,33 @@ struct Browser {
         let icon = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
             .map { NSWorkspace.shared.icon(forFile: $0.path) }
 
+        var seen = 0
         return output.split(separator: "\n").compactMap { line in
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-            guard fields.count >= 4, let window = Int(fields[0]), let index = Int(fields[1]) else { return nil }
+            guard fields.count >= 4, let window = Int(fields[0]), let tabID = Int(fields[1]) else { return nil }
+            seen += 1
             let host = URL(string: fields[3])?.host ?? ""
-            var item = Item(id: "tab:\(bundleID):\(window):\(index)", kind: .tab, verb: "Switch to tab",
-                            title: fields[2].isEmpty ? host : fields[2],
-                            subtitle: name.replacingOccurrences(of: "Google ", with: ""),
-                            keywords: host, icon: icon) {
-                activate(window: window, index: index)
+            let title = fields[2]
+            let address = fields[3]
+            var item = Item(id: "tab:\(bundleID):\(window):\(isSafari ? seen : tabID)", kind: .tab, verb: "Switch to tab",
+                            title: title.isEmpty ? host : title, subtitle: shortName, keywords: host, icon: icon) {
+                activate(window: window, tabID: tabID, address: address, title: title)
             }
-            item.tabIndex = index
-            // Closed by address within its window, not by position: earlier tabs may have closed or moved since.
-            let address = fields[3].replacingOccurrences(of: "\\", with: "%5C").replacingOccurrences(of: "\"", with: "%22")
+            // Exactly one tab is closed: by id in Chromium browsers, and in Safari the first tab in that
+            // window with both this address and this name, so a second tab on the same address stays open.
             item.close = {
-                let script = "tell application \"\(name)\" to close (every tab of window id \(window) whose URL is \"\(address)\")"
-                Self.commandQueue.async { _ = Self.osascript(script) }
+                let script = isSafari
+                    ? "tell application \"Safari\" to close (first tab of window id \(window) whose URL is \(Self.quoted(address)) and name is \(Self.quoted(title)))"
+                    : "tell application \"\(name)\" to close tab id \(tabID) of window id \(window)"
+                commandQueue.async { _ = Self.osascript(script) }
             }
             return item
         }
+    }
+
+    /// Text as an AppleScript string literal. Only quotes and backslashes have meaning inside one.
+    private static func quoted(_ text: String) -> String {
+        "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 
     /// Every window's tab addresses, in order, for saving a desktop.
@@ -108,14 +127,35 @@ struct Browser {
                 end tell
                 """
             }
-            Self.commandQueue.async { _ = Self.osascript(script) }
+            commandQueue.async { _ = Self.osascript(script) }
         }
     }
 
-    private func activate(window: Int, index: Int) {
-        let select = isSafari
-            ? "tell window id \(window) to set current tab to tab \(index)"
-            : "set active tab index of window id \(window) to \(index)"
+    /// Brings a tab to the front. The tab is found again when this runs, not by the position it had when
+    /// the bar opened: tabs may have opened, closed or moved since, including by an earlier plan step.
+    private func activate(window: Int, tabID: Int, address: String, title: String) {
+        let select: String
+        if isSafari {
+            select = """
+                tell window id \(window)
+                    try
+                        set current tab to (first tab whose URL is \(Self.quoted(address)) and name is \(Self.quoted(title)))
+                    on error
+                        set current tab to (first tab whose URL is \(Self.quoted(address)))
+                    end try
+                end tell
+                """
+        } else {
+            select = """
+                set w to window id \(window)
+                repeat with i from 1 to count of tabs of w
+                    if id of tab i of w is \(tabID) then
+                        set active tab index of w to i
+                        exit repeat
+                    end if
+                end repeat
+                """
+        }
         let script = """
         tell application "\(name)"
             \(select)
@@ -123,18 +163,23 @@ struct Browser {
             activate
         end tell
         """
-        Self.commandQueue.async { _ = Self.osascript(script) }
+        commandQueue.async { _ = Self.osascript(script) }
     }
 
-    /// Runs AppleScript in a child process so it is safe off the main thread.
-    private static func osascript(_ source: String) -> String? {
+    /// Runs AppleScript in a child process so it is safe off the main thread. A browser that does not
+    /// answer (hung, or waiting on an Automation prompt) is given up on after a few seconds rather than
+    /// AppleScript's two minutes, so tab commands never fire long after they were asked for.
+    private static func osascript(_ source: String, timeout: TimeInterval = 5) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", source]
+        process.arguments = ["-e", "with timeout of \(Int(timeout)) seconds\n" + source + "\nend timeout"]
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
         do { try process.run() } catch { return nil }
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeout + 1) {
+            if process.isRunning { process.terminate() }
+        }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { return nil }
