@@ -29,6 +29,8 @@ enum Accessibility {
                 let raise = {
                     AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
                     AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+                    // Both ways: macOS may ignore activate() from an app that is not itself active.
+                    AXUIElementSetAttributeValue(element, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
                     app.activate()
                 }
                 var item = Item(id: "window:\(app.processIdentifier):\(index)", kind: .window, verb: "Switch to window",
@@ -96,7 +98,7 @@ enum Accessibility {
 
         func walk(_ element: AXUIElement, path: [String], depth: Int) {
             let children: [AXUIElement] = attribute(element, kAXChildrenAttribute) ?? []
-            for child in children {
+            for (position, child) in children.enumerated() {
                 // Big dynamic menus (History, Bookmarks) can hold thousands of entries.
                 guard items.count < 1500, Date() < deadline else { return }
                 let role: String = attribute(child, kAXRoleAttribute) ?? ""
@@ -110,7 +112,9 @@ enum Accessibility {
                     if depth < 3 { walk(child, path: path + [title], depth: depth + 1) }
                 } else if attribute(child, kAXEnabledAttribute) ?? true {
                     let location = ([name] + path).joined(separator: " › ")
-                    var item = Item(id: "menu:\(app.processIdentifier):\(location):\(title)", kind: .menu, verb: "Run",
+                    // The position is part of the id: two Finder windows on Downloads give the Window menu two
+                    // items with one title, and two rows with one id confuse the list.
+                    var item = Item(id: "menu:\(app.processIdentifier):\(location):\(position):\(title)", kind: .menu, verb: "Run",
                                     title: title, subtitle: location, keywords: path.joined(separator: " "), icon: app.icon) {
                         AXUIElementPerformAction(child, kAXPressAction as CFString)
                     }

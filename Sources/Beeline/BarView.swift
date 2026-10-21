@@ -228,7 +228,7 @@ final class BarModel: ObservableObject {
         clearPlan()
         isAskingClaude = true
         let asked = query
-        let options = catalogue.planOptions()
+        let options = catalogue.planOptions(for: asked)
         planning = Task { @MainActor [weak self] in
             let result = await Planner.plan(for: asked, options: options)
             guard let self, !Task.isCancelled, asked == self.query else { return }

@@ -63,6 +63,8 @@ final class BarController: NSObject, NSWindowDelegate {
         }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.panel.isKeyWindow else { return event }
+            // While an input method is composing (Japanese, Chinese, Korean), Return and Escape belong to it.
+            if let editor = self.panel.firstResponder as? NSTextView, editor.hasMarkedText() { return event }
             if self.handleEditShortcut(event) { return nil }
             switch Int(event.keyCode) {
             case kVK_Escape:
@@ -140,7 +142,8 @@ final class BarController: NSObject, NSWindowDelegate {
     /// Beeline has no Edit menu, which is what normally routes ⌘C, ⌘V and the rest to a text field.
     /// This sends the same commands to the search field directly.
     private func handleEditShortcut(_ event: NSEvent) -> Bool {
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        // Caps Lock is not a modifier here: ⌘V must paste with it on.
+        let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
         guard modifiers == .command || modifiers == [.command, .shift] else { return false }
         let action: Selector
         switch (event.charactersIgnoringModifiers?.lowercased(), modifiers.contains(.shift)) {

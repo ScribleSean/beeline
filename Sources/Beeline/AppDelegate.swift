@@ -11,7 +11,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let welcomeWindow = WelcomeWindowController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        Settings.registerDefaults()
         // Applies to every accessibility element, not only app elements, so one stuck app can't stall a scan.
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.25)
         Settings.applyAppearance()

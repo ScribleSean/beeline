@@ -90,6 +90,8 @@ final class Catalogue {
         apps = Self.scanApps()
         settings = SettingsPanes.items()
         refreshRunning()
+        // The baseline for "has an Applications folder changed" is taken now, not at the first bar opening.
+        refreshAppsIfChanged()
     }
 
     /// Blocks until apps and settings can be matched by meaning. The app does this in the background instead.
@@ -206,8 +208,7 @@ final class Catalogue {
 
     /// Rescans installed apps when an Applications folder has changed, so a new app appears without a relaunch.
     func refreshAppsIfChanged() {
-        let folders = ["/Applications", NSHomeDirectory() + "/Applications"]
-        let dates = folders.map { (try? FileManager.default.attributesOfItem(atPath: $0)[.modificationDate] as? Date) ?? .distantPast }
+        let dates = Self.appFolders.map { (try? FileManager.default.attributesOfItem(atPath: $0)[.modificationDate] as? Date) ?? .distantPast }
         guard dates != appFolderDates else { return }
         let first = appFolderDates.isEmpty
         appFolderDates = dates
@@ -520,15 +521,21 @@ final class Catalogue {
 
     /// Everything a plan may be built from. Irreversible actions are left out on purpose:
     /// a plan is written by a model reading window and tab titles, which other apps control.
-    func planOptions() -> [PlanStep] {
+    func planOptions(for request: String = "") -> [PlanStep] {
         var options: [PlanStep] = []
+        // A title is data from another app. Quotes, line breaks and control characters are taken out and
+        // long ones cut, so a title cannot pose as part of an option's structure.
+        func clean(_ title: String) -> String {
+            let flat = title.unicodeScalars.map { $0.properties.generalCategory == .control || $0 == "\"" ? " " : Character($0) }
+            return String(String(flat).split(whereSeparator: \.isWhitespace).joined(separator: " ").prefix(120))
+        }
         // The current window first, then the front app's, so the cap never drops "this window".
         let frontName = frontApp?.localizedName
         let ordered = (windows + planOnlyWindows).sorted { a, b in
             (a.isCurrentWindow ? 0 : a.subtitle == frontName ? 1 : 2) < (b.isCurrentWindow ? 0 : b.subtitle == frontName ? 1 : 2)
         }
         for window in ordered.prefix(16) {
-            let name = "window \"\(window.title)\" (\(window.subtitle))" + (window.isCurrentWindow ? " [the current window]" : "")
+            let name = "window \"\(clean(window.title))\" (\(clean(window.subtitle)))" + (window.isCurrentWindow ? " [the current window]" : "")
             options.append(PlanStep(text: "Switch to \(name)", icon: window.icon, run: window.run))
             if let tile = window.tile {
                 options.append(PlanStep(text: "Move \(name) to the left half of the screen", icon: window.icon) { tile(.left) })
@@ -537,13 +544,19 @@ final class Catalogue {
             }
         }
         for tab in tabs.prefix(40) {
-            let name = "tab \"\(tab.title)\" (\(tab.subtitle), \(tab.keywords))"
+            let name = "tab \"\(clean(tab.title))\" (\(tab.subtitle), \(clean(tab.keywords)))"
             options.append(PlanStep(text: "Switch to \(name)", icon: tab.icon, run: tab.run))
             if let close = tab.close {
                 options.append(PlanStep(text: "Close \(name)", icon: tab.icon, run: close))
             }
         }
-        for item in actions + quits where !item.needsConfirm {
+        // Quit only for apps the request names, as the search does: a plan must not be able to quit anything.
+        let requestWords = Matcher.parse(request).tokens
+        let namedQuits = quits.filter { quit in
+            let nameWords = Matcher.parse(String(quit.title.dropFirst(5))).tokens
+            return nameWords.contains { word in requestWords.contains { $0.hasPrefix(word) || word.hasPrefix($0) } }
+        }
+        for item in actions + namedQuits where !item.needsConfirm {
             options.append(PlanStep(text: item.title, icon: item.icon, run: item.run))
         }
         for item in settings {
@@ -576,7 +589,7 @@ final class Catalogue {
             options += [left, right]
         }
         for item in controls.prefix(60) where !item.needsConfirm {
-            var step = PlanStep(text: "In the current window only, \(item.verb.lowercased()) the \(item.subtitle) \"\(item.title)\"",
+            var step = PlanStep(text: "In the current window only, \(item.verb.lowercased()) the \(item.subtitle) \"\(clean(item.title))\"",
                                 icon: item.icon, run: item.run)
             step.stillValid = item.stillValid
             options.append(step)
@@ -585,22 +598,36 @@ final class Catalogue {
         let dynamicMenus = ["Open Recent", "History", "Bookmarks", "Recent Items", "Reading List", "Recently Closed"]
         let plannable = menus.filter { menu in !dynamicMenus.contains { menu.subtitle.contains($0) } }
         for item in plannable.prefix(150) where !item.needsConfirm {
-            var step = PlanStep(text: "In the current app only, run its menu command \(item.subtitle) › \(item.title)", icon: item.icon, run: item.run)
+            var step = PlanStep(text: "In the current app only, run its menu command \(clean(item.subtitle)) › \(clean(item.title))", icon: item.icon, run: item.run)
             step.stillValid = item.stillValid
             options.append(step)
         }
         return options
     }
 
+    /// The folders apps live in. Watched for changes and scanned, one level into plain subfolders
+    /// (Adobe, Setapp) as well, plus Finder, which lives in CoreServices.
+    static let appFolders = ["/Applications", "/System/Applications", "/System/Applications/Utilities",
+                             "/Applications/Utilities", NSHomeDirectory() + "/Applications"]
+
     private static func scanApps() -> [Item] {
-        let roots = ["/Applications", "/System/Applications", "/System/Applications/Utilities",
-                     "/Applications/Utilities", NSHomeDirectory() + "/Applications"]
         var seen = Set<String>()
         var items: [Item] = []
-        for root in roots {
+        var paths: [String] = ["/System/Library/CoreServices/Finder.app"]
+        for root in appFolders {
             guard let names = try? FileManager.default.contentsOfDirectory(atPath: root) else { continue }
-            for name in names where name.hasSuffix(".app") && !name.hasPrefix(".") {
-                let path = root + "/" + name
+            for name in names where !name.hasPrefix(".") {
+                if name.hasSuffix(".app") {
+                    paths.append(root + "/" + name)
+                } else if let inside = try? FileManager.default.contentsOfDirectory(atPath: root + "/" + name) {
+                    paths += inside.filter { $0.hasSuffix(".app") && !$0.hasPrefix(".") }.map { root + "/" + name + "/" + $0 }
+                }
+            }
+        }
+        for path in paths {
+            do {
+                let name = (path as NSString).lastPathComponent
+                guard FileManager.default.fileExists(atPath: path) else { continue }
                 let title = String(name.dropLast(4))
                 guard seen.insert(title).inserted else { continue }
                 let url = URL(fileURLWithPath: path)

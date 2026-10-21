@@ -4,6 +4,22 @@ import SwiftUI
 Settings.registerDefaults()
 Planner.ignoreBrokenPipes()
 
+// A misspelt or incomplete flag prints what the flags are instead of starting a second full copy of the app.
+let knownFlags: [String: Int] = ["--query": 1, "--rewrite": 2, "--controls": 1, "--preview": 2, "--preview-welcome": 1,
+                                 "--files": 2, "--pick": 2, "--ai": 1, "--plan": 1]
+if let flag = CommandLine.arguments.dropFirst().first(where: { $0.hasPrefix("-") }) {
+    let position = CommandLine.arguments.firstIndex(of: flag)!
+    if let needed = knownFlags[flag], CommandLine.arguments.count > position + needed {
+        // Command-line modes must not write to the real pick history ("--preview … arm" records a pick).
+        if ProcessInfo.processInfo.environment["BEELINE_USAGE_FILE"] == nil {
+            setenv("BEELINE_USAGE_FILE", FileManager.default.temporaryDirectory.appendingPathComponent("beeline-cli-usage.json").path, 1)
+        }
+    } else {
+        print("Unknown or incomplete flag \(flag). Flags: " + knownFlags.keys.sorted().joined(separator: ", "))
+        exit(2)
+    }
+}
+
 // `Beeline --query "wifi"` prints the ranked matches and exits, for checking the matcher without the UI.
 if let flag = CommandLine.arguments.firstIndex(of: "--query"), CommandLine.arguments.count > flag + 1 {
     let catalogue = Catalogue()
@@ -110,7 +126,12 @@ if let flag = CommandLine.arguments.firstIndex(of: "--files"), CommandLine.argum
         print("\(item.needsConfirm ? "!" : " ") \(item.title)  [\(item.subtitle)]")
     }
     // With BEELINE_FILES_TEST set, the first chore is run too, and what it made is printed when it finishes.
+    // A chore that would need a second Return in the bar (a replace, a rename of several) is not run here.
     if ProcessInfo.processInfo.environment["BEELINE_FILES_TEST"] != nil, let first = rows.first {
+        guard !first.needsConfirm else {
+            print("not run: this chore needs confirming in the bar")
+            exit(0)
+        }
         first.run()
         RunLoop.main.run(until: Date().addingTimeInterval(600))
         print("gave up waiting")
@@ -152,7 +173,7 @@ if let flag = CommandLine.arguments.firstIndex(of: "--plan"), CommandLine.argume
     let catalogue = Catalogue()
     let request = CommandLine.arguments[flag + 1]
     Task {
-        let options = catalogue.planOptions()
+        let options = catalogue.planOptions(for: request)
         let start = Date()
         let result = await Planner.plan(for: request, options: options)
         print("\(options.count) options, \(String(format: "%.1f", Date().timeIntervalSince(start))) s")
@@ -166,6 +187,15 @@ if let flag = CommandLine.arguments.firstIndex(of: "--plan"), CommandLine.argume
         exit(0)
     }
     dispatchMain()
+}
+
+// One copy at a time: a second menu-bar icon, clipboard poller and pick history writer would fight the first.
+// An update relaunch is fine, because the old copy has quit before the new one starts.
+let others = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+    .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+if !others.isEmpty {
+    Log.append("another copy is running, quitting")
+    exit(0)
 }
 
 let app = NSApplication.shared
