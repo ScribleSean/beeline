@@ -100,7 +100,9 @@ final class Catalogue {
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            self?.refreshScreen {}
+            // Only the window list on an app switch: walking the menu bar and every control of the new
+            // front app on each switch cost up to a second of CPU, and the full walk happens when the bar opens.
+            self?.refreshScreen(full: false) {}
         }
         let fixed = actions + apps + settings
         scanQueue.async { self.semantic.prepare(fixed, permanent: true) }
@@ -135,9 +137,14 @@ final class Catalogue {
     /// never by the one already under way, whose picture may predate their request.
     private var nextScanWaiters: [() -> Void] = []
 
-    /// Re-reads open windows and the front app's menu commands, then calls `done` on the main thread.
-    /// Requests that arrive while a scan runs are folded into one more scan, never queued one by one.
-    func refreshScreen(done: @escaping () -> Void) {
+    /// Which app the menus and controls on hand were read from.
+    private var scannedApp: pid_t?
+
+    /// Re-reads open windows and, for a full scan, the front app's menu commands and controls, then calls
+    /// `done` on the main thread. A windows-only scan keeps menus and controls if the front app is the
+    /// same, and drops them if it changed. Requests that arrive while a scan runs are folded into one more
+    /// scan, never queued one by one.
+    func refreshScreen(full: Bool = true, done: @escaping () -> Void) {
         guard !scanning else {
             nextScanWaiters.append(done)
             return
@@ -149,12 +156,13 @@ final class Catalogue {
             frontApp = front
         }
         let front = frontApp
+        let sameApp = front?.processIdentifier == scannedApp
         let browserNames = Set(Browser.all.map(\.name))
         let windowed = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular && $0 != own }
         scanQueue.async {
             let found = Accessibility.windows(of: windowed, front: front)
-            let menus = front.map { Accessibility.menuCommands(of: $0) } ?? []
-            let controls = front.map { Accessibility.controls(of: $0) } ?? []
+            let menus = full ? front.map { Accessibility.menuCommands(of: $0) } ?? [] : nil
+            let controls = full ? front.map { Accessibility.controls(of: $0) } ?? [] : nil
             let isPlanOnly = { (window: Item) in browserNames.contains(window.subtitle) || window.title == window.subtitle }
             let searchable = found.filter { !isPlanOnly($0) }
             let tiles = found.first(where: \.isCurrentWindow).map(Self.tileItems) ?? []
@@ -162,8 +170,15 @@ final class Catalogue {
                 self.windows = searchable
                 self.planOnlyWindows = found.filter(isPlanOnly)
                 self.tiles = tiles
-                self.menus = menus
-                self.controls = controls
+                if let menus, let controls {
+                    self.menus = menus
+                    self.controls = controls
+                    self.scannedApp = front?.processIdentifier
+                } else if !sameApp {
+                    self.menus = []
+                    self.controls = []
+                    self.scannedApp = nil
+                }
                 self.scansCompleted += 1
                 let waiting = self.scanWaiters
                 self.scanWaiters = []
@@ -175,7 +190,9 @@ final class Catalogue {
                     self.refreshScreen { next.forEach { $0() } }
                 }
             }
-            self.semantic.prepare(searchable + menus)
+            // Only windows: menu commands are never ranked by meaning, and their vectors (up to 1,500 a
+            // scan) delayed the next scan and pushed the useful ones out of the cache.
+            self.semantic.prepare(searchable)
         }
     }
 
@@ -484,7 +501,12 @@ final class Catalogue {
     /// a plan is written by a model reading window and tab titles, which other apps control.
     func planOptions() -> [PlanStep] {
         var options: [PlanStep] = []
-        for window in (windows + planOnlyWindows).prefix(16) {
+        // The current window first, then the front app's, so the cap never drops "this window".
+        let frontName = frontApp?.localizedName
+        let ordered = (windows + planOnlyWindows).sorted { a, b in
+            (a.isCurrentWindow ? 0 : a.subtitle == frontName ? 1 : 2) < (b.isCurrentWindow ? 0 : b.subtitle == frontName ? 1 : 2)
+        }
+        for window in ordered.prefix(16) {
             let name = "window \"\(window.title)\" (\(window.subtitle))" + (window.isCurrentWindow ? " [the current window]" : "")
             options.append(PlanStep(text: "Switch to \(name)", icon: window.icon, run: window.run))
             if let tile = window.tile {
@@ -512,8 +534,14 @@ final class Catalogue {
             // An app with no window yet cannot be tiled as a window, so opening and placing is one step.
             guard !appsWithWindows.contains(item.title) else { continue }
             let url = URL(fileURLWithPath: item.id)
-            // Checked after it settles: the app must be running before the next step relies on it.
-            let launched = { NSWorkspace.shared.runningApplications.contains { $0.bundleURL?.standardizedFileURL == url.standardizedFileURL } }
+            // Checked after it settles: the app must be running before the next step relies on it. Compared
+            // by bundle id, because an app's path can be a link into a system cryptex.
+            let bundleID = Bundle(url: url)?.bundleIdentifier
+            let launched = {
+                NSWorkspace.shared.runningApplications.contains {
+                    (bundleID != nil && $0.bundleIdentifier == bundleID) || $0.bundleURL?.standardizedFileURL == url.standardizedFileURL
+                }
+            }
             var left = PlanStep(text: "Open the app \(item.title) and put it on the left half of the screen", icon: item.icon) {
                 Accessibility.openAndPlace(url, .left)
             }

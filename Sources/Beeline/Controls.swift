@@ -95,11 +95,15 @@ extension Accessibility {
 
         // Electron and Chromium apps (Claude, Slack, VS Code) expose almost nothing until a screen reader
         // asks for the full tree through this flag. Ask once, give the app a moment, and look again.
-        askedLock.lock()
-        let firstAsk = askedForTree.insert(app.processIdentifier).inserted
-        askedLock.unlock()
-        if visited < 60, firstAsk,
-           AXUIElementSetAttributeValue(element, "AXManualAccessibility" as CFString, kCFBooleanTrue) == .success {
+        // An app counts as asked only when it actually is: one whose first scan happened to be big must
+        // still get its ask on a later, sparser window.
+        var firstAsk = false
+        if visited < 60 {
+            askedLock.lock()
+            firstAsk = askedForTree.insert(app.processIdentifier).inserted
+            askedLock.unlock()
+        }
+        if firstAsk, AXUIElementSetAttributeValue(element, "AXManualAccessibility" as CFString, kCFBooleanTrue) == .success {
             Thread.sleep(forTimeInterval: 0.35)
             deadline = Date().addingTimeInterval(0.6)
             found.removeAll()
