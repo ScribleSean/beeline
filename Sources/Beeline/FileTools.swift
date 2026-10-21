@@ -185,11 +185,14 @@ enum FileTools {
             let target = destination.appendingPathComponent(source.lastPathComponent)
             return FileManager.default.fileExists(atPath: target.path) && !overlaps(source, target)
         }.map(\.lastPathComponent)
+        // Each item on the card is remembered as the very file that is there now, not by its name: if it is
+        // swapped for another before Return, the other one is left alone (Codex 8).
+        let shown = replacements(replaced, in: destination)
         let from = sources[0].deletingLastPathComponent().lastPathComponent
         var item = row("transfer", replaced.isEmpty ? "\(verb) \(what) to \(destinationName)" : "\(verb) \(what) to \(destinationName), replacing what's there",
                        replaced.isEmpty ? "From \(from)" : "The old \(replaced.count == 1 ? "one goes" : "ones go") to the Trash first",
                        copying ? "doc.on.doc" : "folder") {
-            _ = transfer(sources, to: destination, copying: copying, replacing: Set(replaced), report: true)
+            _ = transfer(sources, to: destination, copying: copying, replacing: shown, report: true)
         }
         // Replacing something needs a second Return: the old copy goes to the Trash.
         item.needsConfirm = !replaced.isEmpty
@@ -286,18 +289,36 @@ enum FileTools {
         return a.standardizedFileURL.path.lowercased() == b.standardizedFileURL.path.lowercased()
     }
 
-    /// Copies or moves each source into the destination folder and returns what arrived. Only an item whose
-    /// name is in `replacing` (the names shown on the confirm card) may send what is there to the Trash. The
+    /// The items shown on a confirm card as about to be replaced: each name, with the identity of the file
+    /// that has it now. A name whose file can't be identified is left out, so it is never replaced.
+    typealias Replacements = [String: NSObject]
+
+    static func replacements(_ names: [String], in destination: URL) -> Replacements {
+        var shown: Replacements = [:]
+        for name in names {
+            if let id = identity(of: destination.appendingPathComponent(name)) { shown[name] = id }
+        }
+        return shown
+    }
+
+    private static func identity(of url: URL) -> NSObject? {
+        (try? url.resourceValues(forKeys: [.fileResourceIdentifierKey]))?.fileResourceIdentifier as? NSObject
+    }
+
+    /// Copies or moves each source into the destination folder and returns what arrived. Only the very item
+    /// shown on the confirm card under a name in `replacing` may be sent to the Trash. The
     /// new item is put beside the target first and swapped in only once it has arrived whole, so a copy
     /// that fails halfway leaves the old item where it was.
     @discardableResult
-    static func transfer(_ sources: [URL], to destination: URL, copying: Bool, replacing: Set<String>, report: Bool = false) -> [URL] {
+    static func transfer(_ sources: [URL], to destination: URL, copying: Bool, replacing: Replacements, report: Bool = false) -> [URL] {
+        // Counted without case: "Notes.txt" and "notes.txt" from a case-sensitive disk are one name in a
+        // Mac's usual folder, and the second would replace the first (Codex 9).
         var counts: [String: Int] = [:]
-        for source in sources { counts[source.lastPathComponent, default: 0] += 1 }
+        for source in sources { counts[source.lastPathComponent.lowercased(), default: 0] += 1 }
         let done: [URL] = sources.compactMap { source in
             let name = source.lastPathComponent
             // Two selected items with the same name would replace each other; neither is touched.
-            guard counts[name] == 1 else {
+            guard counts[name.lowercased()] == 1 else {
                 Log.append("file tools: two items share a name, skipped")
                 return nil
             }
@@ -308,8 +329,11 @@ enum FileTools {
             guard FileManager.default.fileExists(atPath: target.path) else {
                 return (try? deliver(source, to: target, copying: copying)) == nil ? nil : target
             }
-            // Something is in the way, and it was not on the card: leave it alone.
-            guard replacing.contains(name) else { return nil }
+            // Something is in the way, and it was not on the card, or is no longer the item that was: leave it alone.
+            guard let shown = replacing[name], identity(of: target)?.isEqual(shown) == true else {
+                Log.append("file tools: the item in the way isn't the one on the card, skipped")
+                return nil
+            }
             guard let scratch = scratchFolder(near: destination) else {
                 Log.append("file tools: no scratch folder beside the destination")
                 return nil

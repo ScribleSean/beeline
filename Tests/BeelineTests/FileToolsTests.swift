@@ -142,7 +142,7 @@ private func entries(of archive: URL) -> [String] {
     let source = try scratch.file("Foo", "inside", in: "Downloads/Foo")
     let downloads = scratch.url.appendingPathComponent("Downloads")
 
-    let moved = FileTools.transfer([source], to: downloads, copying: false, replacing: ["Foo"])
+    let moved = FileTools.transfer([source], to: downloads, copying: false, replacing: FileTools.replacements(["Foo"], in: downloads))
     #expect(moved.isEmpty)
     #expect(scratch.exists("Downloads/Foo/Foo"))
     #expect(try FileManager.default.contentsOfDirectory(atPath: bin.path).isEmpty)
@@ -157,7 +157,7 @@ private func entries(of archive: URL) -> [String] {
     let desktop = scratch.url.appendingPathComponent("Desktop")
     try FileManager.default.createDirectory(at: desktop, withIntermediateDirectories: true)
 
-    let moved = FileTools.transfer([first, second], to: desktop, copying: false, replacing: [])
+    let moved = FileTools.transfer([first, second], to: desktop, copying: false, replacing: [:])
     #expect(moved.isEmpty)
     #expect(scratch.exists("a/notes.txt") && scratch.exists("b/notes.txt"))
     #expect(try FileManager.default.contentsOfDirectory(atPath: bin.path).isEmpty)
@@ -173,7 +173,7 @@ private func entries(of archive: URL) -> [String] {
     guard FileManager.default.fileExists(atPath: spelled.appendingPathComponent("Notes.txt").path) else { return }
 
     #expect(FileTools.overlaps(source, spelled.appendingPathComponent("notes.txt")))
-    let copied = FileTools.transfer([source], to: spelled, copying: true, replacing: ["Notes.txt"])
+    let copied = FileTools.transfer([source], to: spelled, copying: true, replacing: FileTools.replacements(["Notes.txt"], in: spelled))
     #expect(copied.isEmpty)
     #expect(try String(contentsOf: source, encoding: .utf8) == "keep")
     #expect(try FileManager.default.contentsOfDirectory(atPath: bin.path).isEmpty)
@@ -188,10 +188,10 @@ private func entries(of archive: URL) -> [String] {
     let desktop = old.deletingLastPathComponent()
 
     // Nothing was confirmed, so the old file stays and nothing is copied over it.
-    #expect(FileTools.transfer([source], to: desktop, copying: true, replacing: []).isEmpty)
+    #expect(FileTools.transfer([source], to: desktop, copying: true, replacing: [:]).isEmpty)
     #expect(try String(contentsOf: old, encoding: .utf8) == "old")
 
-    let copied = FileTools.transfer([source], to: desktop, copying: true, replacing: ["report.pdf"])
+    let copied = FileTools.transfer([source], to: desktop, copying: true, replacing: FileTools.replacements(["report.pdf"], in: desktop))
     #expect(copied == [old])
     #expect(try String(contentsOf: old, encoding: .utf8) == "new")
     #expect(try FileManager.default.contentsOfDirectory(atPath: bin.path) == ["report.pdf"])
@@ -205,10 +205,46 @@ private func entries(of archive: URL) -> [String] {
     let source = try scratch.file("app.txt", "new", in: "Downloads")
     let old = try scratch.file("app.txt", "old", in: "Applications")
 
-    let moved = FileTools.transfer([source], to: old.deletingLastPathComponent(), copying: false, replacing: ["app.txt"])
+    let moved = FileTools.transfer([source], to: old.deletingLastPathComponent(), copying: false, replacing: FileTools.replacements(["app.txt"], in: old.deletingLastPathComponent()))
     #expect(moved.isEmpty)
     #expect(try String(contentsOf: old, encoding: .utf8) == "old")
     #expect(try String(contentsOf: source, encoding: .utf8) == "new", "a move that fails puts the source back")
     #expect(try FileManager.default.contentsOfDirectory(atPath: scratch.url.appendingPathComponent("Applications").path) == ["app.txt"])
+}
+
+    // Codex 8: if the item on the card is swapped for another before Return, the other one is not trashed.
+    @Test func replaceLeavesAnItemThatChangedSinceTheCard() throws {
+    let scratch = try Scratch()
+    defer { scratch.remove() }
+    let bin = try useScratchTrash(scratch)
+    let source = try scratch.file("report.pdf", "new", in: "Downloads")
+    let old = try scratch.file("report.pdf", "old", in: "Desktop")
+    let desktop = old.deletingLastPathComponent()
+    let shown = FileTools.replacements(["report.pdf"], in: desktop)
+    #expect(shown.count == 1)
+
+    // Something else saves a different report.pdf there after the card was shown.
+    try FileManager.default.removeItem(at: old)
+    _ = try scratch.file("report.pdf", "someone else's", in: "Desktop")
+
+    #expect(FileTools.transfer([source], to: desktop, copying: true, replacing: shown).isEmpty)
+    #expect(try String(contentsOf: old, encoding: .utf8) == "someone else's")
+    #expect(try FileManager.default.contentsOfDirectory(atPath: bin.path).isEmpty)
+}
+
+    // Codex 9: two names that differ only in case count as one name at the destination.
+    @Test func namesThatDifferOnlyInCaseAreOneName() throws {
+    let scratch = try Scratch()
+    defer { scratch.remove() }
+    let bin = try useScratchTrash(scratch)
+    let upper = try scratch.file("Notes.txt", "first", in: "a")
+    let lower = try scratch.file("notes.txt", "second", in: "b")
+    let desktop = scratch.url.appendingPathComponent("Desktop")
+    try FileManager.default.createDirectory(at: desktop, withIntermediateDirectories: true)
+
+    #expect(FileTools.transfer([upper, lower], to: desktop, copying: false, replacing: [:]).isEmpty)
+    #expect(scratch.exists("a/Notes.txt") && scratch.exists("b/notes.txt"))
+    #expect(try FileManager.default.contentsOfDirectory(atPath: desktop.path).isEmpty)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: bin.path).isEmpty)
 }
 }
