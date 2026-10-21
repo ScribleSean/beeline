@@ -1,3 +1,4 @@
+import ApplicationServices
 import Foundation
 import Testing
 @testable import Beeline
@@ -39,4 +40,16 @@ import Testing
     for label in ["Close Tab", "Close Window", "Close"] {
         #expect(!Accessibility.isIrreversible(label), Comment(rawValue: label))
     }
+}
+
+// Codex 4: a menu command read with one window focused must not run in another window of the same app.
+@Test func menuCommandsBelongToTheWindowTheyWereReadIn() {
+    // Elements made locally compare by identity without asking the app anything.
+    let one = AXUIElementCreateApplication(getpid())
+    let other = AXUIElementCreateApplication(1)
+    #expect(Accessibility.sameWindow(one, one))
+    #expect(!Accessibility.sameWindow(one, other))
+    #expect(!Accessibility.sameWindow(one, nil))
+    #expect(!Accessibility.sameWindow(nil, one))
+    #expect(Accessibility.sameWindow(nil, nil))
 }

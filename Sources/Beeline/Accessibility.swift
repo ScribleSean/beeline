@@ -92,7 +92,10 @@ enum Accessibility {
     static func menuCommands(of app: NSRunningApplication) -> [Item] {
         guard isTrusted else { return [] }
         let name = app.localizedName ?? ""
-        guard let menuBar: AXUIElement = attribute(applicationElement(app), kAXMenuBarAttribute) else { return [] }
+        let appElement = applicationElement(app)
+        guard let menuBar: AXUIElement = attribute(appElement, kAXMenuBarAttribute) else { return [] }
+        // Menu commands act on the focused window, so the one focused now is the one they may act on.
+        let scannedWindow: AXUIElement? = attribute(appElement, kAXFocusedWindowAttribute)
 
         var items: [Item] = []
         let deadline = Date().addingTimeInterval(0.8)
@@ -122,9 +125,13 @@ enum Accessibility {
                     // Menu commands like Delete or Send ask for Return twice, as buttons do.
                     item.needsConfirm = isIrreversible(title)
                     let pid = app.processIdentifier
-                    // A menu command acts on whatever is in front, so the app must still be the front one.
+                    // A menu command acts on whatever is in front, so the app must still be the front one, with
+                    // the same window focused: Close or Delete in another window of the app is another act.
                     item.stillValid = {
                         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return false }
+                        let element = AXUIElementCreateApplication(pid)
+                        AXUIElementSetMessagingTimeout(element, 0.25)
+                        guard sameWindow(scannedWindow, attribute(element, kAXFocusedWindowAttribute)) else { return false }
                         let current: String? = attribute(child, kAXTitleAttribute)
                         let enabled: Bool = attribute(child, kAXEnabledAttribute) ?? true
                         return current == title && enabled
@@ -144,6 +151,15 @@ enum Accessibility {
             for index in first..<items.count { items[index].target = { frame(of: menu) } }
         }
         return items
+    }
+
+    /// True when both are the same window, or both are no window at all.
+    static func sameWindow(_ a: AXUIElement?, _ b: AXUIElement?) -> Bool {
+        switch (a, b) {
+        case (nil, nil): return true
+        case let (a?, b?): return CFEqual(a, b)
+        default: return false
+        }
     }
 
     /// True when the app is in front and this window is the one it has focused.
