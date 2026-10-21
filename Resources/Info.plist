@@ -31,6 +31,6 @@
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Beeline turns what you say into the request in its bar, on this Mac.</string>
     <key>NSAppleEventsUsageDescription</key>
-    <string>Beeline lists your open browser tabs so you can jump to one by typing.</string>
+    <string>Beeline reads your browser tabs to list them, asks Finder for the selected files and the Trash, and asks System Events to switch dark mode. Each app is asked only for what you type.</string>
 </dict>
 </plist>
