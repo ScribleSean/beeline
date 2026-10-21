@@ -30,6 +30,8 @@ enum Keyboard {
         for isDown in [true, false] {
             let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: isDown)
             event?.flags = flags
+            // Tagged, so a run in progress never takes Beeline's own keystroke for you taking over.
+            event?.setIntegerValueField(.eventSourceUserData, value: RunGuard.eventTag)
             event?.post(tap: .cghidEventTap)
         }
         return true
