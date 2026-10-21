@@ -128,17 +128,21 @@ final class Catalogue {
     }
 
     private var scanning = false
-    private var rescanWanted = false
+    /// How many scans have finished. Tests use it to tell which scan answered a request.
+    private(set) var scansCompleted = 0
     private var scanWaiters: [() -> Void] = []
+    /// Callers that asked while a scan was running. They are answered by the scan that starts next,
+    /// never by the one already under way, whose picture may predate their request.
+    private var nextScanWaiters: [() -> Void] = []
 
     /// Re-reads open windows and the front app's menu commands, then calls `done` on the main thread.
     /// Requests that arrive while a scan runs are folded into one more scan, never queued one by one.
     func refreshScreen(done: @escaping () -> Void) {
-        scanWaiters.append(done)
         guard !scanning else {
-            rescanWanted = true
+            nextScanWaiters.append(done)
             return
         }
+        scanWaiters.append(done)
         scanning = true
         let own = NSRunningApplication.current
         if let front = NSWorkspace.shared.frontmostApplication, front != own {
@@ -160,13 +164,15 @@ final class Catalogue {
                 self.tiles = tiles
                 self.menus = menus
                 self.controls = controls
+                self.scansCompleted += 1
                 let waiting = self.scanWaiters
                 self.scanWaiters = []
                 waiting.forEach { $0() }
                 self.scanning = false
-                if self.rescanWanted {
-                    self.rescanWanted = false
-                    self.refreshScreen {}
+                if !self.nextScanWaiters.isEmpty {
+                    let next = self.nextScanWaiters
+                    self.nextScanWaiters = []
+                    self.refreshScreen { next.forEach { $0() } }
                 }
             }
             self.semantic.prepare(searchable + menus)

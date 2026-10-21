@@ -92,6 +92,8 @@ extension Accessibility {
         for control in found { counts[control.role + control.label, default: 0] += 1 }
         var seen = Set<String>()
         let appName = app.localizedName ?? ""
+        let pid = app.processIdentifier
+        let windowTitle: String = attribute(window, kAXTitleAttribute) ?? ""
 
         let items: [Item] = found.enumerated().compactMap { index, control in
             let repeated = (counts[control.role + control.label] ?? 0) > 1
@@ -110,8 +112,15 @@ extension Accessibility {
                 }
             }
             item.needsConfirm = !isField && isIrreversible(control.label)
+            if item.needsConfirm, !windowTitle.isEmpty {
+                item.confirmNote = "In “\(windowTitle)” (\(appName)). This can't be undone."
+            }
             let expected = control.label, role = control.role
+            // The control came from one window. Before it is pressed, that window must still be the one in
+            // front: the user may have switched windows since the scan, and a "Send" pressed in the wrong
+            // compose window cannot be taken back.
             item.stillValid = {
+                guard isFrontWindow(window, of: pid) else { return false }
                 let enabled: Bool = attribute(node, kAXEnabledAttribute) ?? true
                 return enabled && label(of: node, role: role) == expected
             }

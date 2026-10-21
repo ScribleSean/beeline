@@ -116,9 +116,12 @@ enum Accessibility {
                     }
                     // Menu commands like Delete or Send ask for Return twice, as buttons do.
                     item.needsConfirm = isIrreversible(title)
+                    let pid = app.processIdentifier
+                    // A menu command acts on whatever is in front, so the app must still be the front one.
                     item.stillValid = {
+                        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return false }
                         let current: String? = attribute(child, kAXTitleAttribute)
-                        let enabled: Bool = attribute(child, kAXEnabledAttribute) ?? false
+                        let enabled: Bool = attribute(child, kAXEnabledAttribute) ?? true
                         return current == title && enabled
                     }
                     items.append(item)
@@ -133,6 +136,15 @@ enum Accessibility {
             walk(menu, path: [title], depth: 1)
         }
         return items
+    }
+
+    /// True when the app is in front and this window is the one it has focused.
+    static func isFrontWindow(_ window: AXUIElement, of pid: pid_t) -> Bool {
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return false }
+        let element = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(element, 0.25)
+        guard let focused: AXUIElement = attribute(element, kAXFocusedWindowAttribute) else { return false }
+        return CFEqual(focused, window)
     }
 
     static func applicationElement(_ app: NSRunningApplication) -> AXUIElement {

@@ -110,7 +110,13 @@ final class BarModel: ObservableObject {
     /// For results arriving in the background (tabs, windows). Leaves a plan, a confirm or a pending Claude
     /// request alone, and keeps the same item selected if it is still there.
     func refreshInBackground() {
-        guard !isShowingPlan, armedID == nil else { return }
+        guard !isShowingPlan else { return }
+        if let armedID {
+            // A fresh scan may mean the armed button or menu command no longer belongs to what is in front.
+            // Then the card is taken down rather than left promising something it would refuse to do.
+            if let armed = results.first(where: { $0.id == armedID }), armed.stillValid?() == false { self.armedID = nil }
+            return
+        }
         let selectedID = results.indices.contains(selected) ? results[selected].id : nil
         refresh()
         if let selectedID, let index = results.firstIndex(where: { $0.id == selectedID }) { selected = index }
