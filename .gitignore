@@ -2,3 +2,5 @@
 build/
 .DS_Store
 .signing-identity
+# Claude Code settings and worktrees are local to each machine.
+.claude/
