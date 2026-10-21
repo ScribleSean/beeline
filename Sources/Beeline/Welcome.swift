@@ -26,6 +26,8 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
     }
 
     var isShowing: Bool { window?.isVisible == true }
+    /// True when the window is showing the Spotlight card.
+    var showsSpotlightCard: Bool { isShowing && state.spotlightHasShortcut }
 
     func close() {
         window?.close()

@@ -14,7 +14,9 @@ final class Bee {
     private var position: CGPoint?
     private var hideWork: DispatchWorkItem?
 
-    static var isEnabled: Bool { Settings.isOn(Settings.showBee) }
+    static var isEnabled: Bool { forceOn || Settings.isOn(Settings.showBee) }
+    /// Set by the live check, so the bee shows without changing the saved setting.
+    static var forceOn = false
     /// How much slower than usual the bee goes. 1 normally; the live check slows it so a screenshot can
     /// catch it in flight.
     static var pace: Double = 1

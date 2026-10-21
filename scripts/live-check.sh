@@ -15,7 +15,12 @@ set -uo pipefail
 
 app="${BEELINE_APP:-$HOME/Applications/Beeline.app}"
 [ -d "$app" ] || { echo "No Beeline at $app (set BEELINE_APP)." >&2; exit 2; }
+known=" press plan escape click welcome "
 if [ $# -gt 0 ]; then scenarios=("$@"); else scenarios=(press plan escape click welcome); fi
+# An unknown name would start an ordinary Beeline instead of a check.
+for scenario in "${scenarios[@]}"; do
+    case "$known" in *" $scenario "*) ;; *) echo "Unknown scenario “$scenario”. Known:$known" >&2; exit 2 ;; esac
+done
 out="$(mktemp -d "${TMPDIR:-/tmp}/beeline-live-check.XXXXXX")"
 echo "Screenshots and logs: $out"
 echo "Hands off the keyboard and mouse until it finishes."
@@ -26,16 +31,26 @@ field() { printf '%s' "$1" | plutil -extract "$2" raw -o - - 2>/dev/null; }
 shots=0
 capture() {
     shots=$((shots + 1))
-    screencapture -x "$out/$scenario-$(printf '%02d' "$shots")-$1.png"
+    # One file per display, so a bee on a second screen is caught too.
+    local name="$out/$scenario-$(printf '%02d' "$shots")-$1"
+    screencapture -x "$name.png" "$name-display2.png" "$name-display3.png"
 }
 
-# Only one Beeline runs at a time, so the usual one steps aside and comes back at the end.
-was_running=false
-if pgrep -xq Beeline; then
-    was_running=true
+# Only one Beeline runs at a time, so the usual one steps aside and comes back at the end, from wherever
+# it was running, even if this script is stopped partway.
+running_copy=""
+if pid="$(pgrep -x Beeline | head -1)"; then
+    executable="$(ps -o comm= -p "$pid")"
+    running_copy="${executable%/Contents/MacOS/Beeline}"
     pkill -x Beeline
     for _ in $(seq 50); do pgrep -xq Beeline || break; sleep 0.1; done
+    if pgrep -xq Beeline; then
+        echo "Beeline didn't quit, so the check can't start its own copy. Quit it and try again." >&2
+        exit 2
+    fi
 fi
+bring_back() { if [ -n "$running_copy" ] && [ -d "$running_copy" ] && ! pgrep -xq Beeline; then open "$running_copy"; fi; }
+trap bring_back EXIT
 
 failed=0
 summary=""
@@ -65,7 +80,7 @@ for scenario in "${scenarios[@]}"; do
     done
     if kill -0 "$opener" 2>/dev/null; then
         pkill -x Beeline
-        echo "   gave up after a minute"
+        echo "   gave up after a minute. Its TextEdit document (“Beeline live check …”) may still be open: close it without saving."
     fi
     wait "$opener" 2>/dev/null
 
@@ -82,7 +97,6 @@ for scenario in "${scenarios[@]}"; do
     summary+="$verdict  $scenario: $why"$'\n'
 done
 
-if $was_running; then open "$app"; fi
 echo
 printf '%s' "$summary"
 echo "Screenshots and logs: $out"

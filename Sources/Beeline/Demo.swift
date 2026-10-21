@@ -21,12 +21,15 @@ enum Demo {
         DemoLog.shared = DemoLog(path: path)
         // Slow enough that a screenshot taken a moment after takeoff still finds the bee in the air.
         Bee.pace = 3
-        UserDefaults.standard.set(true, forKey: Settings.showBee)
+        Bee.forceOn = true
         DemoLog.note("start", ["scenario": scenario])
         Task { @MainActor in
             let runner = Runner(bar: bar)
-            let (pass, why) = await runner.run(scenario, welcome: welcome)
-            await runner.cleanUp()
+            var (pass, why) = await runner.run(scenario, welcome: welcome)
+            if await !runner.cleanUp() {
+                pass = false
+                why += "; the TextEdit document was left open (close it without saving)"
+            }
             DemoLog.note("result", ["scenario": scenario, "pass": pass, "why": why])
             try? await Task.sleep(nanoseconds: 300_000_000)
             NSApp.terminate(nil)
@@ -36,6 +39,8 @@ enum Demo {
     @MainActor
     private final class Runner {
         let bar: BarController
+        /// The ruler command's title when the document opened, so cleaning up can put it back.
+        var rulerAtStart: String?
         var textEdit: NSRunningApplication?
         var document: URL?
         var window: AXUIElement?
@@ -49,9 +54,10 @@ enum Demo {
                 Settings.forceSpotlightCard = true
                 welcome.show()
                 await shot("welcome-card")
-                let shown = welcome.isShowing
+                let shown = welcome.isShowing, card = welcome.showsSpotlightCard
                 welcome.close()
-                return shown ? (true, "the welcome window opened with the Spotlight card") : (false, "the welcome window didn't open")
+                return shown && card ? (true, "the welcome window opened with the Spotlight card")
+                    : (false, shown ? "the welcome window opened without the Spotlight card" : "the welcome window didn't open")
             }
             guard Accessibility.isTrusted else { return (false, "Accessibility is off for this copy of Beeline") }
             guard await openDocument() else { return (false, "couldn't open a TextEdit document to work in") }
@@ -80,11 +86,17 @@ enum Demo {
                 try? await Task.sleep(nanoseconds: 100_000_000)
             }
             guard let row else { return (false, "“\(before)” didn't come up in the bar") }
+            let found = bar.model.results[row]
             DemoLog.note("target-found", ["title": before, "row": row])
             bar.model.selected = row
             await shot("bar-result")
             guard isOurs() else { return (false, "the TextEdit document wasn't in front, so nothing was pressed") }
-            bar.model.runSelected()
+            // The very row found, by id: the list can change while the screenshot is taken, and whatever row
+            // is selected by then must not be what runs.
+            guard let current = bar.model.results.first(where: { $0.id == found.id }) else {
+                return (false, "“\(before)” left the bar before it could be pressed")
+            }
+            bar.model.run(current)
             await waitFor { (DemoLog.shared?.count("pressed") ?? 0) > 0 || (DemoLog.shared?.count("stopped") ?? 0) > 0 }
             try? await Task.sleep(nanoseconds: 800_000_000)
             await shot("after-press")
@@ -154,7 +166,8 @@ enum Demo {
             let landed = DemoLog.shared?.count("bee-landed") ?? 0
             let pressed = DemoLog.shared?.count("pressed") ?? 0
             let finished = DemoLog.shared?.count("plan-finished") == 1
-            let flipped = rulerCommand()?.title != before
+            let afterTitle = rulerCommand()?.title
+            let flipped = afterTitle != nil && afterTitle != before
             DemoLog.note("verified", ["landed": landed, "pressed": pressed, "finished": finished, "rulerFlipped": flipped])
             return finished && landed == 2 && pressed == 2 && flipped
                 ? (true, "the bee flew to both steps and both ran") : (false, "landed \(landed), pressed \(pressed), finished \(finished)")
@@ -183,6 +196,7 @@ enum Demo {
                    let focused: AXUIElement = Accessibility.attribute(element, kAXFocusedWindowAttribute),
                    let title: String = Accessibility.attribute(focused, kAXTitleAttribute), title.hasPrefix(name) {
                     window = focused
+                    rulerAtStart = rulerCommand()?.title
                     DemoLog.note("textedit-ready", ["window": title])
                     return true
                 }
@@ -207,19 +221,25 @@ enum Demo {
         }
 
         /// Puts the ruler and zoom back, closes the document and deletes its file. Leaves alone anything it
-        /// can't be sure is its own.
-        func cleanUp() async {
+        /// can't be sure is its own. False when the document is still open, in which case its file stays too.
+        func cleanUp() async -> Bool {
             bar.runGuard.stop(.replaced)
+            guard let textEdit, let window else {
+                if let document { try? FileManager.default.removeItem(at: document) }
+                return true
+            }
             if let actual = menuCommand("Actual Size"), actual.stillValid?() ?? true { actual.run() }
-            if let textEdit, let window, isOurs(),
-               let close: AXUIElement = Accessibility.attribute(window, kAXCloseButtonAttribute) {
+            if let ruler = rulerCommand(), let start = rulerAtStart, ruler.title != start, ruler.stillValid?() ?? true { ruler.run() }
+            if isOurs(), let close: AXUIElement = Accessibility.attribute(window, kAXCloseButtonAttribute) {
                 AXUIElementPerformAction(close, kAXPressAction as CFString)
                 try? await Task.sleep(nanoseconds: 600_000_000)
-                let still = (Accessibility.attribute(Accessibility.applicationElement(textEdit), kAXWindowsAttribute) as [AXUIElement]?)?
-                    .contains { CFEqual($0, window) } ?? false
-                DemoLog.note("cleanup", ["documentClosed": !still])
             }
-            if let document { try? FileManager.default.removeItem(at: document) }
+            let open = (Accessibility.attribute(Accessibility.applicationElement(textEdit), kAXWindowsAttribute) as [AXUIElement]?)?
+                .contains { CFEqual($0, window) } ?? false
+            DemoLog.note("cleanup", ["documentClosed": !open])
+            // A document still open keeps its file: TextEdit would be left holding a file that's gone.
+            if !open, let document { try? FileManager.default.removeItem(at: document) }
+            return !open
         }
 
         // MARK: Helpers

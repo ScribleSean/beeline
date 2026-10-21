@@ -40,7 +40,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // The hands-free live check takes no shortcut and shows no welcome: it drives the bar itself.
         if let scenario = Demo.requested {
-            Log.start("live check \(scenario) \(Date())")
+            // Appended, so the usual log isn't wiped by a check.
+            Log.append("live check \(scenario) \(Date())")
             Demo.start(scenario, bar: bar, welcome: welcomeWindow)
             return
         }
