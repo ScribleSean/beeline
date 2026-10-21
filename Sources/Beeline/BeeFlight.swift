@@ -31,10 +31,11 @@ enum BeeFlight {
         return CGPoint(x: x, y: y)
     }
 
-    /// The screen that holds most of a rect, or the first one when it is on none.
+    /// The screen that holds most of a rect, or nil when it is on none (a window on another Space can
+    /// report a place no screen shows); the bee then stays home rather than fly somewhere unrelated.
     static func screen(for rect: CGRect, among screens: [CGRect]) -> CGRect? {
         screens.max { area($0.intersection(rect)) < area($1.intersection(rect)) }
-            .flatMap { area($0.intersection(rect)) > 0 ? $0 : nil } ?? screens.first
+            .flatMap { area($0.intersection(rect)) > 0 ? $0 : nil }
     }
 
     /// The screen holding a point. Inclusive at every edge, so a point on a screen's top or right edge

@@ -108,6 +108,8 @@ final class BarController: NSObject, NSWindowDelegate {
     /// then the item runs, so you see where Beeline acts before it does. Everything else runs at once.
     private func perform(_ item: Item, from origin: CGPoint?) {
         guard Bee.isEnabled, let find = item.target, item.stillValid?() ?? true, let target = find() else {
+            // A plan still going would act alongside this; it stops first.
+            runGuard.stop(.replaced)
             runNow(item)
             return
         }
@@ -195,8 +197,12 @@ final class BarController: NSObject, NSWindowDelegate {
             // You are in charge now; the bee gets out of the way.
             bee.hide()
         case .escape, .sleep:
-            bee.say("Stopped")
-            bee.leave(after: 0.9)
+            // With the bee out, it says so. Without it, and with the bar closed, a beep is the only sign.
+            if bee.say("Stopped") {
+                bee.leave(after: 0.9)
+            } else if reason == .escape, !isShown {
+                NSSound.beep()
+            }
         }
         if runIsPlan, isShown {
             model.planProblem = "Stopped. Steps still to come didn't run."
@@ -337,6 +343,8 @@ final class BarController: NSObject, NSWindowDelegate {
         }
         // Instant for now: no fade in or out. Smoothing can come back once the basics feel right.
         panel.makeKeyAndOrderFront(nil)
+        // Opening the bar is taking over: a run still going stops, and a plan's stop is said in the bar.
+        if runGuard.isRunning { runGuard.stop(.takeover) }
     }
 
     private func hide() {

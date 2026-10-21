@@ -71,7 +71,7 @@ private final class WelcomeState: ObservableObject {
             ticks += 1
             // Every few seconds, try ⌘Space again, so the card clears soon after Spotlight lets go of it.
             if self.spotlightHasShortcut, ticks.isMultiple(of: 3) {
-                NotificationCenter.default.post(name: Settings.shortcutChanged, object: nil)
+                NotificationCenter.default.post(name: Settings.retryShortcut, object: nil)
                 self.spotlightHasShortcut = Settings.spotlightHasShortcut
             }
             if self.trusted, !self.spotlightHasShortcut { timer.invalidate() }

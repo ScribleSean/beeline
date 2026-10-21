@@ -24,6 +24,8 @@ enum Settings {
     static let forgetHistory = Notification.Name("BeelineForgetHistory")
     static let clearClipboard = Notification.Name("BeelineClearClipboard")
     static let shortcutChanged = Notification.Name("BeelineShortcutChanged")
+    /// Asks for the chosen shortcut again, keeping the one in use unless the chosen one can be had.
+    static let retryShortcut = Notification.Name("BeelineRetryShortcut")
     static let open = Notification.Name("BeelineOpenSettings")
     static let openWelcome = Notification.Name("BeelineOpenWelcome")
 
@@ -60,13 +62,13 @@ enum Settings {
         }
     }
 
-    /// The shortcut that actually opens the bar right now: the chosen one, or the fallback that could be
-    /// registered when another app holds it, or "none". Every screen shows this one, never the preference.
     /// True when ⌘Space was chosen but another app (Spotlight, almost always) holds it.
     static var spotlightHasShortcut: Bool {
         (UserDefaults.standard.string(forKey: shortcut) ?? "command") == "command" && activeShortcut != "command"
     }
 
+    /// The shortcut that actually opens the bar right now: the chosen one, or the fallback that could be
+    /// registered when another app holds it, or "none". Every screen shows this one, never the preference.
     static var activeShortcutLabel: String {
         if let activeShortcut { return label(for: activeShortcut) }
         return "No shortcut (⌘, ⌥ and ⌃Space are all taken)"

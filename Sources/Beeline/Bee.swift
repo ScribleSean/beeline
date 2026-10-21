@@ -59,11 +59,13 @@ final class Bee {
         return !Task.isCancelled
     }
 
-    /// Says something short beside the bee where it is, such as why it stopped.
-    func say(_ text: String) {
-        guard model.isShown else { return }
+    /// Says something short beside the bee where it is, such as why it stopped. False when the bee isn't out.
+    @discardableResult
+    func say(_ text: String) -> Bool {
+        guard model.isShown else { return false }
         model.label = text
         model.ring = nil
+        return true
     }
 
     /// Fades away after a moment, unless another flight starts first.
@@ -148,7 +150,8 @@ private struct BeeOverlay: View {
             let faceLeft = flying ? cos(heading) < 0 : model.faceLeftWhenLanded
             let climb = atan2(sin(heading), abs(cos(heading))) * 180 / .pi
             let tilt = flying ? max(-14, min(14, -climb * 0.25)) : 0
-            let onRight = spot.x + 200 < model.screen.width
+            // The pill goes on whichever side has room for its widest.
+            let onRight = spot.x + 22 + 260 + 8 < model.screen.width
 
             ZStack(alignment: .topLeading) {
                 if let ring = model.ring {
@@ -162,12 +165,12 @@ private struct BeeOverlay: View {
                     Text(label)
                         .font(.system(size: 12, weight: .medium))
                         .lineLimit(1)
+                        .truncationMode(.tail)
                         .padding(.horizontal, 10)
                         .frame(height: 24)
                         .background(.regularMaterial, in: Capsule())
                         .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
                         .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
-                        .fixedSize()
                         .frame(maxWidth: 260, alignment: onRight ? .leading : .trailing)
                         .position(x: onRight ? spot.x + 22 + 130 : spot.x - 22 - 130, y: spot.y + bob)
                         .transition(.opacity)
@@ -175,6 +178,8 @@ private struct BeeOverlay: View {
             }
             .frame(width: model.screen.width, height: model.screen.height, alignment: .topLeading)
         }
+        // Coordinates are the whole screen's: a notch's safe area must not push the bee down.
+        .ignoresSafeArea()
         .opacity(model.isShown ? 1 : 0)
         .animation(.easeOut(duration: 0.2), value: model.isShown)
         .animation(.easeOut(duration: 0.15), value: model.label)

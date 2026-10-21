@@ -42,7 +42,7 @@ private let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
     let left = CGRect(x: 0, y: 0, width: 1440, height: 900)
     let right = CGRect(x: 1440, y: 0, width: 1920, height: 1080)
     #expect(BeeFlight.screen(for: CGRect(x: 1400, y: 100, width: 200, height: 50), among: [left, right]) == right)
-    #expect(BeeFlight.screen(for: CGRect(x: 9000, y: 9000, width: 10, height: 10), among: [left, right]) == left)
+    #expect(BeeFlight.screen(for: CGRect(x: 9000, y: 9000, width: 10, height: 10), among: [left, right]) == nil)
 }
 
 @Test func theFlightStartsAndEndsWhereItShould() {

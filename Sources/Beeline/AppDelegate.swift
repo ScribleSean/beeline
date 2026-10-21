@@ -44,6 +44,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(forName: Settings.shortcutChanged, object: nil, queue: .main) { [weak self] _ in
             self?.registerShortcut()
         }
+        NotificationCenter.default.addObserver(forName: Settings.retryShortcut, object: nil, queue: .main) { [weak self] _ in
+            self?.retryShortcutIfNeeded()
+        }
         Rates.shared.refreshIfStale()
         // The first launch, or any launch without Accessibility, opens the welcome screen.
         if !UserDefaults.standard.bool(forKey: Settings.welcomed) || !Accessibility.isTrusted {
@@ -76,9 +79,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Tries the chosen shortcut again when it was not the one registered: Spotlight's may have been
     /// turned off since launch, as the README suggests.
+    /// The shortcut in use is kept until the chosen one is actually registered, so a hold on the fallback
+    /// that is under way when this runs still gets its release.
     private func retryShortcutIfNeeded() {
         let preferred = UserDefaults.standard.string(forKey: Settings.shortcut) ?? "command"
-        if Settings.activeShortcut != preferred { registerShortcut() }
+        guard Settings.activeShortcut != preferred else { return }
+        let modifiers = ["command": cmdKey, "option": optionKey, "control": controlKey]
+        guard let modifier = modifiers[preferred],
+              let chosen = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(modifier),
+                                  pressed: { [weak self] in self?.bar.shortcutPressed() },
+                                  released: { [weak self] in self?.bar.shortcutReleased() }) else { return }
+        hotKey = chosen
+        Settings.activeShortcut = preferred
+        openItem.title = "Open Beeline (\(Settings.shortcutLabel))"
+        Log.append("shortcut: \(Settings.shortcutLabel)")
     }
 
     @objc private func openSettings() {
