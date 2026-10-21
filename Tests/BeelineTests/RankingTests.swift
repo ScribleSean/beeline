@@ -52,3 +52,43 @@ private func titles(_ query: String) -> [String] {
         #expect(!texts.contains(title))
     }
 }
+
+// M11: everyday requests act instead of turning into questions or the wrong direction.
+@Test func requestsThatMatchEveryWordAreNotQuestions() {
+    #expect(titles("do not disturb").first == "Focus")
+    #expect(titles("can you mute").first == "Mute")
+    #expect(!sharedCatalogue.isQuestion("do not disturb"))
+    #expect(sharedCatalogue.isQuestion("how far is the moon"))
+    #expect(sharedCatalogue.isQuestion("is it raining?"))
+}
+
+@Test func onAndOffPickTheRightDirection() {
+    #expect(titles("turn wifi on").first == "Turn Wi-Fi On")
+    #expect(titles("turn wifi off").first == "Turn Wi-Fi Off")
+}
+
+@Test func turningOffTheComputerMeansShutDown() {
+    #expect(titles("turn off the computer").first == "Shut Down")
+    #expect(titles("power off").first == "Shut Down")
+}
+
+@Test func datesAndPhoneNumbersAreNotSums() {
+    #expect(Calculator.evaluate("2024-01-15") == nil)
+    #expect(Calculator.evaluate("15/01/2024") == nil)
+    #expect(Calculator.evaluate("+44 20 7946 0958") == nil)
+    #expect(Calculator.evaluate("(555) 123-4567") == nil)
+    #expect(Calculator.evaluate("10-3") == 7)
+    #expect(Calculator.evaluate("12 * (8 + 2)") == 120)
+}
+
+@Test func unmatchedClipboardWordsFallThrough() {
+    #expect(sharedCatalogue.clipboard.results(for: "paste and match style", limit: 6) == nil)
+}
+
+// L9: "+" survives the trip into a web search.
+@Test func plusIsKeptInWebSearches() {
+    var address = URLComponents(string: "https://www.google.com/search")!
+    address.queryItems = [URLQueryItem(name: "q", value: "what is c++?")]
+    address.percentEncodedQuery = address.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+    #expect(address.url?.absoluteString == "https://www.google.com/search?q=what%20is%20c%2B%2B?")
+}

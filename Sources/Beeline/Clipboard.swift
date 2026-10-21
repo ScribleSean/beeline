@@ -83,9 +83,13 @@ final class Clipboard {
         if linksOnly { filter = "" }
         let relative = RelativeDateTimeFormatter()
         relative.unitsStyle = .short
-        return entries
+        let matching = entries
             .filter { filter.isEmpty || $0.text.lowercased().contains(filter) }
             .filter { !linksOnly || $0.text.hasPrefix("http://") || $0.text.hasPrefix("https://") }
+        // Nothing copied matches, so the words are not about history: "paste and match style" is a menu
+        // command, and "clips" with history off is an app.
+        guard !matching.isEmpty else { return nil }
+        return matching
             .prefix(limit)
             .enumerated()
             .map { index, entry in

@@ -87,8 +87,15 @@ enum Desktops {
 
         if let match = text.firstMatch(of: try! Regex(#"^(?:delete|remove|forget) (?:saved )?desktop\s+(.+)$"#).ignoresCase()),
            let range = match.output[1].range {
-            let name = key(String(text[range]))
-            return saved.filter { key($0.name).hasPrefix(name) }.map { desktop in
+            // Any word of the name will do, as for opening: "delete desktop work" finds "Tax work". With no
+            // saved desktop matching ("remove desktop icons"), the words go on to the normal search.
+            let words = key(String(text[range])).split(separator: " ")
+            let matching = saved.filter { desktop in
+                let nameWords = key(desktop.name).split(separator: " ")
+                return words.allSatisfy { word in nameWords.contains { $0.hasPrefix(word) } }
+            }
+            guard !matching.isEmpty else { return nil }
+            return matching.map { desktop in
                 var item = Item(id: "desktop-delete:\(key(desktop.name))", kind: .action, verb: "Delete saved desktop",
                                 title: desktop.name, subtitle: "Saved \(age(desktop.saved))", keywords: "",
                                 icon: NSImage(systemSymbolName: "trash", accessibilityDescription: nil)) {

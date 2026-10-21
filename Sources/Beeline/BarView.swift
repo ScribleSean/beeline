@@ -181,7 +181,7 @@ final class BarModel: ObservableObject {
         let words = query.split(separator: " ").count
         // An answer is complete on its own; Claude has nothing to add to "12 miles in km".
         guard words >= 2, Settings.isOn(Settings.offerClaude), items.first?.kind != .calculation else { return items }
-        let question = Matcher.isQuestion(query)
+        let question = catalogue.isQuestion(query)
         let row = Item(id: Self.claudeRowID, kind: .action, verb: "", title: question ? "Ask Claude" : "Ask Claude to work it out",
                        subtitle: question ? "answers here in a few seconds" : "takes a few seconds", keywords: "",
                        icon: NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil), run: {})
@@ -224,7 +224,7 @@ final class BarModel: ObservableObject {
     }
 
     private func askClaude() {
-        if Matcher.isQuestion(query) { return askClaudeQuestion() }
+        if catalogue.isQuestion(query) { return askClaudeQuestion() }
         clearPlan()
         isAskingClaude = true
         let asked = query

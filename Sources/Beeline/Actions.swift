@@ -10,6 +10,7 @@ enum Actions {
         let keywords: String
         var needsConfirm = false
         var confirmNote: String?
+        var phrases: [String] = []
         let run: () -> Void
     }
 
@@ -76,7 +77,9 @@ enum Actions {
             script("tell application \"loginwindow\" to «event aevtrrst»", what: "restart", app: "the login window")
         },
         Definition(title: "Shut Down", symbol: "power", keywords: "poweroff shutdown", needsConfirm: true,
-                   confirmNote: "Open apps close. macOS asks once more, then goes ahead on its own after a minute.") {
+                   confirmNote: "Open apps close. macOS asks once more, then goes ahead on its own after a minute.",
+                   phrases: ["turn off the computer", "turn off the mac", "turn off my mac", "turn off my computer", "power off",
+                             "switch off the computer", "switch off the mac", "switch off my mac"]) {
             script("tell application \"loginwindow\" to «event aevtrsdn»", what: "shut down", app: "the login window")
         },
         Definition(title: "Log Out", symbol: "rectangle.portrait.and.arrow.right", keywords: "signout logout", needsConfirm: true,
@@ -93,6 +96,7 @@ enum Actions {
                             run: definition.run)
             item.needsConfirm = definition.needsConfirm
             item.confirmNote = definition.confirmNote
+            item.phrases = definition.phrases
             return item
         }
     }

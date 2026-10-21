@@ -6,6 +6,10 @@ enum Matcher {
     struct Parsed {
         var tokens: [String]
         var hint: Kind?
+        /// "on" or "off" when the request says which way: "turn wifi on" must not tie with Turn Wi-Fi Off.
+        var direction: String?
+        /// The request, folded, for whole-phrase matches.
+        var text = ""
     }
 
     /// Words that carry intent but should not have to appear in a title.
@@ -50,7 +54,9 @@ enum Matcher {
             .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
             .map(String.init)
         var parsed = Parsed(tokens: [], hint: nil)
+        parsed.text = words.joined(separator: " ")
         for word in words {
+            if word == "on" || word == "off" { parsed.direction = word }
             if let kind = hints[word] {
                 parsed.hint = kind
             } else if !filler.contains(word) {
@@ -124,6 +130,12 @@ enum Matcher {
                 if !anyWord { total -= 30 }
             }
         }
+        // A phrase typed in full is the item, whatever the single words made of it.
+        if !parsed.text.isEmpty, item.phrases.contains(where: { parsed.text.contains(fold($0)) }) {
+            total += 200
+            solid = parsed.tokens.count
+            missed = 0
+        }
         if anyWord {
             guard solid > 0 else { return nil }
         } else if missed > 0 {
@@ -132,6 +144,10 @@ enum Matcher {
         }
         // Typing a name in full beats longer names that merely start with it.
         if title == parsed.tokens.joined(separator: " ") { total += 40 }
+        // "turn wifi on" is Turn Wi-Fi On, not the Wi-Fi pane and not Turn Wi-Fi Off.
+        if let direction = parsed.direction {
+            if titleWords.contains(direction) { total += 40 } else if titleWords.contains(direction == "on" ? "off" : "on") { total -= 50 }
+        }
         if let hint = parsed.hint, hint == item.kind { total += 50 }
         // On a tie, an app beats a menu command with the same name.
         // "sleep" and "lock" mean the action, not the settings pane of the same name. An action found

@@ -19,6 +19,8 @@ struct Item: Identifiable {
     let subtitle: String
     /// Extra words that should find this item but are not shown.
     let keywords: String
+    /// Whole phrases that mean this item ("turn off the computer"). Matched against the request as typed.
+    var phrases: [String] = []
     let icon: NSImage?
     let run: () -> Void
     /// True when the item was found by meaning, not by the words typed.
@@ -121,6 +123,10 @@ final class Catalogue {
     /// Called when an item is run, so the same words find it faster next time.
     func recordUse(of item: Item, query: String) {
         guard item.kind != .calculation, item.kind != .clipboard, Settings.isOn(Settings.learnFromUse) else { return }
+        // A reminder, a web search, a desktop or a file chore is one of a kind: learning it would only put
+        // the typed text (which can be private) on disk.
+        let oneOff = ["reminder:", "web-search", "desktop-", "file-tool:", "close-tabs:", "close:"]
+        guard !oneOff.contains(where: { item.id.hasPrefix($0) }) else { return }
         usage.record(item, query: query)
     }
 
@@ -302,16 +308,31 @@ final class Catalogue {
                 NSPasteboard.general.setString(answer.value, forType: .string)
             }]
         }
-        if Matcher.isQuestion(query) {
-            return [webSearch(query)] + search(words: query, limit: limit - 1).filter { !$0.isGuess }
+        let found = search(words: query, limit: limit)
+        if isQuestion(query, found) {
+            return [webSearch(query)] + found.prefix(limit - 1).filter { !$0.isGuess }
         }
-        return search(words: query, limit: limit)
+        return found
+    }
+
+    /// A request shaped like a question is one only when it ends in "?" or when nothing matched every
+    /// word of it: "do not disturb" is Focus and "can you mute" is Mute, not questions for Claude.
+    func isQuestion(_ query: String) -> Bool {
+        isQuestion(query, search(words: query, limit: 1))
+    }
+
+    private func isQuestion(_ query: String, _ found: [Item]) -> Bool {
+        guard Matcher.isQuestion(query) else { return false }
+        if query.hasSuffix("?") { return true }
+        return !(found.first.map { !$0.isGuess } ?? false)
     }
 
     /// Opens the default browser on a web search for the text.
     private func webSearch(_ query: String) -> Item {
         var address = URLComponents(string: "https://www.google.com/search")!
         address.queryItems = [URLQueryItem(name: "q", value: query)]
+        // URLQueryItem leaves "+" as it is, which a search engine reads as a space: "c++" would reach it as "c  " (L9).
+        address.percentEncodedQuery = address.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         let url = address.url!
         return Item(id: "web-search", kind: .action, verb: "Search the web for", title: "“\(query)”", subtitle: "Browser",
                     keywords: "", icon: NSImage(systemSymbolName: "globe", accessibilityDescription: nil)) {
@@ -560,7 +581,10 @@ final class Catalogue {
             step.stillValid = item.stillValid
             options.append(step)
         }
-        for item in menus.prefix(150) where !item.needsConfirm {
+        // Menus that list documents, pages or history would send their names to Claude; they stay out.
+        let dynamicMenus = ["Open Recent", "History", "Bookmarks", "Recent Items", "Reading List", "Recently Closed"]
+        let plannable = menus.filter { menu in !dynamicMenus.contains { menu.subtitle.contains($0) } }
+        for item in plannable.prefix(150) where !item.needsConfirm {
             var step = PlanStep(text: "In the current app only, run its menu command \(item.subtitle) › \(item.title)", icon: item.icon, run: item.run)
             step.stillValid = item.stillValid
             options.append(step)
