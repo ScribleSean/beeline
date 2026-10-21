@@ -25,6 +25,18 @@ enum Reminders {
         let rest = String(text.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
         guard !rest.isEmpty else { return [] }
 
+        // Without access nothing could be saved, and the bar would have closed as if it were. Say so instead.
+        let status = EKEventStore.authorizationStatus(for: .reminder)
+        if status == .denied || status == .restricted {
+            return [Item(id: "reminder:access", kind: .action, verb: "", title: "Allow Reminders for Beeline",
+                         subtitle: "Privacy & Security", keywords: "",
+                         icon: NSImage(systemSymbolName: "bell.slash", accessibilityDescription: nil)) {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders") {
+                    NSWorkspace.shared.open(url)
+                }
+            }]
+        }
+
         let (title, due) = splitDate(rest)
         let when = due.map { formatted($0) } ?? (kind == .goal ? "Goals list" : "No time set")
         let verb = kind == .goal ? "Add goal" : "Remind me to"
@@ -36,7 +48,7 @@ enum Reminders {
     }
 
     /// Finds a date or time in the words ("tomorrow at 5pm", "in 2 hours", "friday") and removes it from the title.
-    private static func splitDate(_ text: String) -> (String, Date?) {
+    static func splitDate(_ text: String, now: Date = Date()) -> (String, Date?) {
         // "in 2 hours", "in 30 min", "in 3 days": Apple's date reader misses these, so they are read here.
         let relative = #"\s*\bin (\d+) (minute|minutes|min|mins|hour|hours|hr|hrs|day|days|week|weeks)\b"#
         if let match = text.firstMatch(of: try! Regex(relative).ignoresCase()),
@@ -48,7 +60,14 @@ enum Reminders {
         }
         guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue),
               let match = detector.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              let date = match.date, let range = Range(match.range, in: text) else { return (text, nil) }
+              var date = match.date, let range = Range(match.range, in: text) else { return (text, nil) }
+        // "at 9am" typed at 3pm means tomorrow, not a reminder already overdue. Only a time with no day is
+        // moved: "yesterday" or "today" are what they say.
+        let mentioned = text[range].lowercased()
+        if date < now, now.timeIntervalSince(date) < 86_400, !mentioned.contains("today"), !mentioned.contains("yesterday"),
+           let next = Calendar.current.date(byAdding: .day, value: 1, to: date) {
+            date = next
+        }
         var title = text.replacingCharacters(in: range, with: "").trimmingCharacters(in: .whitespaces)
         // Drop the little words the date leaves behind: "call Sam at" becomes "call Sam".
         for word in [" at", " on", " by", " in", " for"] where title.lowercased().hasSuffix(word) {
@@ -70,11 +89,17 @@ enum Reminders {
         store.requestFullAccessToReminders { granted, _ in
             guard granted else {
                 Log.append("reminders: access not granted")
+                Actions.report("Reminders access was not given. Allow Reminders for Beeline in Privacy & Security.")
+                return
+            }
+            guard let list = kind == .goal ? goalsList() : store.defaultCalendarForNewReminders() else {
+                Log.append("reminders: no list to save to")
+                Actions.report(kind == .goal ? "Couldn't make a Goals list in Reminders." : "Reminders has no default list. Turn on Reminders in iCloud, or make a list.")
                 return
             }
             let reminder = EKReminder(eventStore: store)
             reminder.title = title
-            reminder.calendar = kind == .goal ? goalsList() : store.defaultCalendarForNewReminders()
+            reminder.calendar = list
             if let due {
                 reminder.dueDateComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: due)
                 reminder.addAlarm(EKAlarm(absoluteDate: due))
@@ -83,7 +108,8 @@ enum Reminders {
                 try store.save(reminder, commit: true)
                 Log.append("reminders: saved \(kind == .goal ? "goal" : "reminder")")
             } catch {
-                Log.append("reminders: could not save: \(error.localizedDescription)")
+                Log.append("reminders: could not save (\((error as NSError).code))")
+                Actions.report("Reminders couldn't save that (\((error as NSError).code)).")
             }
         }
     }
@@ -99,7 +125,12 @@ enum Reminders {
         let list = EKCalendar(for: .reminder, eventStore: store)
         list.title = "Goals"
         list.source = source
-        try? store.saveCalendar(list, commit: true)
+        do {
+            try store.saveCalendar(list, commit: true)
+        } catch {
+            Log.append("reminders: could not make the Goals list (\((error as NSError).code))")
+            return nil
+        }
         return list
     }
 }
