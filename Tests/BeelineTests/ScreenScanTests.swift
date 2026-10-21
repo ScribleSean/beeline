@@ -1,3 +1,4 @@
+import ApplicationServices
 import Foundation
 import Testing
 @testable import Beeline
@@ -22,7 +23,14 @@ import Testing
     #expect(secondAnsweredBy == 2)
 }
 
-// H5: a button whose window is no longer in front is not pressed.
+// H5, Codex 11: the check a button runs before it is pressed is false for a window of an app that isn't in
+// front. This is the production check; nothing is asked of the other app, so no permission is needed.
+@Test func aWindowOfAnAppNotInFrontIsNotTheFrontWindow() {
+    let launchd: pid_t = 1
+    #expect(!Accessibility.isFrontWindow(AXUIElementCreateApplication(launchd), of: launchd))
+}
+
+// H5: an item whose check fails is not run.
 @Test func anItemWhoseTargetChangedIsNotRun() {
     var ran = false
     var item = Item(id: "x", kind: .control, verb: "Press", title: "Send", subtitle: "button", keywords: "", icon: nil) { ran = true }

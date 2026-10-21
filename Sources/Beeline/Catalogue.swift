@@ -334,12 +334,17 @@ final class Catalogue {
     }
 
     /// Opens the default browser on a web search for the text.
-    private func webSearch(_ query: String) -> Item {
+    /// The address of a web search for the text.
+    static func webSearchURL(for query: String) -> URL {
         var address = URLComponents(string: "https://www.google.com/search")!
         address.queryItems = [URLQueryItem(name: "q", value: query)]
         // URLQueryItem leaves "+" as it is, which a search engine reads as a space: "c++" would reach it as "c  " (L9).
         address.percentEncodedQuery = address.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
-        let url = address.url!
+        return address.url!
+    }
+
+    private func webSearch(_ query: String) -> Item {
+        let url = Self.webSearchURL(for: query)
         return Item(id: "web-search", kind: .action, verb: "Search the web for", title: "“\(query)”", subtitle: "Browser",
                     keywords: "", icon: NSImage(systemSymbolName: "globe", accessibilityDescription: nil)) {
             NSWorkspace.shared.open(url)

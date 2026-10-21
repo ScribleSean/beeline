@@ -97,11 +97,9 @@ private func titles(_ query: String) -> [String] {
 }
 
 // L9: "+" survives the trip into a web search.
+// Codex 11: through the code the app runs, not a copy of it.
 @Test func plusIsKeptInWebSearches() {
-    var address = URLComponents(string: "https://www.google.com/search")!
-    address.queryItems = [URLQueryItem(name: "q", value: "what is c++?")]
-    address.percentEncodedQuery = address.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
-    #expect(address.url?.absoluteString == "https://www.google.com/search?q=what%20is%20c%2B%2B?")
+    #expect(Catalogue.webSearchURL(for: "what is c++?").absoluteString == "https://www.google.com/search?q=what%20is%20c%2B%2B?")
 }
 
 // L8: Finder lives in CoreServices, not an Applications folder.
