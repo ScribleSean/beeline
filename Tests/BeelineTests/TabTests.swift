@@ -80,3 +80,21 @@ import Testing
     #expect(!Matcher.matchesForClose(tab, ["chrome"]))
     #expect(!Matcher.matchesForClose(tab, ["box"]))
 }
+
+@Suite(.serialized) struct CloseTabWordTests {
+    // A word like "browser" or "google" is not a browser's name.
+    @Test func onlyABrowsersOwnNameNarrowsAClose() throws {
+        TestEnvironment.prepare()
+        let catalogue = Catalogue()
+        catalogue.useTabs([("Chrome", "Flights to Lisbon", "skyscanner.net"), ("Safari", "Cheap flights", "kayak.com"),
+                           ("Chrome", "Google", "google.com")].enumerated().map { index, tab in
+            var item = Item(id: "tab:\(index)", kind: .tab, verb: "", title: tab.1, subtitle: tab.0, keywords: tab.2, icon: nil, run: {})
+            item.close = {}
+            return item
+        })
+        let row = catalogue.search("close browser tabs about flights").first { $0.id.hasPrefix("close-tabs:") }
+        #expect(row?.title == "Close 2 Tabs Matching “flights”")
+        let google = catalogue.search("close google tabs").filter { $0.id.hasPrefix("close") }
+        #expect(google.map(\.title) == ["Google"])
+    }
+}

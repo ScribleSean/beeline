@@ -198,7 +198,9 @@ enum Planner {
         // already on this Mac and never a paid API account.
         let inherited = ProcessInfo.processInfo.environment
         var environment: [String: String] = [:]
-        for name in ["HOME", "USER", "LOGNAME", "LANG", "TMPDIR", "SHELL"] {
+        // Where Claude Code keeps its sign-in, and how to reach the network, are not billing switches.
+        for name in ["HOME", "USER", "LOGNAME", "LANG", "TMPDIR", "SHELL", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME",
+                     "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy", "NODE_EXTRA_CA_CERTS"] {
             if let value = inherited[name] { environment[name] = value }
         }
         environment["PATH"] = [claude.deletingLastPathComponent().path, "/usr/bin", "/bin", "/usr/sbin", "/sbin"].joined(separator: ":")
@@ -241,7 +243,7 @@ enum Planner {
         fed.sync {}
         runningLock.lock()
         let wasCancelled = running !== process
-        running = nil
+        if running === process { running = nil }
         runningLock.unlock()
 
         guard process.terminationStatus == 0 else {

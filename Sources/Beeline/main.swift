@@ -7,7 +7,8 @@ Planner.ignoreBrokenPipes()
 // A misspelt or incomplete flag prints what the flags are instead of starting a second full copy of the app.
 let knownFlags: [String: Int] = ["--query": 1, "--rewrite": 2, "--controls": 1, "--preview": 2, "--preview-welcome": 1,
                                  "--files": 2, "--pick": 2, "--ai": 1, "--plan": 1]
-if let flag = CommandLine.arguments.dropFirst().first(where: { $0.hasPrefix("-") }) {
+// Single-dash arguments are macOS's and Xcode's own (-NSDocumentRevisionsDebugMode and the like).
+if let flag = CommandLine.arguments.dropFirst().first(where: { $0.hasPrefix("--") }) {
     let position = CommandLine.arguments.firstIndex(of: flag)!
     if let needed = knownFlags[flag], CommandLine.arguments.count > position + needed {
         // Command-line modes must not write to the real pick history ("--preview … arm" records a pick).

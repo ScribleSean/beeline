@@ -119,7 +119,7 @@ final class BarController: NSObject, NSWindowDelegate {
                     }
                 }
             }
-            self?.planTask = nil
+            if !Task.isCancelled { self?.planTask = nil }
         }
     }
 

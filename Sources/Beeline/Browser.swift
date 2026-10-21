@@ -47,7 +47,8 @@ struct Browser {
         end tell
         return out
         """
-        guard let output = Self.osascript(script) else { return [] }
+        // Listing a few hundred tabs is many Apple events, and a browser may be launching: a long backstop.
+        guard let output = Self.osascript(script, timeout: 60) else { return [] }
         let icon = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
             .map { NSWorkspace.shared.icon(forFile: $0.path) }
 
@@ -65,10 +66,26 @@ struct Browser {
             }
             // Exactly one tab is closed: by id in Chromium browsers, and in Safari the first tab in that
             // window with both this address and this name, so a second tab on the same address stays open.
+            // A Safari tab whose title has changed since (a live unread count) is still closed if it is the
+            // only tab in that window on its address.
             item.close = {
-                let script = isSafari
-                    ? "tell application \"Safari\" to close (first tab of window id \(window) whose URL is \(Self.quoted(address)) and name is \(Self.quoted(title)))"
-                    : "tell application \"\(name)\" to close tab id \(tabID) of window id \(window)"
+                let script: String
+                if isSafari {
+                    let url = Self.quoted(address), name = Self.quoted(title)
+                    script = """
+                    tell application "Safari"
+                        tell window id \(window)
+                            if (count of (tabs whose URL is \(url) and name is \(name))) > 0 then
+                                close (first tab whose URL is \(url) and name is \(name))
+                            else if (count of (tabs whose URL is \(url))) is 1 then
+                                close (first tab whose URL is \(url))
+                            end if
+                        end tell
+                    end tell
+                    """
+                } else {
+                    script = "tell application \"\(name)\" to close tab id \(tabID) of window id \(window)"
+                }
                 commandQueue.async { _ = Self.osascript(script) }
             }
             return item
@@ -98,7 +115,7 @@ struct Browser {
         end tell
         return out
         """
-        guard let output = Self.osascript(script) else { return nil }
+        guard let output = Self.osascript(script, timeout: 60) else { return nil }
         return output.split(separator: "\n").map { line in
             line.split(separator: "\t").map(String.init).filter { $0.hasPrefix("http://") || $0.hasPrefix("https://") }
         }.filter { !$0.isEmpty }
@@ -128,7 +145,8 @@ struct Browser {
                 end tell
                 """
             }
-            commandQueue.async { _ = Self.osascript(script) }
+            // Opening a window of tabs can mean launching the browser first, so the backstop is long.
+            commandQueue.async { _ = Self.osascript(script, timeout: 120) }
         }
     }
 

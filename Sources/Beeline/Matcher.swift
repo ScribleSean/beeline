@@ -131,7 +131,7 @@ enum Matcher {
             }
         }
         // A phrase typed in full is the item, whatever the single words made of it.
-        if !parsed.text.isEmpty, item.phrases.contains(where: { parsed.text.contains(fold($0)) }) {
+        if !parsed.text.isEmpty, item.phrases.contains(where: { parsed.text == fold($0) || parsed.text.hasPrefix(fold($0) + " ") }) {
             total += 200
             solid = parsed.tokens.count
             missed = 0

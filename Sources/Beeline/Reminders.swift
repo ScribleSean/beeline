@@ -64,7 +64,10 @@ enum Reminders {
         // "at 9am" typed at 3pm means tomorrow, not a reminder already overdue. Only a time with no day is
         // moved: "yesterday" or "today" are what they say.
         let mentioned = text[range].lowercased()
-        if date < now, now.timeIntervalSince(date) < 86_400, !mentioned.contains("today"), !mentioned.contains("yesterday"),
+        let dayWords = ["today", "yesterday", "tomorrow", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+                        "mon", "tue", "wed", "thu", "fri", "sat", "sun", "next", "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug",
+                        "sep", "oct", "nov", "dec", "/", "-"]
+        if date < now, now.timeIntervalSince(date) < 86_400, !dayWords.contains(where: mentioned.contains),
            let next = Calendar.current.date(byAdding: .day, value: 1, to: date) {
             date = next
         }

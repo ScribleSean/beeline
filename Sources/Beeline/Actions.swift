@@ -142,7 +142,8 @@ enum Actions {
             if text.contains("-1743"), let app {
                 report("Couldn't \(what): allow Beeline to control \(app) in Privacy & Security › Automation.")
             } else {
-                report("Couldn't \(what)" + (text.isEmpty ? "." : ": " + text.split(whereSeparator: \.isNewline).last!.prefix(100)))
+                let last = text.split(whereSeparator: \.isNewline).last.map { ": " + $0.prefix(100) } ?? "."
+                report("Couldn't \(what)" + last)
             }
         }
     }

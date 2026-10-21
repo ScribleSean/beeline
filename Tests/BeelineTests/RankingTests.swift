@@ -70,6 +70,7 @@ private func titles(_ query: String) -> [String] {
 @Test func turningOffTheComputerMeansShutDown() {
     #expect(titles("turn off the computer").first == "Shut Down")
     #expect(titles("power off").first == "Shut Down")
+    #expect(titles("bluetooth power off").first != "Shut Down")
 }
 
 @Test func datesAndPhoneNumbersAreNotSums() {

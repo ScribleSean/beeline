@@ -442,15 +442,16 @@ final class Catalogue {
     /// each word must start a whole word of the tab's title or address, the browser's name counts only as
     /// "every tab in that browser", and closing more than one tab needs Return twice.
     private func closeTabResults(matching target: [String], limit: Int) -> [Item] {
-        var words = target
+        // "browser" and "web" say nothing about which tabs.
+        var words = target.filter { !["browser", "browsers", "web"].contains($0) }
         var pool = tabs.filter { $0.close != nil }
         var browserNamed: String?
-        for browser in Browser.all {
-            let nameWords = browser.name.lowercased().split(separator: " ").map(String.init)
-            guard let hit = words.first(where: { word in nameWords.contains { $0 == word } }) else { continue }
+        // Only the word that is the browser's own name: "browser" is not Brave, and "google" is a site.
+        let browserWords = ["chrome": "Chrome", "safari": "Safari", "brave": "Brave Browser", "edge": "Microsoft Edge"]
+        if let hit = words.first(where: { browserWords[$0] != nil }), let shortName = browserWords[hit] {
             words.removeAll { $0 == hit }
-            pool = pool.filter { $0.subtitle == browser.shortName }
-            browserNamed = browser.shortName
+            pool = pool.filter { $0.subtitle == shortName }
+            browserNamed = shortName
         }
         // "close all tabs" with nothing to narrow it is too sweeping to offer at all.
         guard !words.isEmpty || browserNamed != nil else { return [] }

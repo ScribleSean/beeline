@@ -309,8 +309,17 @@ enum FileTools {
                 return (try? deliver(source, to: target, copying: copying)) == nil ? nil : target
             }
             // Something is in the way, and it was not on the card: leave it alone.
-            guard replacing.contains(name), let scratch = scratchFolder(near: destination) else { return nil }
-            defer { try? FileManager.default.removeItem(at: scratch) }
+            guard replacing.contains(name) else { return nil }
+            guard let scratch = scratchFolder(near: destination) else {
+                Log.append("file tools: no scratch folder beside the destination")
+                return nil
+            }
+            // The scratch folder goes only once it is empty: it must never take a staged file with it.
+            defer {
+                if (try? FileManager.default.contentsOfDirectory(atPath: scratch.path))?.isEmpty == true {
+                    try? FileManager.default.removeItem(at: scratch)
+                }
+            }
             let staged = scratch.appendingPathComponent(name)
             guard (try? deliver(source, to: staged, copying: copying)) != nil else { return nil }
             do {
@@ -321,7 +330,13 @@ enum FileTools {
                 if !copying { try? FileManager.default.moveItem(at: staged, to: source) }
                 return nil
             }
-            return (try? FileManager.default.moveItem(at: staged, to: target)) == nil ? nil : target
+            guard (try? FileManager.default.moveItem(at: staged, to: target)) != nil else {
+                // A moved file goes back where it came from; a copy is dropped and the source still has it.
+                Log.append("file tools: could not put the new item in place")
+                if !copying { try? FileManager.default.moveItem(at: staged, to: source) }
+                return nil
+            }
+            return target
         }
         if report { finish(done, copying ? "copy" : "move") }
         return done
