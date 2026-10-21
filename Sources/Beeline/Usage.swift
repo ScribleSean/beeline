@@ -19,13 +19,17 @@ final class Usage {
     private let file: URL
     private let saveQueue = DispatchQueue(label: "beeline.usage", qos: .userInitiated)
 
-    init() {
+    convenience init() {
         let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Beeline", isDirectory: true)
         // Tests point this at a scratch file so they never touch real history.
-        file = ProcessInfo.processInfo.environment["BEELINE_USAGE_FILE"].map { URL(fileURLWithPath: $0) }
-            ?? folder.appendingPathComponent("usage.json")
-        if let data = try? Data(contentsOf: file), let saved = try? JSONDecoder().decode(Store.self, from: data) {
+        self.init(file: ProcessInfo.processInfo.environment["BEELINE_USAGE_FILE"].map { URL(fileURLWithPath: $0) }
+            ?? folder.appendingPathComponent("usage.json"))
+    }
+
+    init(file: URL) {
+        self.file = file
+        if let saved = JSONStore.read(Store.self, from: file, name: "usage") {
             store = saved
         }
     }
