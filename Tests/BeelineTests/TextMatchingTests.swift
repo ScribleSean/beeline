@@ -39,6 +39,34 @@ import Testing
         _ = logo
     }
 
+    // L1: the format and size come from what was typed, not from whichever dictionary key came first.
+    @Test func convertAndResizeReadTheWordsInOrder() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        FileTools.useSelection([try scratch.file("a.heic"), try scratch.file("b.heic")], folder: nil)
+        defer { FileTools.clearSelection() }
+        #expect(FileTools.results(for: "convert heic to jpg")?.first?.title == "Convert 2 images to JPG")
+        #expect(FileTools.results(for: "convert to png")?.first?.title == "Convert 2 images to PNG")
+        #expect(FileTools.results(for: "resize 2 images to 800px")?.first?.title == "Resize 2 images to 800 pixels")
+        #expect(FileTools.results(for: "resize to 640")?.first?.title == "Resize 2 images to 640 pixels")
+    }
+
+    // L2: hidden folders and document bundles are not destinations.
+    @Test func hiddenFoldersAndBundlesAreNotDestinations() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let file = try scratch.file("note.txt")
+        try FileManager.default.createDirectory(at: scratch.url.appendingPathComponent(".secret"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: scratch.url.appendingPathComponent("Plain"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: scratch.url.appendingPathComponent("Doc.rtfd"), withIntermediateDirectories: true)
+        FileTools.useSelection([file], folder: scratch.url)
+        defer { FileTools.clearSelection() }
+        #expect(FileTools.results(for: "move this to secret") == nil)
+        #expect(FileTools.results(for: "move this to \(scratch.url.path)/.secret") == nil)
+        #expect(FileTools.results(for: "move this to doc") == nil)
+        #expect(FileTools.results(for: "move this to plain")?.first?.title == "Move “note.txt” to Plain")
+    }
+
     // L3: positions from a trimmed copy were applied to the untrimmed text.
     @Test func leadingSpacesDoNotCutLettersOffNames() throws {
         let scratch = try Scratch()

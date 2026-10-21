@@ -110,14 +110,25 @@ enum FileTools {
             item.needsConfirm = files.count > 1
             rows.append(item)
         }
-        if !pictures.isEmpty, words.contains("convert") || words.contains("to"),
-           let format = ["jpg": "jpeg", "jpeg": "jpeg", "png": "png", "heic": "heic", "tiff": "tiff", "pdf": "pdf"]
-               .first(where: { words.contains($0.key) }) {
-            rows.append(row("convert-\(format.value)", "Convert \(pictures.count) \(pictures.count == 1 ? "image" : "images") to \(format.key.uppercased())",
-                            "Copies beside the originals", "photo.on.rectangle") { convert(pictures, to: format.value) })
+        // The format is the one named after "to", "as" or "into", or else the last one named, so "convert heic
+        // to jpg" never offers HEIC. An ordered list: a dictionary's order changes from launch to launch.
+        let formats: [(String, String)] = [("jpg", "jpeg"), ("jpeg", "jpeg"), ("png", "png"), ("heic", "heic"), ("tiff", "tiff"), ("pdf", "pdf")]
+        let ordered = text.lowercased().split(separator: " ").map(String.init)
+        func format(at index: Int) -> (String, String)? { formats.first { $0.0 == ordered[index] } }
+        var chosen: (String, String)?
+        for index in ordered.indices.dropFirst() where ["to", "as", "into"].contains(ordered[index - 1]) {
+            if let found = format(at: index) { chosen = found; break }
+        }
+        if chosen == nil, let last = ordered.indices.reversed().first(where: { format(at: $0) != nil }) { chosen = format(at: last) }
+        if !pictures.isEmpty, words.contains("convert") || words.contains("to"), let format = chosen {
+            rows.append(row("convert-\(format.1)", "Convert \(pictures.count) \(pictures.count == 1 ? "image" : "images") to \(format.0.uppercased())",
+                            "Copies beside the originals", "photo.on.rectangle") { convert(pictures, to: format.1) })
         }
         if !pictures.isEmpty, !words.isDisjoint(with: ["resize", "shrink", "smaller"]) {
-            let size = words.compactMap { Int($0.replacingOccurrences(of: "px", with: "")) }.first
+            // A number with "px" wins, else the last number typed: "resize 2 images to 800px" means 800, not 2.
+            let numbers = text.lowercased().split(separator: " ").map(String.init)
+            let size = numbers.first { $0.hasSuffix("px") }.flatMap { Int($0.dropLast(2)) }
+                ?? numbers.reversed().lazy.compactMap { Int($0) }.first
             let title = size.map { "Resize \(pictures.count == 1 ? "the image" : "\(pictures.count) images") to \($0) pixels" }
                 ?? "Make \(pictures.count == 1 ? "the image" : "\(pictures.count) images") half the size"
             rows.append(row("resize", title, "Copies beside the originals", "arrow.down.right.and.arrow.up.left") {
@@ -250,8 +261,10 @@ enum FileTools {
 
     private static func isFolder(_ url: URL) -> Bool {
         var folder: ObjCBool = false
-        // An app is a folder on disk but not somewhere to put things.
-        return FileManager.default.fileExists(atPath: url.path, isDirectory: &folder) && folder.boolValue && url.pathExtension != "app"
+        // An app, a document bundle (.rtfd, .photoslibrary) or a hidden folder (~/.Trash, ~/.ssh) is a folder
+        // on disk but not somewhere to put things.
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &folder) && folder.boolValue
+            && !url.lastPathComponent.hasPrefix(".") && !NSWorkspace.shared.isFilePackage(atPath: url.path)
     }
 
     /// Sends an item to the Trash. Tests swap this for a move into a scratch folder.
