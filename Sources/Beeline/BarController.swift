@@ -116,11 +116,13 @@ final class BarController: NSObject, NSWindowDelegate {
         runTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let landed = await self.bee.fly(to: target, saying: BeeLabel.text(for: item), from: origin)
-            guard landed, self.runGuard.isCurrent(run) else { return }
+            // Stopped on the way: nothing runs. Not stopped but the bee couldn't fly (the target is on no
+            // screen): the item still runs, as it would without the bee.
+            guard self.runGuard.isCurrent(run) else { return }
             self.runGuard.end(run)
             self.runTask = nil
             if self.runNow(item) {
-                self.bee.leave()
+                if landed { self.bee.leave() }
             } else {
                 self.bee.say("It changed, so I left it")
                 self.bee.leave(after: 1.6)
@@ -155,8 +157,9 @@ final class BarController: NSObject, NSWindowDelegate {
                     return self.reportStop(run, at: index, of: plan, reason: "it's no longer on screen")
                 }
                 if Bee.isEnabled, let target = step.target?() {
-                    let landed = await self.bee.fly(to: target, saying: BeeLabel.text(for: step), from: origin)
-                    guard landed, self.runGuard.isCurrent(run) else { return }
+                    _ = await self.bee.fly(to: target, saying: BeeLabel.text(for: step), from: origin)
+                    // A bee that couldn't fly is no reason to stop; only a stop is.
+                    guard self.runGuard.isCurrent(run) else { return }
                     if let stillValid = step.stillValid, !stillValid() {
                         return self.reportStop(run, at: index, of: plan, reason: "it changed while I got there")
                     }
