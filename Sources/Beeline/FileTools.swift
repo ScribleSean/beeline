@@ -26,25 +26,22 @@ enum FileTools {
         let generation = selectionGeneration
         DispatchQueue.global(qos: .userInitiated).async {
             // The first line is the front window's folder (or "-" when there is none); the rest are selected items.
+            // Each is a file URL, not a path: a URL writes a line break in a name as %0A, so one line is always
+            // one item, and a name can never split into pieces that pose as other paths (L4, Codex 10).
             let script = """
             tell application "Finder"
                 set out to "-"
                 try
-                    set out to POSIX path of (target of front Finder window as alias)
+                    set out to URL of (target of front Finder window)
                 end try
                 set out to out & linefeed
-                repeat with f in (get selection as alias list)
-                    set out to out & POSIX path of f & linefeed
+                repeat with f in (get selection)
+                    set out to out & (URL of f) & linefeed
                 end repeat
                 return out
             end tell
             """
-            let lines = (run("/usr/bin/osascript", ["-e", script]).output ?? "").split(separator: "\n").map(String.init)
-            let folder = lines.first.flatMap { $0.hasPrefix("/") ? URL(fileURLWithPath: $0) : nil }
-            // Only paths that exist: a folder name with a line break in it would otherwise split into
-            // pieces, and a piece that happens to be a real path elsewhere would become part of "these" (L4).
-            let urls = lines.dropFirst().filter { $0.hasPrefix("/") && FileManager.default.fileExists(atPath: $0) }
-                .prefix(200).map { URL(fileURLWithPath: $0) }
+            let (folder, urls) = parseSelection(run("/usr/bin/osascript", ["-e", script]).output ?? "")
             DispatchQueue.main.async {
                 guard generation == selectionGeneration else { return }
                 selection = urls
@@ -52,6 +49,20 @@ enum FileTools {
                 done()
             }
         }
+    }
+
+    /// Reads the script's answer: the front folder's URL (or "-") on the first line, then one URL per
+    /// selected item. Anything that isn't a file URL to something that exists is left out.
+    static func parseSelection(_ output: String) -> (folder: URL?, items: [URL]) {
+        let lines = output.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        func file(_ line: String) -> URL? {
+            guard let url = URL(string: line.trimmingCharacters(in: .whitespaces)), url.isFileURL,
+                  FileManager.default.fileExists(atPath: url.path) else { return nil }
+            return url
+        }
+        let folder = lines.first.flatMap(file)
+        let items = lines.dropFirst().compactMap(file).prefix(200)
+        return (folder, Array(items))
     }
 
     static func clearSelection() {

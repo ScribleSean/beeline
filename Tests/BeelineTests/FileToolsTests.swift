@@ -248,3 +248,25 @@ private func entries(of archive: URL) -> [String] {
     #expect(try FileManager.default.contentsOfDirectory(atPath: bin.path).isEmpty)
 }
 }
+
+// Codex 10: Finder's answer is one file URL per line, so a line break inside a name can't split it.
+@Test func finderSelectionIsReadAsURLs() throws {
+    let scratch = try Scratch()
+    defer { scratch.remove() }
+    let odd = try scratch.file("line\nbreak.txt", "x")
+    let plain = try scratch.file("plain.txt", "x")
+    // A real path that the broken-up pieces would have matched before.
+    _ = try scratch.file("line", "decoy")
+    let output = scratch.url.absoluteString + "\n" + odd.absoluteString + "\n" + plain.absoluteString + "\n"
+    #expect(odd.absoluteString.contains("%0A"))
+
+    let (folder, items) = FileTools.parseSelection(output)
+    #expect(folder?.standardizedFileURL == scratch.url.standardizedFileURL)
+    #expect(items.map(\.lastPathComponent) == ["line\nbreak.txt", "plain.txt"])
+}
+
+@Test func finderSelectionSkipsWhatIsNotThere() {
+    let (folder, items) = FileTools.parseSelection("-\n/Users/someone/plain path.txt\nfile:///no/such/file\n")
+    #expect(folder == nil)
+    #expect(items.isEmpty)
+}
