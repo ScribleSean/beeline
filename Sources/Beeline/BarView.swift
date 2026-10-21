@@ -155,6 +155,8 @@ final class BarModel: ObservableObject {
 
     /// Shown while listening, or why listening could not start.
     @Published var voiceNote: String?
+    /// The microphone's level while listening, from 0 to 1. Nil when not listening.
+    @Published var voiceLevel: Double?
 
     /// An example shown under the empty bar, different each time it opens.
     @Published var tip = BarModel.tips[0]
@@ -337,6 +339,26 @@ final class BarModel: ObservableObject {
     }
 }
 
+/// Five soft bars that rise with your voice, brightest in the middle, like a bee's hum.
+private struct LevelMeter: View {
+    let level: Double
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 3) {
+            ForEach(0..<5, id: \.self) { index in
+                // The middle bar moves most, the outer ones less, so the meter reads as one shape.
+                let weight = [0.45, 0.75, 1.0, 0.75, 0.45][index]
+                Capsule()
+                    .fill(Theme.yellow.opacity(0.55 + 0.45 * weight))
+                    .frame(width: 3, height: 5 + 15 * level * weight)
+            }
+        }
+        .frame(height: 22)
+        .animation(.easeOut(duration: 0.09), value: level)
+        .accessibilityLabel("Listening")
+    }
+}
+
 struct BarView: View {
     @ObservedObject var model: BarModel
     @FocusState private var focused: Bool
@@ -346,13 +368,19 @@ struct BarView: View {
         VStack(spacing: 0) {
             // The search capsule.
             HStack(spacing: 12) {
-                Image(systemName: "magnifyingglass")
+                Image(systemName: model.voiceLevel == nil ? "magnifyingglass" : "mic.fill")
                     .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(Theme.accent)
-                TextField("Beeline to…", text: $model.query)
+                    .frame(width: 22)
+                    .contentTransition(.symbolEffect(.replace))
+                TextField(model.voiceLevel == nil ? "Beeline to…" : "Listening…", text: $model.query)
                     .textFieldStyle(.plain)
                     .font(.system(size: 20))
                     .focused($focused)
+                if let level = model.voiceLevel {
+                    LevelMeter(level: level)
+                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                }
             }
             .padding(.horizontal, 16)
             .frame(height: 50)

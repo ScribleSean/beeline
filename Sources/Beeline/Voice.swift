@@ -12,6 +12,8 @@ final class Voice {
 
     var onText: (String) -> Void = { _ in }
     var onState: (State) -> Void = { _ in }
+    /// How loud the microphone is, from 0 to 1, about fifty times a second while listening.
+    var onLevel: (Double) -> Void = { _ in }
 
     private let engine = AVAudioEngine()
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
@@ -76,6 +78,20 @@ final class Voice {
         }
     }
 
+    /// A buffer's loudness from 0 (silence, -50 dB and below) to 1 (0 dB), on a decibel scale so quiet
+    /// speech still moves the meter.
+    static func level(of buffer: AVAudioPCMBuffer) -> Double {
+        guard let samples = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return 0 }
+        var sum: Float = 0
+        for index in 0..<Int(buffer.frameLength) { sum += samples[index] * samples[index] }
+        return level(rms: Double((sum / Float(buffer.frameLength)).squareRoot()))
+    }
+
+    static func level(rms: Double) -> Double {
+        guard rms > 0 else { return 0 }
+        return min(1, max(0, (20 * log10(rms) + 50) / 50))
+    }
+
     private func begin(_ session: Int) {
         guard let recognizer, recognizer.isAvailable else {
             return onState(.unavailable("Speech recognition isn't available right now."))
@@ -98,8 +114,13 @@ final class Voice {
         request.requiresOnDeviceRecognition = true
         self.request = request
 
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             request.append(buffer)
+            let level = Self.level(of: buffer)
+            DispatchQueue.main.async {
+                guard let self, session == self.generation else { return }
+                self.onLevel(level)
+            }
         }
         engine.prepare()
         do {

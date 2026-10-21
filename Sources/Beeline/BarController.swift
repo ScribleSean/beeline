@@ -270,6 +270,12 @@ final class BarController: NSObject, NSWindowDelegate {
             lastTranscript = text
             self.model.query = text
         }
+        voice.onLevel = { [weak self] level in
+            guard let self, self.isListening else { return }
+            // Rise at once, fall gently, so the meter breathes rather than flickers.
+            let last = self.model.voiceLevel ?? 0
+            self.model.voiceLevel = level > last ? level : last * 0.7 + level * 0.3
+        }
         voice.onState = { [weak self] state in
             guard let self else { return }
             switch state {
@@ -277,6 +283,7 @@ final class BarController: NSObject, NSWindowDelegate {
             case .stopped: self.model.voiceNote = nil
             case .unavailable(let reason):
                 self.isListening = false
+                self.model.voiceLevel = nil
                 self.model.voiceNote = reason
             }
         }
@@ -285,6 +292,7 @@ final class BarController: NSObject, NSWindowDelegate {
 
     private func stopListening() {
         isListening = false
+        model.voiceLevel = nil
         voice.stop()
         if case .some(let note) = model.voiceNote, note.hasPrefix("Listening") { model.voiceNote = nil }
     }
