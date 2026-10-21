@@ -49,6 +49,8 @@ extension WelcomeWindowController {
 /// it is open, so the card turns green as soon as the switch is flipped in System Settings.
 private final class WelcomeState: ObservableObject {
     @Published var trusted = Accessibility.isTrusted
+    /// True while Spotlight still holds ⌘Space and Beeline had to take another shortcut.
+    @Published var spotlightHasShortcut = Settings.spotlightHasShortcut
     /// True when an earlier build was trusted, so a grant that no longer matches is the likely cause.
     var wasTrustedBefore: Bool { UserDefaults.standard.bool(forKey: Settings.wasTrusted) }
     private var timer: Timer?
@@ -60,11 +62,19 @@ private final class WelcomeState: ObservableObject {
 
     func refresh() {
         trusted = Accessibility.isTrusted
+        spotlightHasShortcut = Settings.spotlightHasShortcut
         timer?.invalidate()
+        var ticks = 0
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] timer in
             guard let self else { return timer.invalidate() }
             self.trusted = Accessibility.isTrusted
-            if self.trusted { timer.invalidate() }
+            ticks += 1
+            // Every few seconds, try ⌘Space again, so the card clears soon after Spotlight lets go of it.
+            if self.spotlightHasShortcut, ticks.isMultiple(of: 3) {
+                NotificationCenter.default.post(name: Settings.shortcutChanged, object: nil)
+                self.spotlightHasShortcut = Settings.spotlightHasShortcut
+            }
+            if self.trusted, !self.spotlightHasShortcut { timer.invalidate() }
         }
     }
 }
@@ -93,7 +103,36 @@ private struct WelcomeView: View {
                         .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(Theme.capsuleEdge, lineWidth: 1))
                 }
                 Text(Settings.activeShortcut == nil ? "would open it, but ⌘, ⌥ and ⌃Space are all taken by other apps."
-                     : "opens it, wherever you are.").font(.system(size: 13)).foregroundStyle(.secondary)
+                     : "opens it. Hold it to talk.").font(.system(size: 13)).foregroundStyle(.secondary)
+            }
+
+            if state.spotlightHasShortcut {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(Theme.accent)
+                        .frame(width: 36, height: 36)
+                        .background(Theme.honeyTile, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Spotlight has ⌘Space").font(.system(size: 14, weight: .semibold))
+                        Text("Beeline uses \(Settings.activeShortcutLabel) for now. In Keyboard Shortcuts › Spotlight, turn off Show Spotlight search, and ⌘Space is Beeline's.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("Open Keyboard Settings") {
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                        .buttonStyle(.link)
+                        .font(.system(size: 12, weight: .medium))
+                        .padding(.top, 2)
+                    }
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.capsuleEdge, lineWidth: 1))
             }
 
             VStack(alignment: .leading, spacing: 10) {

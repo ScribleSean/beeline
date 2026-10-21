@@ -62,6 +62,11 @@ enum Settings {
 
     /// The shortcut that actually opens the bar right now: the chosen one, or the fallback that could be
     /// registered when another app holds it, or "none". Every screen shows this one, never the preference.
+    /// True when ⌘Space was chosen but another app (Spotlight, almost always) holds it.
+    static var spotlightHasShortcut: Bool {
+        (UserDefaults.standard.string(forKey: shortcut) ?? "command") == "command" && activeShortcut != "command"
+    }
+
     static var activeShortcutLabel: String {
         if let activeShortcut { return label(for: activeShortcut) }
         return "No shortcut (⌘, ⌥ and ⌃Space are all taken)"
