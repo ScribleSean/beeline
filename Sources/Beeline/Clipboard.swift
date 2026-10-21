@@ -14,8 +14,17 @@ final class Clipboard {
     }
 
     private(set) var entries: [Entry] = []
-    private var lastChange = NSPasteboard.general.changeCount
+    private let board: NSPasteboard
+    private var lastChange: Int
     private var timer: Timer?
+    /// Bumped by clearing or turning history off, so a copy still being read is dropped, not saved after.
+    private var generation = 0
+
+    /// Tests pass a private pasteboard, so they never touch the real clipboard.
+    init(board: NSPasteboard = .general) {
+        self.board = board
+        lastChange = board.changeCount
+    }
 
     /// Types that password managers and similar apps use to say "do not keep this".
     private static let doNotKeep: [NSPasteboard.PasteboardType] = [
@@ -34,38 +43,48 @@ final class Clipboard {
     private func syncWithSetting() {
         if Settings.isOn(Settings.clipboardHistory) {
             guard timer == nil else { return }
-            lastChange = NSPasteboard.general.changeCount
+            lastChange = board.changeCount
             timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.check() }
         } else {
             timer?.invalidate()
             timer = nil
+            generation += 1
             entries.removeAll()
         }
     }
 
     func clear() {
+        generation += 1
         entries.removeAll()
+    }
+
+    /// False for a copy a password manager has marked as not to be kept.
+    static func mayKeep(_ types: [NSPasteboard.PasteboardType]) -> Bool {
+        !types.contains(where: { doNotKeep.contains($0) })
     }
 
     /// Reads happen here, off the main thread: an app that supplies its copy lazily (a huge spreadsheet
     /// range, a remote desktop) renders it only when asked, and that must never stall the bar.
-    private let readQueue = DispatchQueue(label: "beeline.clipboard", qos: .utility)
+    let readQueue = DispatchQueue(label: "beeline.clipboard", qos: .utility)
 
-    private func check() {
-        let board = NSPasteboard.general
+    func check() {
+        let board = self.board
         guard board.changeCount != lastChange else { return }
         let change = board.changeCount
         lastChange = change
-        guard Settings.isOn(Settings.clipboardHistory),
-              !(board.types ?? []).contains(where: { Self.doNotKeep.contains($0) }) else { return }
+        guard Settings.isOn(Settings.clipboardHistory), Self.mayKeep(board.types ?? []) else { return }
         let source = NSWorkspace.shared.frontmostApplication
+        let asked = generation
         readQueue.async { [weak self] in
             guard let text = board.string(forType: .string),
                   // Very large copies (a whole log, a data dump) are not kept: memory stays small.
                   text.utf16.count <= 200_000,
-                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  // The text read must be the copy that was checked. Something copied since (a password,
+                  // perhaps) is dropped here; the next check looks at it on its own.
+                  board.changeCount == change, Self.mayKeep(board.types ?? []) else { return }
             DispatchQueue.main.async {
-                guard let self, Settings.isOn(Settings.clipboardHistory) else { return }
+                guard let self, self.generation == asked, Settings.isOn(Settings.clipboardHistory) else { return }
                 // Copying something already in the list moves it to the top instead of repeating it.
                 self.entries.removeAll { $0.text == text }
                 self.entries.insert(Entry(text: text, copied: Date(), app: source?.localizedName, icon: source?.icon), at: 0)
