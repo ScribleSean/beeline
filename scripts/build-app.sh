@@ -36,8 +36,12 @@ commit="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
 plutil -insert BeelineSourceRoot -string "$PWD" "$app/Contents/Info.plist"
 plutil -insert BeelineCommit -string "$commit" "$app/Contents/Info.plist"
 # A stable identity keeps macOS permissions across rebuilds. It comes from
-# BEELINE_SIGNING_IDENTITY, else the untracked .signing-identity file, else ad hoc.
-identity="${BEELINE_SIGNING_IDENTITY:-$(cat .signing-identity 2>/dev/null || echo -)}"
+# BEELINE_SIGNING_IDENTITY, else the untracked .signing-identity file, else ad hoc. A git worktree has no
+# copy of that untracked file, so it falls back to the one in the main checkout.
+main_checkout="$(cd "$(git rev-parse --git-common-dir 2>/dev/null || echo .)/.." 2>/dev/null && pwd)"
+identity_file=".signing-identity"
+[ -f "$identity_file" ] || identity_file="$main_checkout/.signing-identity"
+identity="${BEELINE_SIGNING_IDENTITY:-$(cat "$identity_file" 2>/dev/null || echo -)}"
 if [ "$identity" = "-" ]; then
     echo "warning: signing ad hoc. Each ad hoc build is a new app to macOS, so Accessibility and the other" >&2
     echo "permissions stop working after it: remove Beeline from each list and add it again, or put a" >&2
