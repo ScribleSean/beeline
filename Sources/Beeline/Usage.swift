@@ -86,15 +86,14 @@ final class Usage {
         save()
     }
 
-    /// Stops this item ranking first for these words, and drops its habit boost: the "Forget this pick"
-    /// action, for a pick that was wrong or is no longer wanted.
+    /// Stops this item ranking first for these words: the "Forget this pick" action, for a pick that was
+    /// wrong or is no longer wanted. What was learned for other words stays.
     func forget(_ item: Item, for query: String) {
         let key = Self.key(for: item)
         let typed = Self.normalise(query)
         store.queries[typed]?[key] = nil
         if store.queries[typed]?.isEmpty == true { store.queries[typed] = nil }
         store.queryLast?[typed]?[key] = nil
-        store.items[key] = nil
         save()
     }
 

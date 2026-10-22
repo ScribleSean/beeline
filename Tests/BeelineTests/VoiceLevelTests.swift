@@ -29,7 +29,7 @@ import Testing
 
 @Test func theVocabularyLeadsWithCommandsAndHasApps() {
     TestEnvironment.prepare()
-    let words = sharedCatalogue.vocabulary()
+    let words = Catalogue(aliases: Aliases(file: FileManager.default.temporaryDirectory.appendingPathComponent("beeline-voc-\(UUID().uuidString).json"))).vocabulary()
     #expect(words.first == "undo")
     #expect(words.contains("Finder"))
 }

@@ -39,6 +39,16 @@ enum ShortcutConflicts {
     /// The holders on this Mac now.
     static func current(for modifier: String) -> [Holder] {
         let hotkeys = UserDefaults(suiteName: "com.apple.symbolichotkeys")?.dictionary(forKey: "AppleSymbolicHotKeys") ?? [:]
-        return holders(of: modifier, in: hotkeys)
+        return holders(of: modifier, in: withDefaults(hotkeys))
+    }
+
+    /// A Mac whose Spotlight shortcut was never changed may have no entry for it: then it is the default,
+    /// ⌘Space, switched on.
+    static func withDefaults(_ hotkeys: [String: Any]) -> [String: Any] {
+        var hotkeys = hotkeys
+        if hotkeys["64"] == nil {
+            hotkeys["64"] = ["enabled": 1, "value": ["parameters": [32, 49, 1 << 20], "type": "standard"]] as [String: Any]
+        }
+        return hotkeys
     }
 }

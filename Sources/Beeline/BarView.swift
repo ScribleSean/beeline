@@ -430,6 +430,14 @@ struct BarView: View {
                 AnswerCard(item: answer).padding(.top, 8)
                     .contentShape(Rectangle())
                     .onTapGesture { model.run(answer) }
+            } else if model.query.isEmpty, let undo = UndoLog.shared.hint() {
+                Text(undo)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 12)
+                    .padding(.bottom, 2)
             } else if model.query.isEmpty {
                 (Text("Try ") + Text("“\(model.tip)”").foregroundStyle(.primary))
                     .font(.system(size: 13))

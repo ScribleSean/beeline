@@ -346,7 +346,8 @@ enum FileTools {
             guard !overlaps(source, target) else { return nil }
             guard FileManager.default.fileExists(atPath: target.path) else {
                 guard (try? deliver(source, to: target, copying: copying)) != nil else { return nil }
-                undos.append { takeBack(target, to: source, copying: copying) }
+                let delivered = identity(of: target)
+                undos.append { takeBack(target, to: source, copying: copying, ifStill: delivered) }
                 return target
             }
             // Something is in the way, and it was not on the card, or is no longer the item that was: leave it alone.
@@ -381,8 +382,9 @@ enum FileTools {
                 if !copying { try? FileManager.default.moveItem(at: staged, to: source) }
                 return nil
             }
+            let delivered = identity(of: target)
             undos.append {
-                takeBack(target, to: source, copying: copying)
+                takeBack(target, to: source, copying: copying, ifStill: delivered)
                 // Then the item it replaced comes back out of the Trash, if the spot is free again.
                 if let trashed, !FileManager.default.fileExists(atPath: target.path) {
                     try? FileManager.default.moveItem(at: trashed, to: target)
@@ -402,8 +404,14 @@ enum FileTools {
 
     /// Undoes one delivery: a copy goes to the Trash (recoverable, never deleted), a moved item goes back
     /// where it came from, if nothing has taken its place there since.
-    private static func takeBack(_ target: URL, to source: URL, copying: Bool) {
-        guard FileManager.default.fileExists(atPath: target.path) else { return }
+    /// Only the very item delivered is taken back: if something else with that name has taken its place
+    /// since, it is left alone.
+    private static func takeBack(_ target: URL, to source: URL, copying: Bool, ifStill delivered: NSObject?) {
+        guard FileManager.default.fileExists(atPath: target.path), let delivered,
+              identity(of: target)?.isEqual(delivered) == true else {
+            Log.append("file tools: undo skipped an item that changed since")
+            return
+        }
         if copying {
             _ = try? trash(target)
         } else if !FileManager.default.fileExists(atPath: source.path) {

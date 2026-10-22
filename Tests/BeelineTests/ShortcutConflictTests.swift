@@ -17,3 +17,9 @@ private func entry(_ enabled: Int, _ modifiers: Int) -> [String: Any] {
     #expect(ShortcutConflicts.holders(of: "command", in: ["64": entry(0, 1_048_576)]).isEmpty)
     #expect(ShortcutConflicts.holders(of: "command", in: [:]).isEmpty)
 }
+
+// A Mac that never changed Spotlight's shortcut has no entry for it, and Spotlight still holds ⌘Space.
+@Test func anUnchangedSpotlightStillHoldsCommandSpace() {
+    #expect(ShortcutConflicts.holders(of: "command", in: ShortcutConflicts.withDefaults([:])).first?.section == "Spotlight")
+    #expect(ShortcutConflicts.holders(of: "command", in: ShortcutConflicts.withDefaults(["64": entry(0, 1_048_576)])).isEmpty)
+}

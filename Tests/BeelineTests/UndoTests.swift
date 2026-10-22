@@ -30,15 +30,28 @@ import Testing
         #expect(log.undoLatest(now: then.addingTimeInterval(UndoLog.lifetime + 1)) == nil)
     }
 
-    // "undo" offers it; an empty bar offers it only for a couple of minutes.
-    @Test func theUndoRowAppearsWhenItShould() {
+    // "undo" offers a row; an empty bar only hints, for a couple of minutes, so Return there undoes nothing.
+    @Test func theUndoRowAppearsOnlyWhenAskedFor() {
         let log = UndoLog()
         let then = Date()
         log.record("Toggle Dark Mode", now: then) {}
         #expect(log.item(for: "undo", now: then.addingTimeInterval(300))?.title == "Toggle Dark Mode")
-        #expect(log.item(for: "", now: then.addingTimeInterval(60)) != nil)
-        #expect(log.item(for: "", now: then.addingTimeInterval(300)) == nil)
+        #expect(log.item(for: "", now: then) == nil)
         #expect(log.item(for: "undoubtedly", now: then) == nil)
+        #expect(log.hint(now: then.addingTimeInterval(60)) == "“undo” takes back Toggle Dark Mode")
+        #expect(log.hint(now: then.addingTimeInterval(300)) == nil)
+    }
+
+    // A row undoes only what it showed, never something recorded after it was drawn.
+    @Test func aRowUndoesOnlyWhatItShowed() {
+        let log = UndoLog()
+        var undone = ""
+        log.record("Toggle Dark Mode") { undone = "dark" }
+        let shown = log.latest()!.id
+        log.record("Move “a.txt” to Desktop") { undone = "move" }
+        #expect(log.undoLatest(id: shown) == nil)
+        #expect(undone == "")
+        #expect(log.undoLatest() == "Move “a.txt” to Desktop")
     }
 
     // The undo row itself is never learned or given an alias.

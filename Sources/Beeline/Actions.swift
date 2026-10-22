@@ -30,40 +30,25 @@ enum Actions {
             run("/usr/bin/open", "-a", "ScreenSaverEngine")
         },
         Definition(title: "Mute", symbol: "speaker.slash", keywords: "sound volume silence quiet audio off") {
-            script("set volume output muted true", what: "mute")
-            UndoLog.shared.record("Mute") { script("set volume output muted false", what: "unmute") }
+            setMuted(true, title: "Mute")
         },
         Definition(title: "Unmute", symbol: "speaker.wave.2", keywords: "sound volume audio on") {
-            script("set volume output muted false", what: "unmute")
-            UndoLog.shared.record("Unmute") { script("set volume output muted true", what: "mute") }
+            setMuted(false, title: "Unmute")
         },
         Definition(title: "Volume Up", symbol: "speaker.plus", keywords: "sound louder increase raise audio") {
-            script("set volume output volume ((output volume of (get volume settings)) + 10)", what: "turn the volume up")
-            UndoLog.shared.record("Volume Up") {
-                script("set volume output volume ((output volume of (get volume settings)) - 10)", what: "turn the volume down")
-            }
+            changeVolume(by: 10, title: "Volume Up", what: "turn the volume up")
         },
         Definition(title: "Volume Down", symbol: "speaker.minus", keywords: "sound quieter decrease lower audio") {
-            script("set volume output volume ((output volume of (get volume settings)) - 10)", what: "turn the volume down")
-            UndoLog.shared.record("Volume Down") {
-                script("set volume output volume ((output volume of (get volume settings)) + 10)", what: "turn the volume up")
-            }
+            changeVolume(by: -10, title: "Volume Down", what: "turn the volume down")
         },
         Definition(title: "Toggle Dark Mode", symbol: "circle.lefthalf.filled", keywords: "light mode appearance theme night switch turn") {
-            let toggle = {
-                script("tell application \"System Events\" to tell appearance preferences to set dark mode to not dark mode",
-                       what: "switch dark mode", app: "System Events")
-            }
-            toggle()
-            UndoLog.shared.record("Toggle Dark Mode", undo: toggle)
+            toggleDarkMode()
         },
         Definition(title: "Turn Wi-Fi Off", symbol: "wifi.slash", keywords: "wifi wireless internet disable disconnect") {
-            setWiFi("off")
-            UndoLog.shared.record("Turn Wi-Fi Off") { setWiFi("on") }
+            setWiFi("off", title: "Turn Wi-Fi Off")
         },
         Definition(title: "Turn Wi-Fi On", symbol: "wifi", keywords: "wifi wireless internet enable connect") {
-            setWiFi("on")
-            UndoLog.shared.record("Turn Wi-Fi On") { setWiFi("off") }
+            setWiFi("on", title: "Turn Wi-Fi On")
         },
         Definition(title: "Keep Mac Awake for 1 Hour", symbol: "cup.and.saucer", keywords: "caffeinate no sleep stay awake prevent") {
             run("/usr/bin/caffeinate", "-d", "-t", "3600")
@@ -143,24 +128,65 @@ enum Actions {
     /// Runs AppleScript and waits for it in the background. A failure says so: with Automation denied for
     /// the app the script talks to (error -1743), nothing would happen and the bar would already be closed.
     private static func script(_ source: String, what: String, app: String? = nil) {
+        DispatchQueue.global(qos: .userInitiated).async { _ = runScript(source, what: what, app: app) }
+    }
+
+    /// Runs AppleScript and waits for it; call off the main thread. Says so when it fails, and returns what
+    /// it printed, or nil on failure.
+    @discardableResult
+    private static func runScript(_ source: String, what: String, app: String? = nil) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", source]
+        let output = Pipe(), errors = Pipe()
+        process.standardOutput = output
+        process.standardError = errors
+        do { try process.run() } catch { report("Couldn't \(what): osascript didn't start."); return nil }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 15) { if process.isRunning { process.terminate() } }
+        let printed = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let text = String(data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        process.waitUntilExit()
+        guard process.terminationStatus != 0 else { return printed.trimmingCharacters(in: .whitespacesAndNewlines) }
+        Log.append("action failed: \(what) (\(process.terminationStatus))")
+        if text.contains("-1743"), let app {
+            report("Couldn't \(what): allow Beeline to control \(app) in Privacy & Security › Automation.")
+        } else {
+            let last = text.split(whereSeparator: \.isNewline).last.map { ": " + $0.prefix(100) } ?? "."
+            report("Couldn't \(what)" + last)
+        }
+        return nil
+    }
+
+    // Each toggle reads how things were, acts, and only once that worked records an undo that puts back
+    // exactly how things were: undoing Mute when the sound was already muted leaves it muted.
+
+    private static func setMuted(_ muted: Bool, title: String) {
         DispatchQueue.global(qos: .userInitiated).async {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            process.arguments = ["-e", source]
-            process.standardOutput = FileHandle.nullDevice
-            let errors = Pipe()
-            process.standardError = errors
-            do { try process.run() } catch { return report("Couldn't \(what): osascript didn't start.") }
-            DispatchQueue.global().asyncAfter(deadline: .now() + 15) { if process.isRunning { process.terminate() } }
-            let text = String(data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            process.waitUntilExit()
-            guard process.terminationStatus != 0 else { return }
-            Log.append("action failed: \(what) (\(process.terminationStatus))")
-            if text.contains("-1743"), let app {
-                report("Couldn't \(what): allow Beeline to control \(app) in Privacy & Security › Automation.")
-            } else {
-                let last = text.split(whereSeparator: \.isNewline).last.map { ": " + $0.prefix(100) } ?? "."
-                report("Couldn't \(what)" + last)
+            let before = runScript("output muted of (get volume settings)", what: "read the sound") == "true"
+            guard runScript("set volume output muted \(muted)", what: muted ? "mute" : "unmute") != nil, before != muted else { return }
+            UndoLog.shared.record(title) {
+                script("set volume output muted \(before)", what: before ? "mute" : "unmute")
+            }
+        }
+    }
+
+    private static func changeVolume(by step: Int, title: String, what: String) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let before = runScript("output volume of (get volume settings)", what: "read the volume").flatMap(Int.init),
+                  runScript("set volume output volume \(max(0, min(100, before + step)))", what: what) != nil,
+                  max(0, min(100, before + step)) != before else { return }
+            UndoLog.shared.record(title) { script("set volume output volume \(before)", what: "put the volume back") }
+        }
+    }
+
+    private static func toggleDarkMode() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let prefs = "tell application \"System Events\" to tell appearance preferences to"
+            guard let before = runScript("\(prefs) get dark mode", what: "read dark mode", app: "System Events"),
+                  runScript("\(prefs) set dark mode to \(before == "true" ? "false" : "true")", what: "switch dark mode", app: "System Events") != nil
+            else { return }
+            UndoLog.shared.record("Toggle Dark Mode") {
+                script("\(prefs) set dark mode to \(before)", what: "switch dark mode back", app: "System Events")
             }
         }
     }
@@ -242,7 +268,7 @@ enum Actions {
         return (session["CGSSessionScreenIsLocked"] as? Bool) ?? (session["CGSSessionScreenIsLocked"] as? Int).map { $0 != 0 }
     }
 
-    private static func setWiFi(_ state: String) {
+    private static func setWiFi(_ state: String, title: String) {
         DispatchQueue.global(qos: .userInitiated).async {
             // The Wi-Fi interface is usually en0, but not on every Mac.
             let list = Process()
@@ -255,7 +281,24 @@ enum Actions {
             let lines = output.components(separatedBy: "\n")
             guard let port = lines.firstIndex(where: { $0.contains("Wi-Fi") }), lines.indices.contains(port + 1),
                   let device = lines[port + 1].components(separatedBy: ": ").last else { return }
+            let before = commandOutput(of: "/usr/sbin/networksetup", "-getairportpower", device).hasSuffix(": On") ? "on" : "off"
             run("/usr/sbin/networksetup", "-setairportpower", device, state)
+            guard before != state else { return }
+            UndoLog.shared.record(title) { run("/usr/sbin/networksetup", "-setairportpower", device, before) }
         }
+    }
+
+    /// What a command printed, trimmed. Call off the main thread.
+    private static func commandOutput(of path: String, _ arguments: String...) -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return "" }
+        let text = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        process.waitUntilExit()
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

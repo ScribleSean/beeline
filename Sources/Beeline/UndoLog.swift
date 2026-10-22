@@ -2,10 +2,11 @@ import AppKit
 
 /// The last thing Beeline did that can be taken back: a toggle, a window move, a file copied or moved
 /// (with anything it replaced brought back from the Trash). Type "undo" to take it back; for a couple of
-/// minutes it is also the one row an empty bar shows. Only the latest is kept, and only for ten minutes:
+/// minutes an empty bar hints at it. Only the latest is kept, and only for ten minutes:
 /// an undo for something long forgotten would surprise more than help.
 final class UndoLog {
     struct Entry {
+        let id = UUID()
         /// What was done, as its row said it: "Turn Wi-Fi Off", "Move “report.pdf” to Desktop".
         let title: String
         let at: Date
@@ -36,11 +37,12 @@ final class UndoLog {
         return entry
     }
 
-    /// Takes the latest back once. Returns its title, or nil when there was nothing to undo.
+    /// Takes the latest back once. Returns its title, or nil when there was nothing to undo. With `id`, only
+    /// that entry: a row that offered "Toggle Dark Mode" must not undo a file move recorded since.
     @discardableResult
-    func undoLatest(now: Date = Date()) -> String? {
+    func undoLatest(id: UUID? = nil, now: Date = Date()) -> String? {
         lock.lock()
-        guard let entry, now.timeIntervalSince(entry.at) <= Self.lifetime else {
+        guard let entry, now.timeIntervalSince(entry.at) <= Self.lifetime, id == nil || entry.id == id else {
             lock.unlock()
             return nil
         }
@@ -57,15 +59,21 @@ final class UndoLog {
         lock.unlock()
     }
 
-    /// The row that offers it: in reply to "undo", or on an empty bar shortly after.
+    /// The row that offers it, in reply to "undo". It undoes only the entry it shows, off the main thread:
+    /// moving a large file back must not freeze the bar.
     func item(for query: String, now: Date = Date()) -> Item? {
-        let words = Usage.normalise(query)
-        let asked = ["undo", "undo that", "undo it", "take that back", "put it back", "revert"].contains(words)
-        guard asked || (words.isEmpty && latest(within: Self.offerTime, now: now) != nil),
-              let entry = latest(now: now) else { return nil }
+        let asked = ["undo", "undo that", "undo it", "take that back", "put it back", "revert"].contains(Usage.normalise(query))
+        guard asked, let entry = latest(now: now) else { return nil }
+        let id = entry.id
         return Item(id: "undo", kind: .action, verb: "Undo", title: entry.title, subtitle: "Undo", keywords: "",
                     icon: NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: nil)) { [weak self] in
-            self?.undoLatest()
+            DispatchQueue.global(qos: .userInitiated).async { self?.undoLatest(id: id) }
         }
+    }
+
+    /// What an empty bar says shortly after something that can be taken back. A hint, never a row: Return
+    /// on an empty bar must not undo anything.
+    func hint(now: Date = Date()) -> String? {
+        latest(within: Self.offerTime, now: now).map { "“undo” takes back \($0.title)" }
     }
 }

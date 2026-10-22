@@ -154,9 +154,12 @@ final class Catalogue {
         usage.record(item, query: query)
     }
 
-    /// Words worth teaching speech recognition: Beeline's commands first, then app names, then aliases.
+    /// Words worth teaching speech recognition, most useful first, since only the first 100 are used: your
+    /// aliases, Beeline's commands, the apps running now, then the rest of the apps.
     func vocabulary() -> [String] {
-        ["undo", "dark mode", "Wi-Fi", "night shift"] + actions.map(\.title) + apps.map(\.title) + aliases.entries.keys
+        let running = apps.filter { runningAppPaths.contains($0.id) }.map(\.title)
+        return aliases.entries.keys.sorted() + ["undo", "dark mode", "Wi-Fi", "night shift"] + actions.map(\.title)
+            + running + apps.map(\.title)
     }
 
     /// Reads the user's shortcuts again, at most every two minutes: when the bar opens is often enough.
@@ -335,7 +338,7 @@ final class Catalogue {
     }
 
     func search(_ query: String, limit: Int = 6) -> [Item] {
-        // "undo", or an empty bar shortly after something that can be taken back.
+        // "undo" offers to take back the last thing that can be.
         if let undo = UndoLog.shared.item(for: query) {
             return [undo]
         }

@@ -31,9 +31,11 @@ private let music = Item(id: "/Applications/Music.app", kind: .app, verb: "Open"
     usage.record(music, query: "tunes")
     usage.record(music, query: "tunes")
     #expect(usage.habitBoost(for: music) > 0)
+    usage.record(music, query: "songs")
     usage.forget(music, for: "tunes")
     #expect(usage.timesPicked(music, for: "tunes") == 0)
-    #expect(usage.habitBoost(for: music) == 0)
+    // What was learned for other words stays.
+    #expect(usage.timesPicked(music, for: "songs") == 1)
 }
 
 // History saved before picks had dates still loads, and its picks count as fresh.

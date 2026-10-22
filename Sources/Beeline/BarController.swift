@@ -92,11 +92,15 @@ final class BarController: NSObject, NSWindowDelegate {
                 } else {
                     self.hide()
                 }
-            case kVK_DownArrow: self.model.move(1)
-            case kVK_UpArrow: self.model.move(-1)
+            // Choosing another row means the one announced on release is no longer wanted.
+            case kVK_DownArrow: self.cancelPendingAct(); self.model.move(1)
+            case kVK_UpArrow: self.cancelPendingAct(); self.model.move(-1)
             // A held Return repeats; only a fresh press counts, so "Return twice" really takes two presses.
             case kVK_Return, kVK_ANSI_KeypadEnter: if !event.isARepeat { self.model.runSelected() }
-            default: return event
+            default:
+                // Typing over the words cancels a run announced on release.
+                self.cancelPendingAct()
+                return event
             }
             return nil
         }
@@ -266,6 +270,7 @@ final class BarController: NSObject, NSWindowDelegate {
 
     /// A tap opens or closes the bar. Holding the shortcut opens it and listens until the key comes up.
     func shortcutPressed() {
+        cancelPendingAct()
         openedByPress = !isShown
         if !isShown { show() }
         holdTimer?.invalidate()
@@ -286,6 +291,7 @@ final class BarController: NSObject, NSWindowDelegate {
     }
 
     private func startListening() {
+        cancelPendingAct()
         isListening = true
         model.query = ""
         model.voiceNote = "Listening…"
@@ -327,6 +333,7 @@ final class BarController: NSObject, NSWindowDelegate {
     /// The final words of a hold. When they plainly name one safe thing, it runs after a short beat;
     /// otherwise the words wait in the bar for Return, as typing does.
     func heard(_ text: String) {
+        cancelPendingAct()
         guard !isListening, isShown, Settings.isOn(Settings.actOnRelease), Settings.isOn(Settings.holdToTalk),
               model.query == text, model.armedID == nil, !model.isShowingPlan,
               let item = AutoAct.pick(model.results, spoken: text) else { return }
@@ -359,6 +366,8 @@ final class BarController: NSObject, NSWindowDelegate {
     /// Stops listening and drops what was heard, so letting go of ⌘Space afterwards does nothing.
     private func cancelListening() {
         isListening = false
+        // Letting go of the shortcut after this must leave the bar open, words gone.
+        openedByPress = true
         voice.cancel()
         model.voiceLevel = nil
         model.voiceNote = nil
