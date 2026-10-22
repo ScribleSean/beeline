@@ -317,8 +317,32 @@ final class BarModel: ObservableObject {
     /// False when the selected result wasn't a learned one.
     @discardableResult
     func forgetSelectedPick() -> Bool {
-        guard results.indices.contains(selected), results[selected].isLearned else { return false }
-        catalogue.forgetPick(of: results[selected], query: query)
+        guard results.indices.contains(selected) else { return false }
+        let item = results[selected]
+        if item.isAlias {
+            catalogue.aliases.remove(query)
+        } else if item.isLearned {
+            catalogue.forgetPick(of: item, query: query)
+        } else {
+            return false
+        }
+        refresh()
+        return true
+    }
+
+    /// True when the typed words could become an alias for the selected result: short words, and a result
+    /// that lasts.
+    var canAliasSelected: Bool {
+        guard results.indices.contains(selected), !isShowingPlan, armedID == nil,
+              let alias = Aliases.normalise(query), alias.count <= 12 else { return false }
+        return Catalogue.canHaveAlias(results[selected])
+    }
+
+    /// Makes the typed words an alias for the selected result. False when it can't be one.
+    @discardableResult
+    func aliasSelected() -> Bool {
+        guard canAliasSelected else { return false }
+        catalogue.aliases.set(query, for: results[selected])
         refresh()
         return true
     }
@@ -489,8 +513,16 @@ struct BarView: View {
                     } else if !model.results.isEmpty {
                         Text("↑↓ move")
                         Text("↩ open")
-                        if model.results.indices.contains(model.selected), model.results[model.selected].isLearned {
-                            Text("⇧⌘⌫ forget pick")
+                        if model.results.indices.contains(model.selected) {
+                            let item = model.results[model.selected]
+                            if item.isAlias {
+                                Text("⇧⌘⌫ remove alias")
+                            } else if item.isLearned {
+                                Text("⇧⌘⌫ forget pick")
+                            } else if model.canAliasSelected {
+                                Text("⇧⌘A make “\(Usage.normalise(model.query))” its alias")
+                                    .lineLimit(1)
+                            }
                         }
                     } else {
                         Text("\(Settings.activeShortcutLabel) opens Beeline anywhere")
@@ -602,6 +634,9 @@ private struct ResultRow: View {
                 Text("This can't be undone").foregroundStyle(.red)
             } else if item.isGuess {
                 Text("best guess").foregroundStyle(.tertiary)
+            } else if item.isAlias {
+                Text("alias").foregroundStyle(.tertiary)
+                    .accessibilityLabel("your alias")
             } else if item.isLearned {
                 // Promoted because it was picked for these words before; ⇧⌘⌫ forgets that.
                 Text("learned").foregroundStyle(.tertiary)
@@ -884,6 +919,7 @@ private struct DetailStrip: View {
         case .learned(let times): return "you picked this \(times == 1 ? "once" : "\(times) times") before for these words"
         case .model(let keywords): return "on-device model read your request as: " + keywords.joined(separator: " ")
         case .meaning: return "closest in meaning, a weak guess"
+        case .alias: return "your alias for it"
         }
     }
 

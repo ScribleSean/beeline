@@ -74,6 +74,8 @@ enum Matcher {
         var isComplete: Bool
         /// How many times this item was picked before for exactly these words. Zero when never.
         var timesLearned = 0
+        /// True when exactly these words are the user's alias for the item. Above everything else.
+        var isAlias = false
     }
 
     /// Nil when the item is unrelated. An item can still match with some words unaccounted for,

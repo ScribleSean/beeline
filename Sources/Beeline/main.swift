@@ -8,6 +8,7 @@ Planner.ignoreBrokenPipes()
 // real history.
 if Demo.requested != nil, ProcessInfo.processInfo.environment["BEELINE_USAGE_FILE"] == nil {
     setenv("BEELINE_USAGE_FILE", FileManager.default.temporaryDirectory.appendingPathComponent("beeline-live-check-usage.json").path, 1)
+    setenv("BEELINE_ALIASES_FILE", FileManager.default.temporaryDirectory.appendingPathComponent("beeline-live-check-aliases.json").path, 1)
 }
 
 // A misspelt or incomplete flag prints what the flags are instead of starting a second full copy of the app.

@@ -7,7 +7,7 @@ enum Kind {
 /// One thing Beeline can do: open an app or settings pane, switch to a tab or window, run a menu command, or perform an action.
 /// Why an item is in the results. Shown in the optional details strip.
 enum Source {
-    case words, partial, learned(Int), model([String]), meaning
+    case words, partial, learned(Int), model([String]), meaning, alias
 }
 
 struct Item: Identifiable {
@@ -46,6 +46,12 @@ struct Item: Identifiable {
     /// True when it is ranked first because it was picked for these words before.
     var isLearned: Bool {
         if case .learned = source { return true }
+        return false
+    }
+
+    /// True when the typed words are the user's alias for it.
+    var isAlias: Bool {
+        if case .alias = source { return true }
         return false
     }
 
@@ -94,6 +100,10 @@ final class Catalogue {
     private let semantic = Semantic()
     let clipboard = Clipboard()
     private let usage = Usage()
+    let aliases = Aliases.shared
+    /// The user's own shortcuts from the Shortcuts app. Set directly only by tests.
+    var shortcuts: [Item] = []
+    private var shortcutsRead = Date.distantPast
 
     init() {
         apps = Self.scanApps()
@@ -119,6 +129,7 @@ final class Catalogue {
         }
         let fixed = actions + apps + settings
         scanQueue.async { self.semantic.prepare(fixed, permanent: true) }
+        refreshShortcuts()
         NotificationCenter.default.addObserver(forName: Settings.forgetHistory, object: nil, queue: .main) { [weak self] _ in
             self?.usage.forgetEverything()
         }
@@ -139,6 +150,21 @@ final class Catalogue {
         let oneOff = ["reminder:", "web-search", "desktop-", "file-tool:", "close-tabs:", "close:"]
         guard !oneOff.contains(where: { item.id.hasPrefix($0) }) else { return }
         usage.record(item, query: query)
+    }
+
+    /// Reads the user's shortcuts again, at most every two minutes: when the bar opens is often enough.
+    func refreshShortcuts() {
+        guard Date().timeIntervalSince(shortcutsRead) > 120 else { return }
+        shortcutsRead = Date()
+        UserShortcuts.load { [weak self] found in self?.shortcuts = found }
+    }
+
+    /// True for an item an alias may stand for: one that lasts. A reminder or a file chore is one of a kind,
+    /// and a calculation is its words.
+    static func canHaveAlias(_ item: Item) -> Bool {
+        guard [.app, .setting, .action, .file, .menu].contains(item.kind) else { return false }
+        let oneOff = ["reminder:", "web-search", "desktop-", "file-tool:", "close-tabs:", "close:", "rewrite", "copied"]
+        return !oneOff.contains { item.id.hasPrefix($0) }
     }
 
     /// Undoes what was learned for this item and these words, so it ranks on its name alone again.
@@ -373,11 +399,15 @@ final class Catalogue {
             let closes = closeTabResults(matching: target, limit: limit)
             if !closes.isEmpty { return closes }
         }
-        let all = actions + Desktops.items() + apps + settings + tabs + windows + tiles + menus + controls + (wantsClose ? quitResults(for: target) : [])
+        let all = actions + Desktops.items() + apps + settings + shortcuts + tabs + windows + tiles + menus + controls + (wantsClose ? quitResults(for: target) : [])
             + (filesQuery == query ? files : [])
         let scored: [(Item, Matcher.Score)] = all.compactMap { item in
             // Something picked before for exactly these words goes to the top, and is no longer a guess,
             // even when the words do not appear in its name. This is how a model guess becomes instant.
+            // The user's own alias for exactly these words beats everything, picks included.
+            if aliases.matches(query, item) {
+                return (item, Matcher.Score(value: 1000, isComplete: true, isAlias: true))
+            }
             let picked = usage.timesPicked(item, for: query)
             if picked > 0 {
                 return (item, Matcher.Score(value: 300 + min(picked, 20) * 5, isComplete: true, timesLearned: picked))
@@ -397,6 +427,7 @@ final class Catalogue {
         // not a file that happens to start with those letters. Asking for a "file" or "folder" lifts them.
         let filesLead = parsed.hint == .file
         func tier(_ entry: (Item, Matcher.Score)) -> Int {
+            if entry.1.isAlias { return 4 }
             if entry.1.timesLearned > 0 { return 3 }
             guard entry.1.isComplete else { return 0 }
             return entry.0.kind == .file && !filesLead ? 1 : 2
@@ -415,7 +446,7 @@ final class Catalogue {
             .map { item, score in
                 var item = item
                 item.isGuess = !score.isComplete
-                item.source = score.timesLearned > 0 ? .learned(score.timesLearned) : score.isComplete ? .words : .partial
+                item.source = score.isAlias ? .alias : score.timesLearned > 0 ? .learned(score.timesLearned) : score.isComplete ? .words : .partial
                 return item
             }
 

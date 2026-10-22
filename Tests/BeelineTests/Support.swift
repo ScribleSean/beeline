@@ -9,6 +9,7 @@ enum TestEnvironment {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         setenv("BEELINE_DESKTOPS_FILE", folder.appendingPathComponent("desktops.json").path, 1)
         setenv("BEELINE_USAGE_FILE", folder.appendingPathComponent("usage.json").path, 1)
+        setenv("BEELINE_ALIASES_FILE", folder.appendingPathComponent("aliases.json").path, 1)
         return folder
     }()
 

@@ -148,6 +148,7 @@ private struct SettingsView: View {
     @AppStorage(Settings.offerClaude) private var offerClaude = true
     @AppStorage(Settings.learnFromUse) private var learnFromUse = true
     @AppStorage(Settings.clipboardHistory) private var clipboardHistory = true
+    @StateObject private var aliasList = AliasList()
 
     var body: some View {
         Form {
@@ -215,6 +216,32 @@ private struct SettingsView: View {
             }
 
             Section {
+                if aliasList.entries.isEmpty {
+                    Text("Type a few letters, select a result, and press ⇧⌘A: those letters open it from then on.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(aliasList.entries, id: \.alias) { entry in
+                        HStack {
+                            Text(entry.alias).font(.system(size: 13, weight: .medium, design: .monospaced))
+                            Image(systemName: "arrow.right").font(.system(size: 10)).foregroundStyle(.tertiary)
+                            Text(entry.title).foregroundStyle(.secondary).lineLimit(1)
+                            Spacer()
+                            Button {
+                                Aliases.shared.remove(entry.alias)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Remove the alias \(entry.alias)")
+                        }
+                    }
+                }
+            } header: {
+                Text("Aliases")
+            }
+
+            Section {
                 LabeledContent("Version",
                                value: String((Bundle.main.object(forInfoDictionaryKey: "BeelineCommit") as? String ?? "unknown").prefix(7)))
             }
@@ -230,5 +257,27 @@ private struct SettingsView: View {
             Text(title)
             Text(detail).font(.caption).foregroundStyle(.secondary)
         }
+    }
+}
+
+/// The aliases, sorted, kept current while Settings is open.
+private final class AliasList: ObservableObject {
+    struct Row { let alias: String; let title: String }
+    @Published var entries: [Row] = []
+    private var observer: NSObjectProtocol?
+
+    init() {
+        reload()
+        observer = NotificationCenter.default.addObserver(forName: Aliases.changed, object: nil, queue: .main) { [weak self] _ in
+            self?.reload()
+        }
+    }
+
+    deinit {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+    }
+
+    private func reload() {
+        entries = Aliases.shared.entries.map { Row(alias: $0.key, title: $0.value.title) }.sorted { $0.alias < $1.alias }
     }
 }

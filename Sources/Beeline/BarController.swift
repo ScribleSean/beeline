@@ -70,6 +70,10 @@ final class BarController: NSObject, NSWindowDelegate {
             if Int(event.keyCode) == kVK_Delete,
                event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.command, .shift],
                self.model.forgetSelectedPick() { return nil }
+            // ⇧⌘A makes the typed words an alias for the selected result.
+            if Int(event.keyCode) == kVK_ANSI_A,
+               event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.command, .shift],
+               self.model.aliasSelected() { return nil }
             if self.handleEditShortcut(event) { return nil }
             switch Int(event.keyCode) {
             case kVK_Escape:
@@ -331,6 +335,7 @@ final class BarController: NSObject, NSWindowDelegate {
         model.catalogue.refreshTabs { [weak self] in self?.model.refreshInBackground() }
         model.catalogue.refreshScreen { [weak self] in self?.model.refreshInBackground() }
         model.catalogue.refreshAppsIfChanged()
+        model.catalogue.refreshShortcuts()
         // File chores act on Finder's selection, so it is read only when the bar opens over Finder.
         if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder" {
             FileTools.refreshSelection { [weak self] in self?.model.refreshInBackground() }
