@@ -16,7 +16,14 @@ final class Voice {
     var onLevel: (Double) -> Void = { _ in }
 
     private let engine = AVAudioEngine()
-    private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+    /// The Mac's own language when it can be recognised on the Mac, otherwise US English.
+    private let recognizer: SFSpeechRecognizer? = {
+        if let own = SFSpeechRecognizer(locale: .current), own.supportsOnDeviceRecognition { return own }
+        return SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+    }()
+    /// Words to listen out for: app names and Beeline's own commands, which general recognition mishears
+    /// ("Figma", "Raycast"). Set before `start`.
+    var vocabulary: [String] = []
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     /// Set when the key comes up before the permission prompts are answered, so listening never starts late.
@@ -68,6 +75,11 @@ final class Voice {
     }
 
     private func authorise(_ done: @escaping (String?) -> Void) {
+        // Both already allowed, the usual case: start now, without a round trip that delays the first word.
+        if SFSpeechRecognizer.authorizationStatus() == .authorized,
+           AVCaptureDevice.authorizationStatus(for: .audio) == .authorized {
+            return done(nil)
+        }
         SFSpeechRecognizer.requestAuthorization { status in
             guard status == .authorized else {
                 return DispatchQueue.main.async { done("Allow Speech Recognition for Beeline in Privacy & Security.") }
@@ -76,6 +88,15 @@ final class Voice {
                 DispatchQueue.main.async { done(granted ? nil : "Allow the Microphone for Beeline in Privacy & Security.") }
             }
         }
+    }
+
+    /// The custom words handed to the recognizer: distinct, of a useful length, at most 100.
+    static func contextualStrings(_ words: [String]) -> [String] {
+        var seen = Set<String>()
+        return words.map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { (2...40).contains($0.count) && seen.insert($0.lowercased()).inserted }
+            .prefix(100)
+            .map { $0 }
     }
 
     /// A buffer's loudness from 0 (silence, -50 dB and below) to 1 (0 dB), on a decibel scale so quiet
@@ -112,6 +133,7 @@ final class Voice {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.requiresOnDeviceRecognition = true
+        request.contextualStrings = Self.contextualStrings(vocabulary)
         self.request = request
 
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in

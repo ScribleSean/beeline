@@ -19,3 +19,17 @@ import Testing
     for index in 0..<256 { buffer.floatChannelData![0][index] = index.isMultiple(of: 2) ? 0.5 : -0.5 }
     #expect(Voice.level(of: buffer) > 0.8)
 }
+
+// App names and commands go to the recognizer: distinct, a useful length, at most 100.
+@Test func customWordsAreTidy() {
+    let words = Voice.contextualStrings(["Figma", " figma ", "x", "Raycast", String(repeating: "a", count: 60)])
+    #expect(words == ["Figma", "Raycast"])
+    #expect(Voice.contextualStrings((0..<300).map { "App \($0)" }).count == 100)
+}
+
+@Test func theVocabularyLeadsWithCommandsAndHasApps() {
+    TestEnvironment.prepare()
+    let words = sharedCatalogue.vocabulary()
+    #expect(words.first == "undo")
+    #expect(words.contains("Finder"))
+}

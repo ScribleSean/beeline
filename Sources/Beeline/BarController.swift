@@ -78,7 +78,10 @@ final class BarController: NSObject, NSWindowDelegate {
             switch Int(event.keyCode) {
             case kVK_Escape:
                 // The first Escape backs out of a plan; the second closes the bar. A plan still running stops.
-                if self.runGuard.isRunning {
+                if self.isListening {
+                    // Escape while holding ⌘Space throws the words away.
+                    self.cancelListening()
+                } else if self.runGuard.isRunning {
                     self.runGuard.stop(.escape)
                 } else if self.model.isShowingPlan {
                     self.model.clearPlan()
@@ -293,6 +296,7 @@ final class BarController: NSObject, NSWindowDelegate {
             lastTranscript = text
             self.model.query = text
         }
+        voice.vocabulary = model.catalogue.vocabulary()
         voice.onLevel = { [weak self] level in
             guard let self, self.isListening else { return }
             // Rise at once, fall gently, so the meter breathes rather than flickers.
@@ -311,6 +315,15 @@ final class BarController: NSObject, NSWindowDelegate {
             }
         }
         voice.start()
+    }
+
+    /// Stops listening and drops what was heard, so letting go of ⌘Space afterwards does nothing.
+    private func cancelListening() {
+        isListening = false
+        voice.cancel()
+        model.voiceLevel = nil
+        model.voiceNote = nil
+        model.query = ""
     }
 
     private func stopListening() {

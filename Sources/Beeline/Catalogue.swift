@@ -154,6 +154,11 @@ final class Catalogue {
         usage.record(item, query: query)
     }
 
+    /// Words worth teaching speech recognition: Beeline's commands first, then app names, then aliases.
+    func vocabulary() -> [String] {
+        ["undo", "dark mode", "Wi-Fi", "night shift"] + actions.map(\.title) + apps.map(\.title) + aliases.entries.keys
+    }
+
     /// Reads the user's shortcuts again, at most every two minutes: when the bar opens is often enough.
     func refreshShortcuts() {
         guard Date().timeIntervalSince(shortcutsRead) > 120 else { return }
