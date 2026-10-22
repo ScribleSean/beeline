@@ -1,21 +1,14 @@
 import AppKit
 import ApplicationServices
 
-/// The hands-free live check. Started only when Beeline is launched with BEELINE_DEMO set to a scenario
-/// name, which nothing does in normal use; scripts/live-check.sh is what sets it. Each scenario works in a
-/// throwaway TextEdit document it opens itself, presses only harmless TextEdit menu commands (the ruler and
-/// zoom), checks before every action that its own document is still the front window, and gives up
-/// otherwise. What happened goes to the JSON log (see DemoLog), ending with a "result" line.
 enum Demo {
     static let scenarios = ["press", "plan", "escape", "click", "welcome", "release"]
 
-    /// The scenario asked for, or nil in normal use.
     static var requested: String? {
         guard let name = ProcessInfo.processInfo.environment["BEELINE_DEMO"], scenarios.contains(name) else { return nil }
         return name
     }
 
-    /// A ruler is about 30 points tall; anything under 12 is the window settling, not a ruler.
     static func rulerMoved(from before: CGFloat, to after: CGFloat) -> Bool {
         abs(after - before) >= 12
     }
@@ -24,7 +17,6 @@ enum Demo {
         let path = ProcessInfo.processInfo.environment["BEELINE_DEMO_LOG"]
             ?? FileManager.default.temporaryDirectory.appendingPathComponent("beeline-live-check.jsonl").path
         DemoLog.shared = DemoLog(path: path)
-        // Slow enough that a screenshot taken a moment after takeoff still finds the bee in the air.
         Bee.pace = 3
         Bee.forceOn = true
         DemoLog.note("start", ["scenario": scenario])
@@ -44,11 +36,9 @@ enum Demo {
     @MainActor
     private final class Runner {
         let bar: BarController
-        /// Where the text starts in the document when it opened, so cleaning up can put the ruler back.
         var textTopAtStart: CGFloat?
         var textEdit: NSRunningApplication?
         var document: URL?
-        /// The document's name, so its window can be found even if it never came to the front.
         var name = ""
         var window: AXUIElement?
 
@@ -77,17 +67,12 @@ enum Demo {
             }
         }
 
-        // MARK: Scenarios
-
-        /// Types a request in the bar and presses Return on TextEdit's ruler command: the bee flies to the
-        /// Format menu, rings it, and the ruler shows (or hides).
         private func press() async -> (Bool, String) {
             guard let ruler = rulerCommand() else { return (false, "TextEdit has no Show Ruler or Hide Ruler command") }
             let before = ruler.title
             let topBefore = textTop()
             bar.show()
             bar.model.query = before.lowercased()
-            // The bar reads the front app's menus a moment after it opens.
             var row: Int?
             for _ in 0..<40 {
                 row = bar.model.results.firstIndex { $0.kind == .menu && $0.title == before && $0.id.hasPrefix("menu:\(textEdit!.processIdentifier):") }
@@ -100,8 +85,6 @@ enum Demo {
             bar.model.selected = row
             await shot("bar-result")
             guard isOurs() else { return (false, "the TextEdit document wasn't in front, so nothing was pressed") }
-            // The very row found, by id: the list can change while the screenshot is taken, and whatever row
-            // is selected by then must not be what runs.
             guard let current = bar.model.results.first(where: { $0.id == found.id }) else {
                 return (false, "“\(before)” left the bar before it could be pressed")
             }
@@ -118,9 +101,6 @@ enum Demo {
                 : (false, "flew \(flew), pressed \(pressed), ruler toggled \(flipped)")
         }
 
-        /// Letting go of ⌘Space after saying "TextEdit": Beeline announces it, Escape in that beat stops it,
-        /// and without Escape it opens (TextEdit is already in front, so nothing changes on screen). Speech
-        /// can't be faked here, so the final words go to the same place real recognition sends them.
         private func release() async -> (Bool, String) {
             guard Settings.isOn(Settings.actOnRelease), Settings.isOn(Settings.holdToTalk) else {
                 return (false, "“Act when you let go” or hold-to-talk is off in Settings")
@@ -131,21 +111,17 @@ enum Demo {
             try? await Task.sleep(nanoseconds: 400_000_000)
             guard isOurs() else { return (false, "the TextEdit document wasn't in front, so nothing was tried") }
 
-            // First, Escape in the beat: nothing runs.
             bar.heard("TextEdit")
             guard DemoLog.shared?.count("auto-act") == 1 else {
                 let top = bar.model.results.first.map { "\($0.verb) \($0.title)" } ?? "nothing"
                 return (false, "letting go announced nothing; the top result was \(top)")
             }
-            // The beat is 0.7 s, shorter than the usual pause for a screenshot: mark the moment, wait a little,
-            // and press Escape well inside the beat.
             DemoLog.note("shot", ["name": "announced"])
             try? await Task.sleep(nanoseconds: 300_000_000)
             bar.cancelPendingAct()
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             let stopped = DemoLog.shared?.count("pressed") == 0 && DemoLog.shared?.count("auto-act-cancelled") == 1
 
-            // Then without Escape: it runs.
             bar.heard("TextEdit")
             await waitFor(seconds: 3) { (DemoLog.shared?.count("pressed") ?? 0) > 0 }
             let ran = DemoLog.shared?.last("pressed")?["title"] as? String == "TextEdit"
@@ -154,11 +130,8 @@ enum Demo {
                 : (false, "esc stopped it \(stopped), ran after the beat \(ran)")
         }
 
-        /// A two-step plan: toggle the ruler, then zoom in. With `interrupt`, a stop arrives while the bee is
-        /// on its way to the first step, and nothing may be pressed.
         private func plan(interrupt: RunGuard.Reason?) async -> (Bool, String) {
             guard let ruler = rulerCommand() else { return (false, "TextEdit's ruler command wasn't found") }
-            // The stop checks need only the first step; the plan check needs both.
             let zoom = menuCommand("Zoom In")
             if interrupt == nil, zoom == nil { return (false, "TextEdit's Zoom In command wasn't found") }
             let topBefore = textTop()
@@ -168,8 +141,6 @@ enum Demo {
                 step.target = item.target
                 return step
             }
-            // As a person would: open the bar, type the request, then the plan arrives (from Claude, normally).
-            // Setting it straight after opening loses it to the bar's own reset of the search field.
             bar.show()
             try? await Task.sleep(nanoseconds: 500_000_000)
             bar.model.query = "show the ruler and zoom in"
@@ -185,7 +156,6 @@ enum Demo {
                 await waitFor { (DemoLog.shared?.count("bee-takeoff") ?? 0) > 0 }
                 let seconds = DemoLog.shared?.last("bee-takeoff")?["seconds"] as? Double ?? 1
                 try? await Task.sleep(nanoseconds: UInt64(seconds * 0.4 * 1_000_000_000))
-                // The same event the watch would see from another app, handed to the same code.
                 let event: NSEvent?
                 if interrupt == .escape {
                     event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
@@ -224,9 +194,6 @@ enum Demo {
                 ? (true, "the bee flew to both steps and both ran") : (false, "landed \(landed), pressed \(pressed), finished \(finished)")
         }
 
-        // MARK: The throwaway document
-
-        /// Opens a new rich-text document in TextEdit and waits until it is the front window.
         private func openDocument() async -> Bool {
             name = "Beeline live check \(UUID().uuidString.prefix(6))"
             let url = FileManager.default.temporaryDirectory.appendingPathComponent(name + ".rtf")
@@ -256,7 +223,6 @@ enum Demo {
             return false
         }
 
-        /// True only while TextEdit is in front with this check's own document focused.
         private func isOurs() -> Bool {
             guard let textEdit, let window else { return false }
             return Accessibility.isFrontWindow(window, of: textEdit.processIdentifier)
@@ -267,14 +233,12 @@ enum Demo {
             return Accessibility.menuCommands(of: textEdit).first { $0.title == title }
         }
 
-        /// The ruler command, whichever way it reads. Its title is no guide to the ruler: TextEdit updates it
-        /// only when the menu is opened, so it can say Show Ruler with the ruler showing. Either way it toggles.
+        /// TextEdit updates this command's title only when the menu is opened, so it can say Show Ruler with
+        /// the ruler showing. Either way it toggles.
         private func rulerCommand() -> Item? {
             menuCommand("Show Ruler") ?? menuCommand("Hide Ruler")
         }
 
-        /// How far below the window's top the text area starts. The ruler, when shown, sits above the text and
-        /// pushes it down, so a change here is the ruler toggling.
         private func textTop() -> CGFloat? {
             guard let window, let windowFrame = Accessibility.frame(of: window) else { return nil }
             var queue: [(AXUIElement, Int)] = [(window, 0)]
@@ -294,22 +258,17 @@ enum Demo {
             return nil
         }
 
-        /// True when the text moved by at least the height of a ruler since `before` was measured.
         private func rulerToggled(since before: CGFloat?) -> Bool {
             guard let before, let now = textTop() else { return false }
             return Demo.rulerMoved(from: before, to: now)
         }
 
-        /// Puts the ruler and zoom back, closes the document and deletes its file. Leaves alone anything it
-        /// can't be sure is its own. False when the document is still open, in which case its file stays too.
         func cleanUp() async -> Bool {
             bar.runGuard.stop(.replaced)
             guard let textEdit else {
                 if let document { try? FileManager.default.removeItem(at: document) }
                 return true
             }
-            // A document that opened but never came to the front (the screen was locked, say) is found by its
-            // name, so it is closed too and never left holding a file that's gone.
             if window == nil {
                 let windows: [AXUIElement] = Accessibility.attribute(Accessibility.applicationElement(textEdit), kAXWindowsAttribute) ?? []
                 window = windows.first { (Accessibility.attribute($0, kAXTitleAttribute) as String?)?.hasPrefix(name) == true }
@@ -320,7 +279,6 @@ enum Demo {
             }
             if let actual = menuCommand("Actual Size"), actual.stillValid?() ?? true { actual.run() }
             if rulerToggled(since: textTopAtStart), let ruler = rulerCommand(), ruler.stillValid?() ?? true { ruler.run() }
-            // Its own close button, whether or not it is in front: the window is certainly this check's own.
             if let close: AXUIElement = Accessibility.attribute(window, kAXCloseButtonAttribute) {
                 AXUIElementPerformAction(close, kAXPressAction as CFString)
                 try? await Task.sleep(nanoseconds: 600_000_000)
@@ -328,14 +286,10 @@ enum Demo {
             let open = (Accessibility.attribute(Accessibility.applicationElement(textEdit), kAXWindowsAttribute) as [AXUIElement]?)?
                 .contains { CFEqual($0, window) } ?? false
             DemoLog.note("cleanup", ["documentClosed": !open])
-            // A document still open keeps its file: TextEdit would be left holding a file that's gone.
             if !open, let document { try? FileManager.default.removeItem(at: document) }
             return !open
         }
 
-        // MARK: Helpers
-
-        /// Marks a moment for a screenshot and holds still long enough for the script to take it.
         private func shot(_ name: String) async {
             DemoLog.note("shot", ["name": name])
             try? await Task.sleep(nanoseconds: 900_000_000)

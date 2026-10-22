@@ -1,8 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// Things Beeline does itself, as opposed to opening something. Every action is a fixed command
-/// with fixed arguments: nothing typed in the bar is ever passed to a shell.
 enum Actions {
     private struct Definition {
         let title: String
@@ -15,8 +13,6 @@ enum Actions {
     }
 
     private static let definitions: [Definition] = [
-        // Generic words like "mac" or "computer" are left out of keywords on purpose: "comp" must not put
-        // the Mac to sleep.
         Definition(title: "Sleep", symbol: "moon.zzz", keywords: "suspend rest nap") {
             run("/usr/bin/pmset", "sleepnow")
         },
@@ -64,16 +60,12 @@ enum Actions {
             }
             UndoLog.shared.record("Hide Other Apps") { for app in hidden { app.unhide() } }
         },
-        // Twice: a disk still being written to can lose what was on its way (Codex 7). The card names them.
         Definition(title: "Eject All Disks", symbol: "eject", keywords: "unmount drives usb external remove", needsConfirm: true) {
             ejectAll()
         },
         Definition(title: "Empty Trash", symbol: "trash", keywords: "bin delete rubbish clear", needsConfirm: true) {
             script("tell application \"Finder\" to empty trash", what: "empty the Trash", app: "Finder")
         },
-        // These three need Return twice. macOS shows its own dialog too, but that one goes ahead by itself
-        // after 60 seconds, so it is no safety net for a Return pressed by mistake. Keywords are matched
-        // whole for anything that needs confirming: "logo" or "sign" must never surface Log Out.
         Definition(title: "Restart", symbol: "arrow.clockwise", keywords: "reboot", needsConfirm: true,
                    confirmNote: "Open apps close. macOS asks once more, then goes ahead on its own after a minute.") {
             script("tell application \"loginwindow\" to «event aevtrrst»", what: "restart", app: "the login window")
@@ -103,7 +95,6 @@ enum Actions {
         }
     }
 
-    /// "Quit Safari" for every app with a window presence. Apps still ask about unsaved work themselves.
     static func quitItems() -> [Item] {
         NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular && $0 != .current }
@@ -125,14 +116,10 @@ enum Actions {
         try? process.run()
     }
 
-    /// Runs AppleScript and waits for it in the background. A failure says so: with Automation denied for
-    /// the app the script talks to (error -1743), nothing would happen and the bar would already be closed.
     private static func script(_ source: String, what: String, app: String? = nil) {
         DispatchQueue.global(qos: .userInitiated).async { _ = runScript(source, what: what, app: app) }
     }
 
-    /// Runs AppleScript and waits for it; call off the main thread. Says so when it fails, and returns what
-    /// it printed, or nil on failure.
     @discardableResult
     private static func runScript(_ source: String, what: String, app: String? = nil) -> String? {
         let process = Process()
@@ -156,9 +143,6 @@ enum Actions {
         }
         return nil
     }
-
-    // Each toggle reads how things were, acts, and only once that worked records an undo that puts back
-    // exactly how things were: undoing Mute when the sound was already muted leaves it muted.
 
     private static func setMuted(_ muted: Bool, title: String) {
         DispatchQueue.global(qos: .userInitiated).async {
@@ -191,9 +175,6 @@ enum Actions {
         }
     }
 
-    /// Ejects every ejectable volume through the system, which reports what could not be ejected and needs
-    /// no Automation permission.
-    /// The disks Eject All Disks would eject, by name.
     static func ejectableDisks() -> [(url: URL, name: String)] {
         let keys: [URLResourceKey] = [.volumeIsEjectableKey, .volumeIsRootFileSystemKey, .volumeLocalizedNameKey]
         let volumes = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? []
@@ -204,7 +185,6 @@ enum Actions {
         }
     }
 
-    /// What the confirm card says for Eject All Disks: which disks go.
     static func ejectSummary(_ names: [String]) -> String {
         switch names.count {
         case 0: return "No disks are connected that can be ejected."
@@ -234,8 +214,6 @@ enum Actions {
         }
     }
 
-    /// Posted when an action could not do what it said, with the reason under "message". The bar reopens
-    /// and shows it, so a failure never looks like success.
     static let failed = Notification.Name("BeelineActionFailed")
 
     static func report(_ message: String) {
@@ -245,15 +223,13 @@ enum Actions {
         }
     }
 
-    /// Locks with the ⌃⌘Q keystroke, then checks that it took. macOS drops posted keystrokes from an app
-    /// without Accessibility, so without the check the bar would close as if the Mac were locked.
+    /// macOS drops posted keystrokes silently, so whether ⌃⌘Q locked the screen is checked afterwards.
     private static func lockScreen() {
         guard Keyboard.canPostKeys else {
             CGRequestPostEventAccess()
             report("Allow Accessibility for Beeline in Privacy & Security to lock the screen.")
             return
         }
-        // The bar is still closing; a keystroke posted that instant can land in it instead of macOS.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             Keyboard.press("q", flags: [.maskCommand, .maskControl])
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
@@ -262,7 +238,6 @@ enum Actions {
         }
     }
 
-    /// Whether the login window is up. Nil when macOS does not say.
     static var isScreenLocked: Bool? {
         guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else { return nil }
         return (session["CGSSessionScreenIsLocked"] as? Bool) ?? (session["CGSSessionScreenIsLocked"] as? Int).map { $0 != 0 }
@@ -288,7 +263,6 @@ enum Actions {
         }
     }
 
-    /// What a command printed, trimmed. Call off the main thread.
     private static func commandOutput(of path: String, _ arguments: String...) -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)

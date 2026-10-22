@@ -1,9 +1,6 @@
 import AppKit
 import ApplicationServices
 
-/// Reads the controls inside the front window (buttons, links, checkboxes, fields) so one can be
-/// pressed by typing its name. Pruned the way typesafe-computer-use measured to be necessary:
-/// off-window frames, slivers and closed menus are skipped, and the walk stops at 4000 nodes or 0.6 s.
 extension Accessibility {
     private static let roles: [String: (verb: String, noun: String)] = [
         "AXButton": ("Press", "button"),
@@ -19,35 +16,24 @@ extension Accessibility {
         "AXDisclosureTriangle": ("Toggle", "disclosure"),
     ]
 
-    /// Labels that mean the press cannot be taken back. These need Return twice. Apostrophes are dropped
-    /// before comparing, so "Don't Save" is "dont save" here.
     private static let irreversible = [
         "delete", "remove", "discard", "erase", "trash", "send", "buy", "pay", "purchase", "order", "submit",
         "unsubscribe", "sign out", "log out", "reset", "clear", "uninstall", "erase disk", "publish", "post", "confirm",
         "dont save", "replace", "overwrite", "force quit", "empty bin", "empty trash", "bin", "delete all", "remove all",
-        // Closing many at once: a browser's Close Other Tabs or Close All Windows takes everything with it.
         "close all", "close other", "close others", "close tabs to",
     ]
 
-    /// Buttons in a dialog that are safe however the dialog is worded. Only ones that back out: "OK" is not
-    /// here, because "Permanently delete these items?" is answered with OK.
     private static let harmless: Set<String> = ["cancel", "save", "stop", "keep both", "dont replace", "not now", "later", "close"]
 
-    /// True for a label that means the action cannot be taken back. Whole words only: "Reorder" is not
-    /// "order", and "Paint format" is not "format a disk".
     static func isIrreversible(_ label: String) -> Bool {
         let words = " " + labelWords(label) + " "
         return irreversible.contains { words.contains(" \($0) ") }
     }
 
-    /// True for a button in a sheet or dialog that is not plainly safe. Dialogs are where "Don't Save",
-    /// "Replace" and "Force Quit" live, in every language, so their buttons need Return twice whatever
-    /// they say.
     static func needsConfirmInDialog(_ label: String) -> Bool {
         !harmless.contains(labelWords(label))
     }
 
-    /// A dialog's text on one line, cut short enough for the confirm card. Nil when it says nothing.
     static func dialogSummary(_ text: String) -> String? {
         let flat = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         guard flat.contains(where: \.isLetter) else { return nil }
@@ -61,7 +47,6 @@ extension Accessibility {
 
     private static let fieldRoles: Set<String> = ["AXTextField", "AXSearchField", "AXTextArea", "AXComboBox"]
 
-    /// Apps already asked to build their accessibility tree. Asked once per process.
     private static var askedForTree = Set<pid_t>()
     private static let askedLock = NSLock()
 
@@ -79,7 +64,6 @@ extension Accessibility {
         let windowSubrole: String = attribute(window, kAXSubroleAttribute) ?? ""
         let windowIsDialog = windowSubrole == "AXDialog" || windowSubrole == "AXSystemDialog"
 
-        /// What the dialog or sheet says, so the confirm card can show what its OK would agree to.
         var dialogMessage: String?
 
         func walk(_ node: AXUIElement, depth: Int, inDialog: Bool) {
@@ -94,15 +78,12 @@ extension Accessibility {
                 dialogMessage = dialogSummary(text)
             }
             let box = frame(of: node)
-            // Containers often report an empty frame while their children are real, so only a container with
-            // a genuine size that lies wholly outside the window is skipped with everything inside it.
+            // Containers often report an empty frame while their children are real.
             if let box, box.width > 0, box.height > 0, !box.intersects(windowFrame) { return }
-            // A control must be visible in the window and big enough to be a real target; Chromium leaves
-            // scrolled-out nodes behind as slivers.
+            // Chromium leaves scrolled-out nodes behind as slivers.
             if roles[role] != nil, let box, box.width >= 4, box.height >= 4, box.intersects(windowFrame),
                let label = label(of: node, role: role) {
                 found.append((node, role, attribute(node, kAXSubroleAttribute) ?? "", label, box, inDialog))
-                // A control's insides (its icon, its text) are part of it, not separate controls.
                 return
             }
             let children: [AXUIElement] = attribute(node, kAXChildrenAttribute) ?? []
@@ -111,9 +92,7 @@ extension Accessibility {
         walk(window, depth: 0, inDialog: windowIsDialog)
 
         // Electron and Chromium apps (Claude, Slack, VS Code) expose almost nothing until a screen reader
-        // asks for the full tree through this flag. Ask once, give the app a moment, and look again.
-        // An app counts as asked only when it actually is: one whose first scan happened to be big must
-        // still get its ask on a later, sparser window.
+        // asks for the full tree through AXManualAccessibility, and need a moment to build it.
         var firstAsk = false
         if visited < 60 {
             askedLock.lock()
@@ -128,7 +107,6 @@ extension Accessibility {
             walk(window, depth: 0, inDialog: windowIsDialog)
         }
 
-        // A label that appears more than once gets where it sits, so the two can be told apart.
         var counts: [String: Int] = [:]
         for control in found { counts[control.role + control.label, default: 0] += 1 }
         var seen = Set<String>()
@@ -159,9 +137,6 @@ extension Accessibility {
                 item.confirmNote = "In “\(windowTitle)” (\(appName)). This can't be undone."
             }
             let expected = control.label, role = control.role
-            // The control came from one window. Before it is pressed, that window must still be the one in
-            // front: the user may have switched windows since the scan, and a "Send" pressed in the wrong
-            // compose window cannot be taken back.
             item.stillValid = {
                 guard isFrontWindow(window, of: pid) else { return false }
                 let enabled: Bool = attribute(node, kAXEnabledAttribute) ?? true
@@ -175,7 +150,6 @@ extension Accessibility {
         return items
     }
 
-    /// The words a person would use for the control: its title, description, placeholder, or the text inside it.
     private static func label(of node: AXUIElement, role: String) -> String? {
         var candidates: [String?] = [attribute(node, kAXTitleAttribute), attribute(node, kAXDescriptionAttribute)]
         if fieldRoles.contains(role) {
@@ -183,7 +157,6 @@ extension Accessibility {
         } else if let value: String = attribute(node, kAXValueAttribute), value.count <= 60 {
             candidates.append(value)
         }
-        // An icon button often carries its name on the image or text inside it.
         let children: [AXUIElement] = attribute(node, kAXChildrenAttribute) ?? []
         for child in children.prefix(4) {
             candidates.append(attribute(child, kAXValueAttribute) as String?)
@@ -198,7 +171,7 @@ extension Accessibility {
         return nil
     }
 
-    /// Where an element is on screen, in Accessibility coordinates (top left of the primary screen).
+    /// Accessibility coordinates: origin at the top left of the primary screen.
     static func frame(of node: AXUIElement) -> CGRect? {
         var origin = CGPoint.zero
         var size = CGSize.zero

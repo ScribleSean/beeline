@@ -1,12 +1,9 @@
 import AppKit
 import ApplicationServices
 
-/// Reads what is on screen through the macOS Accessibility API: open windows and the
-/// menu commands of an app. Needs the Accessibility permission; returns nothing without it.
 enum Accessibility {
     static var isTrusted: Bool { AXIsProcessTrusted() }
 
-    /// Shows the system prompt that sends the user to Privacy & Security to allow Beeline.
     static func requestAccess() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
@@ -47,13 +44,11 @@ enum Accessibility {
         return items
     }
 
-    /// Opens an app, waits for its window to appear, and places it. For apps with no window open yet.
     static func openAndPlace(_ url: URL, _ side: Side) {
         NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration()) { app, _ in
             guard let app else { return }
             DispatchQueue.global(qos: .userInitiated).async {
                 let element = applicationElement(app)
-                // A cold launch can take a few seconds to show its first window.
                 for _ in 0..<25 {
                     let windows: [AXUIElement] = attribute(element, kAXWindowsAttribute) ?? []
                     if let window = windows.first {
@@ -69,7 +64,6 @@ enum Accessibility {
         }
     }
 
-    /// Moves and resizes a window to half of, or all of, the usable area of the screen the pointer is on.
     private static func place(_ window: AXUIElement, _ side: Side) {
         let mouse = NSEvent.mouseLocation
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) ?? NSScreen.main,
@@ -84,7 +78,6 @@ enum Accessibility {
         guard let position = AXValueCreate(.cgPoint, &origin), let extent = AXValueCreate(.cgSize, &size) else { return }
         let before = frame(of: window)
         setFrame(window, position, extent)
-        // "undo" puts the window back where it was.
         if let before {
             let title: String = attribute(window, kAXTitleAttribute) ?? ""
             let name = title.isEmpty ? "the window" : "“\(title.prefix(40))”"
@@ -104,13 +97,11 @@ enum Accessibility {
         AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, position)
     }
 
-    /// Every enabled command in the app's menu bar, as "Run Export as PDF…  [Safari › File]".
     static func menuCommands(of app: NSRunningApplication) -> [Item] {
         guard isTrusted else { return [] }
         let name = app.localizedName ?? ""
         let appElement = applicationElement(app)
         guard let menuBar: AXUIElement = attribute(appElement, kAXMenuBarAttribute) else { return [] }
-        // Menu commands act on the focused window, so the one focused now is the one they may act on.
         let scannedWindow: AXUIElement? = attribute(appElement, kAXFocusedWindowAttribute)
 
         var items: [Item] = []
@@ -119,7 +110,6 @@ enum Accessibility {
         func walk(_ element: AXUIElement, path: [String], depth: Int) {
             let children: [AXUIElement] = attribute(element, kAXChildrenAttribute) ?? []
             for (position, child) in children.enumerated() {
-                // Big dynamic menus (History, Bookmarks) can hold thousands of entries.
                 guard items.count < 1500, Date() < deadline else { return }
                 let role: String = attribute(child, kAXRoleAttribute) ?? ""
                 if role == (kAXMenuRole as String) {
@@ -132,17 +122,13 @@ enum Accessibility {
                     if depth < 3 { walk(child, path: path + [title], depth: depth + 1) }
                 } else if attribute(child, kAXEnabledAttribute) ?? true {
                     let location = ([name] + path).joined(separator: " › ")
-                    // The position is part of the id: two Finder windows on Downloads give the Window menu two
-                    // items with one title, and two rows with one id confuse the list.
+                    // Two Finder windows on Downloads give the Window menu two items with one title.
                     var item = Item(id: "menu:\(app.processIdentifier):\(location):\(position):\(title)", kind: .menu, verb: "Run",
                                     title: title, subtitle: location, keywords: path.joined(separator: " "), icon: app.icon) {
                         AXUIElementPerformAction(child, kAXPressAction as CFString)
                     }
-                    // Menu commands like Delete or Send ask for Return twice, as buttons do.
                     item.needsConfirm = isIrreversible(title)
                     let pid = app.processIdentifier
-                    // A menu command acts on whatever is in front, so the app must still be the front one, with
-                    // the same window focused: Close or Delete in another window of the app is another act.
                     item.stillValid = {
                         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return false }
                         let element = AXUIElementCreateApplication(pid)
@@ -156,20 +142,16 @@ enum Accessibility {
                 }
             }
         }
-        // The Apple menu is skipped: Beeline's own actions cover sleep, restart and the rest, and its
-        // Recent Items list only repeats apps and files as noise ("Run Stremio").
         let menus: [AXUIElement] = attribute(menuBar, kAXChildrenAttribute) ?? []
         for menu in menus.dropFirst() {
             guard let title: String = attribute(menu, kAXTitleAttribute), !title.isEmpty else { continue }
             let first = items.count
             walk(menu, path: [title], depth: 1)
-            // A closed menu's commands have no place on screen; the bee goes to the menu's title instead.
             for index in first..<items.count { items[index].target = { frame(of: menu) } }
         }
         return items
     }
 
-    /// True when both are the same window, or both are no window at all.
     static func sameWindow(_ a: AXUIElement?, _ b: AXUIElement?) -> Bool {
         switch (a, b) {
         case (nil, nil): return true
@@ -178,7 +160,6 @@ enum Accessibility {
         }
     }
 
-    /// True when the app is in front and this window is the one it has focused.
     static func isFrontWindow(_ window: AXUIElement, of pid: pid_t) -> Bool {
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return false }
         let element = AXUIElementCreateApplication(pid)
@@ -189,7 +170,6 @@ enum Accessibility {
 
     static func applicationElement(_ app: NSRunningApplication) -> AXUIElement {
         let element = AXUIElementCreateApplication(app.processIdentifier)
-        // A hung app must not stall the whole scan.
         AXUIElementSetMessagingTimeout(element, 0.25)
         return element
     }

@@ -1,29 +1,16 @@
 import AppKit
 import SwiftUI
 
-/// The bee: Beeline's own cursor, which shows where Beeline is about to act. When you press Return on
-/// something on screen, it flies there from the bar, a ring settles around the target, and then the
-/// action runs. Your real pointer never moves.
-///
-/// It is drawn in a click-through overlay on the target's screen, never takes focus, and rests beside
-/// the target rather than on it.
 final class Bee {
     private let model = BeeModel()
     private var panel: NSPanel?
-    /// Where the bee is now, in AppKit screen coordinates, so the next flight starts from there.
     private var position: CGPoint?
     private var hideWork: DispatchWorkItem?
 
     static var isEnabled: Bool { forceOn || Settings.isOn(Settings.showBee) }
-    /// Set by the live check, so the bee shows without changing the saved setting.
     static var forceOn = false
-    /// How much slower than usual the bee goes. 1 normally; the live check slows it so a screenshot can
-    /// catch it in flight.
     static var pace: Double = 1
 
-    /// Flies to a target and rings it. Returns false when the flight was cancelled or the target is on no
-    /// screen. `axTarget` is in Accessibility coordinates; `origin` is where to start if the bee is not
-    /// already out, in AppKit coordinates.
     @MainActor
     func fly(to axTarget: CGRect, saying text: String, from origin: CGPoint?) async -> Bool {
         hideWork?.cancel()
@@ -34,7 +21,6 @@ final class Bee {
         guard let screen = BeeFlight.screen(for: target, among: frames) else { return false }
 
         let perch = BeeFlight.perch(beside: target, in: screen)
-        // A bee out on another screen starts again from this one's nearest edge point.
         var start = position ?? origin ?? perch
         if BeeFlight.screen(containing: start, among: [screen]) == nil {
             start = CGPoint(x: min(max(start.x, screen.minX + 15), screen.maxX - 15),
@@ -57,7 +43,6 @@ final class Bee {
         DemoLog.note("bee-takeoff", ["from": DemoLog.numbers(start), "to": DemoLog.numbers(perch),
                                      "target": DemoLog.numbers(target), "seconds": duration, "label": text])
 
-        // Land, then let the ring settle before the action runs, so you see where it happens first.
         try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
         if Task.isCancelled { return false }
         model.ring = target
@@ -67,7 +52,6 @@ final class Bee {
         return !Task.isCancelled
     }
 
-    /// Says something short beside the bee where it is, such as why it stopped. False when the bee isn't out.
     @discardableResult
     func say(_ text: String) -> Bool {
         guard model.isShown else { return false }
@@ -76,7 +60,6 @@ final class Bee {
         return true
     }
 
-    /// Fades away after a moment, unless another flight starts first.
     func leave(after delay: TimeInterval = 0.6) {
         hideWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.hide() }
@@ -84,13 +67,11 @@ final class Bee {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
-    /// Gone at once.
     func hide() {
         hideWork?.cancel()
         model.isShown = false
         model.ring = nil
         position = nil
-        // The fade is drawn by SwiftUI; the window goes once it has finished.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             guard let self, !self.model.isShown else { return }
             self.panel?.orderOut(nil)
@@ -105,7 +86,6 @@ final class Bee {
             panel.isOpaque = false
             panel.backgroundColor = .clear
             panel.hasShadow = false
-            // Clicks go straight through to whatever is underneath (review #8).
             panel.ignoresMouseEvents = true
             panel.isReleasedWhenClosed = false
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
@@ -127,10 +107,9 @@ final class BeeModel: ObservableObject {
     @Published var ringStart = Date()
     @Published var label: String?
     @Published var isShown = false
-    /// True when the target is to the bee's left once it lands, so it turns to face it.
     @Published var faceLeftWhenLanded = false
 
-    /// AppKit screen coordinates to the overlay's own, which start at the top left.
+    /// AppKit screen coordinates start at the bottom left; the SwiftUI overlay's start at the top left.
     func local(_ point: CGPoint) -> CGPoint {
         CGPoint(x: point.x - screen.minX, y: screen.maxY - point.y)
     }
@@ -149,16 +128,13 @@ private struct BeeOverlay: View {
             let elapsed = now.timeIntervalSince(model.flightStart)
             let progress = model.duration > 0 ? min(1, elapsed / model.duration) : 1
             let flying = progress < 1
-            // A slow hover once landed: a point and a half up and down.
             let bob = flying ? 0 : sin(now.timeIntervalSinceReferenceDate * 2 * .pi * 0.7) * 1.5
             let spot = model.local(model.flight.point(at: progress))
-            // Face the way it flies, then turn toward the target once landed, and tilt a little into a climb
-            // or a dive. Screen angles point up; SwiftUI turns clockwise, hence the minus.
+            // Screen angles point up; SwiftUI's rotationEffect turns clockwise, hence the minus on the tilt.
             let heading = model.flight.heading(at: progress)
             let faceLeft = flying ? cos(heading) < 0 : model.faceLeftWhenLanded
             let climb = atan2(sin(heading), abs(cos(heading))) * 180 / .pi
             let tilt = flying ? max(-14, min(14, -climb * 0.25)) : 0
-            // The pill goes on whichever side has room for its widest.
             let onRight = spot.x + 22 + 260 + 8 < model.screen.width
 
             ZStack(alignment: .topLeading) {
@@ -186,7 +162,7 @@ private struct BeeOverlay: View {
             }
             .frame(width: model.screen.width, height: model.screen.height, alignment: .topLeading)
         }
-        // Coordinates are the whole screen's: a notch's safe area must not push the bee down.
+        // On a notched display, the safe area would push the whole-screen overlay down.
         .ignoresSafeArea()
         .opacity(model.isShown ? 1 : 0)
         .animation(.easeOut(duration: 0.2), value: model.isShown)
@@ -195,7 +171,6 @@ private struct BeeOverlay: View {
     }
 }
 
-/// A thin yellow ring that settles onto the target, with one soft pulse outward.
 private struct TargetRing: View {
     let rect: CGRect
     let age: TimeInterval
@@ -219,8 +194,6 @@ private struct TargetRing: View {
     }
 }
 
-/// The bee, drawn rather than an image so its wings can move: a yellow body with two ink bands, an ink
-/// head and two pale wings that beat while it flies and drift slowly once it lands.
 private struct BeeGlyph: View {
     let time: TimeInterval
     let flying: Bool
@@ -229,7 +202,6 @@ private struct BeeGlyph: View {
         let beat = flying ? sin(time * 2 * .pi * 11) : sin(time * 2 * .pi * 1.4) * 0.4
         let wing = 0.75 + 0.25 * beat
         ZStack {
-            // Wings sit behind and above the body.
             Group {
                 Ellipse().frame(width: 10, height: 13)
                     .scaleEffect(x: 1, y: wing, anchor: .bottom)
@@ -248,7 +220,6 @@ private struct BeeGlyph: View {
                     .scaleEffect(x: 1, y: wing, anchor: .bottom).rotationEffect(.degrees(20), anchor: .bottom).offset(x: 4, y: -9)
             })
 
-            // The head sits half inside the body, so the two read as one bee.
             Circle()
                 .fill(Theme.ink)
                 .frame(width: 9, height: 9)

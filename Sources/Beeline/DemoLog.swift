@@ -1,8 +1,5 @@
 import Foundation
 
-/// What a live-check run did, written as it happens: one JSON object per line, so a script can follow
-/// along (taking screenshots at the right moments) and judge the result. Outside a live check there is no
-/// log, and every note is a no-op.
 final class DemoLog {
     static var shared: DemoLog?
 
@@ -17,7 +14,6 @@ final class DemoLog {
         self.handle = handle
     }
 
-    /// Records an event. Safe from any thread.
     static func note(_ name: String, _ details: [String: Any] = [:]) {
         shared?.write(name, details)
     }
@@ -47,7 +43,6 @@ final class DemoLog {
         return events.last { $0.name == name }?.details
     }
 
-    /// Numbers for a log: a point or a rect as a short array.
     static func numbers(_ point: CGPoint) -> [Double] {
         [Double(point.x), Double(point.y)].map { ($0 * 10).rounded() / 10 }
     }

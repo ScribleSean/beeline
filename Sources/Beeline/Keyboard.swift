@@ -1,14 +1,12 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// Fakes keystrokes the way a person would type them. Keys are looked up in the keyboard layout in use,
-/// so ⌘V is the key that types "v" on Dvorak and AZERTY too, not the key in that position on a US keyboard.
+/// Virtual key codes are physical key positions, so ⌘V must be the key that types "v" in the current
+/// layout (Dvorak, AZERTY), not the US-position key.
 enum Keyboard {
-    /// True when macOS will deliver keystrokes Beeline posts, which needs the Accessibility permission.
-    /// Without it they are dropped silently.
+    /// Without the Accessibility permission, macOS drops posted keystrokes silently.
     static var canPostKeys: Bool { CGPreflightPostEventAccess() }
 
-    /// The key that types this character with no modifiers on the current layout, if any.
     static func keyCode(for character: Character) -> CGKeyCode? {
         guard let layout = currentLayout() else { return nil }
         for code in 0..<128 {
@@ -17,27 +15,22 @@ enum Keyboard {
         return nil
     }
 
-    /// The unmodified character a key types on the current layout.
     static func character(for code: CGKeyCode) -> Character? {
         currentLayout().flatMap { character(for: code, in: $0) }
     }
 
-    /// Posts a key down and up for the key that types `character`, with the modifiers held.
-    /// False when the key cannot be found or keystrokes cannot be posted.
     @discardableResult
     static func press(_ character: Character, flags: CGEventFlags) -> Bool {
         guard canPostKeys, let code = keyCode(for: character) ?? fallback[character] else { return false }
         for isDown in [true, false] {
             let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: isDown)
             event?.flags = flags
-            // Tagged, so a run in progress never takes Beeline's own keystroke for you taking over.
             event?.setIntegerValueField(.eventSourceUserData, value: RunGuard.eventTag)
             event?.post(tap: .cghidEventTap)
         }
         return true
     }
 
-    /// US positions, used only when the layout cannot be read at all.
     private static let fallback: [Character: CGKeyCode] = ["q": CGKeyCode(kVK_ANSI_Q), "v": CGKeyCode(kVK_ANSI_V)]
 
     private static func currentLayout() -> Data? {
