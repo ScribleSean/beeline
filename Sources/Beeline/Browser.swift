@@ -46,7 +46,11 @@ struct Browser {
         guard let output = Self.osascript(script, timeout: 60) else { return [] }
         let icon = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
             .map { NSWorkspace.shared.icon(forFile: $0.path) }
+        return items(from: output, icon: icon)
+    }
 
+    /// One tab per line: window id, tab id, title and address, split by tabs.
+    func items(from output: String, icon: NSImage?) -> [Item] {
         var seen = 0
         return output.split(separator: "\n").compactMap { line in
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
@@ -84,7 +88,7 @@ struct Browser {
     }
 
     /// Only quotes and backslashes have meaning inside an AppleScript string literal.
-    private static func quoted(_ text: String) -> String {
+    static func quoted(_ text: String) -> String {
         "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 
@@ -172,7 +176,7 @@ struct Browser {
 
     /// Runs AppleScript in a child process so it is safe off the main thread. AppleScript's own Apple
     /// event timeout is two minutes, so a shorter one is set.
-    private static func osascript(_ source: String, timeout: TimeInterval = 5) -> String? {
+    static func osascript(_ source: String, timeout: TimeInterval = 5) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", "with timeout of \(Int(timeout)) seconds\n" + source + "\nend timeout"]
