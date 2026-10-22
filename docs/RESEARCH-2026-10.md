@@ -76,3 +76,9 @@ Two ways to decide what to do with the words:
 - **Claude.** Better at multi-step requests and at "the other window", but takes seconds, sends window and button names off the Mac, needs a Claude Code sign-in, and widens the prompt-injection surface. Its plans should always be previewed, never run on release.
 
 The research agrees on a split: the Mac decides and may act for safe single steps; Claude is asked only for plans and follow-ups, and its plans are always shown first.
+
+## Chosen (21 October 2026)
+
+- **After you let go of ⌘Space:** act on safe things. One clear, undoable, local action runs after a short "esc to cancel" beat; anything else waits for Return. Decided on the Mac.
+- **Build first:** voice upgrades (app names, faster start, esc while holding), undo, learning you can see, and your Shortcuts plus aliases.
+- **⌘Space:** keep it, with a clearer check that names what holds it.
