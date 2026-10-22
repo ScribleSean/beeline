@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Carbon.HIToolbox
+import Network
 
 enum Demo {
     static let scenarios = ["press", "plan", "escape", "click", "welcome", "release", "open", "rewrite", "tab"]
@@ -291,18 +292,18 @@ enum Demo {
                 return (false, "Safari isn't open; the check only adds a window to a running Safari")
             }
             let titles = ["A", "B"].map { "Beeline live check tab \($0) \(name.suffix(6))" }
-            var pages: [URL] = []
-            for title in titles {
-                let page = FileManager.default.temporaryDirectory.appendingPathComponent(title.replacingOccurrences(of: " ", with: "-") + ".html")
-                guard (try? "<title>\(title)</title><p>Temporary page for Beeline's live check.</p>".write(to: page, atomically: true, encoding: .utf8)) != nil
-                else { return (false, "couldn't write the test pages") }
-                pages.append(page)
-            }
-            defer { pages.forEach { try? FileManager.default.removeItem(at: $0) } }
+            // Served over loopback http: Safari refuses file:// pages opened by AppleScript while its
+            // local file restrictions are on, which is the default.
+            let server = PageServer(pages: ["/a": titles[0], "/b": titles[1]].mapValues {
+                "<!doctype html><title>\($0)</title><p>Temporary page for Beeline's live check.</p>"
+            })
+            guard let port = await server.start() else { return (false, "couldn't start the local server for the test pages") }
+            defer { server.stop() }
+            let pages = ["/a", "/b"].map { "http://127.0.0.1:\(port)\($0)" }
             guard let id = safari("""
-                make new document with properties {URL:\(Browser.quoted(pages[0].absoluteString))}
+                make new document with properties {URL:\(Browser.quoted(pages[0]))}
                 set w to front window
-                tell w to set current tab to (make new tab with properties {URL:\(Browser.quoted(pages[1].absoluteString))})
+                tell w to set current tab to (make new tab with properties {URL:\(Browser.quoted(pages[1]))})
                 return id of w
                 """).flatMap(Int.init) else {
                 return (false, "couldn't open a Safari window (is Automation for Safari allowed for Beeline?)")
@@ -452,6 +453,52 @@ enum Demo {
             while !done(), Date() < deadline {
                 try? await Task.sleep(nanoseconds: 50_000_000)
             }
+        }
+    }
+}
+
+/// A tiny http server on 127.0.0.1 for the live check's test pages. It answers each GET with the page for
+/// its path (or 404) and closes the connection.
+private final class PageServer: @unchecked Sendable {
+    private let pages: [String: String]
+    private let queue = DispatchQueue(label: "beeline.live-check.pages")
+    private var listener: NWListener?
+    private var answered = false  // touched only on `queue`
+
+    init(pages: [String: String]) { self.pages = pages }
+
+    func start() async -> UInt16? {
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .any)
+        guard let listener = try? NWListener(using: parameters) else { return nil }
+        self.listener = listener
+        listener.newConnectionHandler = { [weak self] connection in self?.serve(connection) }
+        return await withCheckedContinuation { continuation in
+            listener.stateUpdateHandler = { [self] state in
+                guard !answered else { return }
+                switch state {
+                case .ready: answered = true; continuation.resume(returning: listener.port?.rawValue)
+                case .failed, .cancelled: answered = true; continuation.resume(returning: nil)
+                default: break
+                }
+            }
+            listener.start(queue: queue)
+        }
+    }
+
+    func stop() { listener?.cancel() }
+
+    private func serve(_ connection: NWConnection) {
+        connection.start(queue: queue)
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 16_384) { [pages] data, _, _, _ in
+            let request = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            let parts = request.split(separator: "\r\n", maxSplits: 1).first?.split(separator: " ") ?? []
+            let path = parts.count > 1 ? String(parts[1]) : ""
+            let page = pages[path]
+            let body = Data((page ?? "Not found").utf8)
+            let head = "HTTP/1.1 \(page == nil ? "404 Not Found" : "200 OK")\r\nContent-Type: text/html; charset=utf-8\r\n"
+                + "Content-Length: \(body.count)\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
+            connection.send(content: Data(head.utf8) + body, completion: .contentProcessed { _ in connection.cancel() })
         }
     }
 }
