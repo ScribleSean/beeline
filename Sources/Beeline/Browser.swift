@@ -1,6 +1,5 @@
 import AppKit
 
-/// A scriptable browser whose open tabs Beeline can list and switch to.
 /// The first read of each browser triggers the macOS Automation permission prompt.
 struct Browser {
     let name: String
@@ -8,8 +7,6 @@ struct Browser {
     /// Safari calls a tab's title `name` and switches tabs differently from the Chromium browsers.
     let isSafari: Bool
 
-    /// Tab commands for this browser run one at a time, in the order given. One queue per browser, so a
-    /// browser that hangs does not hold up the others.
     private let commandQueue: DispatchQueue
 
     init(name: String, bundleID: String, isSafari: Bool) {
@@ -26,12 +23,11 @@ struct Browser {
         Browser(name: "Microsoft Edge", bundleID: "com.microsoft.edgemac", isSafari: false),
     ]
 
-    /// The name shown beside a tab: "Chrome", "Safari", "Brave Browser", "Microsoft Edge".
     var shortName: String { name.replacingOccurrences(of: "Google ", with: "") }
 
     func tabs() -> [Item] {
-        // Chromium browsers give each tab a stable id, which is how a tab is closed or switched to later;
-        // Safari has none, so its tabs are found again by address and name when the time comes.
+        // Chromium browsers give each tab a stable id; Safari has none, so its tabs are found again by
+        // address and name.
         let script = """
         set sep to (ASCII character 9)
         set out to ""
@@ -47,7 +43,6 @@ struct Browser {
         end tell
         return out
         """
-        // Listing a few hundred tabs is many Apple events, and a browser may be launching: a long backstop.
         guard let output = Self.osascript(script, timeout: 60) else { return [] }
         let icon = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
             .map { NSWorkspace.shared.icon(forFile: $0.path) }
@@ -64,10 +59,6 @@ struct Browser {
                             title: title.isEmpty ? host : title, subtitle: shortName, keywords: host, icon: icon) {
                 activate(window: window, tabID: tabID, address: address, title: title)
             }
-            // Exactly one tab is closed: by id in Chromium browsers, and in Safari the first tab in that
-            // window with both this address and this name, so a second tab on the same address stays open.
-            // A Safari tab whose title has changed since (a live unread count) is still closed if it is the
-            // only tab in that window on its address.
             item.close = {
                 let script: String
                 if isSafari {
@@ -92,13 +83,11 @@ struct Browser {
         }
     }
 
-    /// Text as an AppleScript string literal. Only quotes and backslashes have meaning inside one.
+    /// Only quotes and backslashes have meaning inside an AppleScript string literal.
     private static func quoted(_ text: String) -> String {
         "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 
-    /// Every window's tab addresses, in order, for saving a desktop. Nil when the browser could not be
-    /// read at all (Automation denied or unanswered, a hung browser), as opposed to having no tabs.
     func tabAddresses() -> [[String]]? {
         let script = """
         set sep to (ASCII character 9)
@@ -121,7 +110,6 @@ struct Browser {
         }.filter { !$0.isEmpty }
     }
 
-    /// Opens one new browser window per saved window, with its tabs. Only web addresses are opened.
     func openWindows(_ windows: [[String]]) {
         for tabs in windows {
             let addresses = tabs.filter { $0.hasPrefix("http://") || $0.hasPrefix("https://") }
@@ -145,13 +133,10 @@ struct Browser {
                 end tell
                 """
             }
-            // Opening a window of tabs can mean launching the browser first, so the backstop is long.
             commandQueue.async { _ = Self.osascript(script, timeout: 120) }
         }
     }
 
-    /// Brings a tab to the front. The tab is found again when this runs, not by the position it had when
-    /// the bar opened: tabs may have opened, closed or moved since, including by an earlier plan step.
     private func activate(window: Int, tabID: Int, address: String, title: String) {
         let select: String
         if isSafari {
@@ -185,9 +170,8 @@ struct Browser {
         commandQueue.async { _ = Self.osascript(script) }
     }
 
-    /// Runs AppleScript in a child process so it is safe off the main thread. A browser that does not
-    /// answer (hung, or waiting on an Automation prompt) is given up on after a few seconds rather than
-    /// AppleScript's two minutes, so tab commands never fire long after they were asked for.
+    /// Runs AppleScript in a child process so it is safe off the main thread. AppleScript's own Apple
+    /// event timeout is two minutes, so a shorter one is set.
     private static func osascript(_ source: String, timeout: TimeInterval = 5) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")

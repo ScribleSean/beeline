@@ -1,15 +1,10 @@
 import AppKit
 import CoreServices
 
-/// Finds files and folders by name through the Spotlight index, which is already built and fast.
-/// Only names are searched, not contents, and only inside the home folder.
 enum Files {
-    /// Folders whose contents are noise in a launcher: app support data, dependencies, build output.
     private static let skipped = ["/Library/", "/node_modules/", "/.build/", "/build/", "/DerivedData/", "/.Trash/"]
 
-    /// Blocking, typically a few tens of milliseconds. Call off the main thread.
     static func search(_ words: [String], limit: Int = 8) -> [Item] {
-        // Words are letters and digits only (the matcher splits on everything else), so they are safe to embed.
         let named = words.filter { $0.count >= 2 }
         guard named.contains(where: { $0.count >= 3 }) else { return [] }
         let predicate = named.map { "kMDItemFSName == \"*\($0)*\"cd" }.joined(separator: " && ")
@@ -33,7 +28,6 @@ enum Files {
             found.append((path, used))
         }
 
-        // Most recently used first: the file wanted is usually one touched lately.
         return found.sorted { $0.used > $1.used }.prefix(limit).map { entry in
             let url = URL(fileURLWithPath: entry.path)
             var isFolder: ObjCBool = false

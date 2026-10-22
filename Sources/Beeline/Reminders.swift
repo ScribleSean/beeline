@@ -1,9 +1,6 @@
 import AppKit
 import EventKit
 
-/// "remind me to call Sam tomorrow at 5pm" and "goal run a 10k" create items in macOS Reminders,
-/// which works offline and syncs to the phone. Goals go in a list called Goals, made the first time.
-/// The first use asks for Reminders access through the standard macOS prompt.
 enum Reminders {
     private static let store = EKEventStore()
 
@@ -11,9 +8,7 @@ enum Reminders {
         case reminder, goal
     }
 
-    /// Nil unless the request starts like a reminder or a goal.
     static func results(for query: String) -> [Item]? {
-        // Trimmed once, then matched and cut as the same string, so leading spaces never shift the cut.
         let text = query.trimmingCharacters(in: .whitespaces)
         let lowered = text.lowercased()
         let prefixes: [(String, Kind)] = [
@@ -25,7 +20,6 @@ enum Reminders {
         let rest = String(text.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
         guard !rest.isEmpty else { return [] }
 
-        // Without access nothing could be saved, and the bar would have closed as if it were. Say so instead.
         let status = EKEventStore.authorizationStatus(for: .reminder)
         if status == .denied || status == .restricted {
             return [Item(id: "reminder:access", kind: .action, verb: "", title: "Allow Reminders for Beeline",
@@ -47,9 +41,8 @@ enum Reminders {
         }]
     }
 
-    /// Finds a date or time in the words ("tomorrow at 5pm", "in 2 hours", "friday") and removes it from the title.
     static func splitDate(_ text: String, now: Date = Date()) -> (String, Date?) {
-        // "in 2 hours", "in 30 min", "in 3 days": Apple's date reader misses these, so they are read here.
+        // NSDataDetector misses "in 2 hours", "in 30 min", "in 3 days", so these are read here.
         let relative = #"\s*\bin (\d+) (minute|minutes|min|mins|hour|hours|hr|hrs|day|days|week|weeks)\b"#
         if let match = text.firstMatch(of: try! Regex(relative).ignoresCase()),
            let amount = Int(match.output[1].substring ?? ""), let unit = match.output[2].substring?.lowercased() {
@@ -61,8 +54,6 @@ enum Reminders {
         guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue),
               let match = detector.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
               var date = match.date, let range = Range(match.range, in: text) else { return (text, nil) }
-        // "at 9am" typed at 3pm means tomorrow, not a reminder already overdue. Only a time with no day is
-        // moved: "yesterday" or "today" are what they say.
         let mentioned = text[range].lowercased()
         let dayWords = ["today", "yesterday", "tomorrow", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
                         "mon", "tue", "wed", "thu", "fri", "sat", "sun", "next", "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug",
@@ -72,7 +63,6 @@ enum Reminders {
             date = next
         }
         var title = text.replacingCharacters(in: range, with: "").trimmingCharacters(in: .whitespaces)
-        // Drop the little words the date leaves behind: "call Sam at" becomes "call Sam".
         for word in [" at", " on", " by", " in", " for"] where title.lowercased().hasSuffix(word) {
             title = String(title.dropLast(word.count))
         }
@@ -117,10 +107,7 @@ enum Reminders {
         }
     }
 
-    /// The Goals list, created in the default Reminders account the first time it is needed.
     private static func goalsList() -> EKCalendar? {
-        // Only a Goals list in the default account counts: a shared list with the same name elsewhere must
-        // never receive personal goals.
         guard let source = store.defaultCalendarForNewReminders()?.source else { return nil }
         if let existing = store.calendars(for: .reminder).first(where: { $0.title == "Goals" && $0.source == source }) {
             return existing
