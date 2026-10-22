@@ -1,25 +1,20 @@
 import Foundation
 
-/// An answer shown large in the bar: what kind it is, the value itself, and a line of working underneath.
 struct Answer {
     let label: String
     let value: String
     let detail: String
 }
 
-/// Answers conversions typed into the bar: units ("10 km in mi"), time zones ("3pm london in new york",
-/// "time in tokyo") and currencies ("100 usd in eur").
 enum Converter {
     static func answer(_ query: String) -> Answer? {
         let text = normalised(query)
         return currency(text) ?? units(text) ?? time(text)
     }
 
-    /// Lowercases, and turns "$100" into "100 usd" so currency symbols read like codes.
     private static func normalised(_ query: String) -> String {
         var text = query.lowercased().trimmingCharacters(in: .whitespaces)
         for (symbol, code) in [("$", "usd"), ("€", "eur"), ("£", "gbp"), ("¥", "jpy"), ("₹", "inr")] {
-            // "$100" becomes "100 usd"; a symbol standing alone ("in $") becomes the code.
             let escaped = NSRegularExpression.escapedPattern(for: symbol)
             text = text.replacingOccurrences(of: "\(escaped)([0-9.,]+)", with: "$1 \(code)", options: .regularExpression)
             text = text.replacingOccurrences(of: symbol, with: " \(code) ")
@@ -28,7 +23,6 @@ enum Converter {
             .trimmingCharacters(in: .whitespaces)
     }
 
-    /// "<number> <unit> in|to <unit>", as (number, from, to).
     private static func split(_ text: String) -> (Double, String, String)? {
         let pattern = #"^(-?[0-9][0-9.,]*)\s*([a-z][a-z0-9/ ]*?)\s+(?:in|to|into|as)\s+([a-z][a-z0-9/ ]*)$"#
         guard let match = text.firstMatch(of: try! Regex(pattern)),
@@ -46,7 +40,6 @@ enum Converter {
         } else if abs(value) < 0.0001, value != 0 {
             return Calculator.format(value)
         } else if abs(value) < 1, value != 0 {
-            // Small values keep four meaningful digits: 0.4536, not 0.453592 or 0.454.
             formatter.usesSignificantDigits = true
             formatter.maximumSignificantDigits = 4
         } else {
@@ -54,8 +47,6 @@ enum Converter {
         }
         return formatter.string(from: NSNumber(value: value)) ?? String(value)
     }
-
-    // MARK: Units
 
     private static let unitNames: [String: (Dimension, String)] = {
         var table: [String: (Dimension, String)] = [:]
@@ -82,10 +73,9 @@ enum Converter {
         add(UnitVolume.milliliters, "ml", "ml milliliter milliliters millilitre millilitres")
         add(UnitVolume.liters, "l", "l liter liters litre litres")
         add(UnitVolume.gallons, "gal", "gal gallon gallons")
-        // A US cup, 236.6 ml, like the other US units here. Foundation's cup is the 240 ml metric one (L7).
+        // A US cup, 236.6 ml. Foundation's cup is the 240 ml metric one.
         add(usCup, "cups", "cup cups")
         add(UnitVolume.fluidOunces, "fl oz", "floz")
-        // Two-word names, as typed.
         for name in ["fl oz", "fluid ounce", "fluid ounces"] { table[name] = (UnitVolume.fluidOunces, "fl oz") }
         add(UnitVolume.tablespoons, "tbsp", "tbsp tablespoon tablespoons")
         add(UnitVolume.teaspoons, "tsp", "tsp teaspoon teaspoons")
@@ -110,7 +100,6 @@ enum Converter {
 
     static let usCup = UnitVolume(symbol: "cup", converter: UnitConverterLinear(coefficient: 0.2365882365))
 
-    /// "oz" is a weight, unless the other side is a volume: "8 oz in ml" means fluid ounces.
     private static func unit(_ name: String, other: String) -> (Dimension, String)? {
         guard let found = unitNames[name] else { return nil }
         if found.0 == UnitMass.ounces, let partner = unitNames[other], partner.0 is UnitVolume {
@@ -137,8 +126,6 @@ enum Converter {
         return Answer(label: kind, value: "\(format(result)) \(label)",
                       detail: "\(format(value)) \(fromLabel) = \(precise.string(from: NSNumber(value: result)) ?? "") \(label)")
     }
-
-    // MARK: Currency
 
     private static let currencyNames: [String: String] = [
         "dollar": "USD", "dollars": "USD", "bucks": "USD", "euro": "EUR", "euros": "EUR",
@@ -168,8 +155,6 @@ enum Converter {
                       detail: "1 \(from) = \(precise.string(from: NSNumber(value: rate)) ?? "") \(to) · European Central Bank rate\(day)")
     }
 
-    // MARK: Time zones
-
     private static let zoneAliases: [String: String] = [
         "sf": "America/Los_Angeles", "san francisco": "America/Los_Angeles", "la": "America/Los_Angeles",
         "seattle": "America/Los_Angeles", "pacific": "America/Los_Angeles", "pst": "America/Los_Angeles",
@@ -188,14 +173,12 @@ enum Converter {
         let name = name.trimmingCharacters(in: .whitespaces)
         if name == "here" || name == "local" { return .current }
         if let id = zoneAliases[name] { return TimeZone(identifier: id) }
-        // "new york" matches America/New_York, "tokyo" matches Asia/Tokyo.
         let match = TimeZone.knownTimeZoneIdentifiers.first { identifier in
             identifier.split(separator: "/").last.map { $0.replacingOccurrences(of: "_", with: " ").lowercased() } == name
         }
         return match.flatMap(TimeZone.init(identifier:))
     }
 
-    /// "3pm", "3:30 pm", "15:00", "noon" as hour and minute.
     private static func clock(_ text: String) -> (Int, Int)? {
         if text == "noon" { return (12, 0) }
         if text == "midnight" { return (0, 0) }
@@ -203,24 +186,21 @@ enum Converter {
               var hour = Int(match.output[1].substring ?? "") else { return nil }
         let minute = Int(match.output[2].substring ?? "") ?? 0
         let half = match.output[3].substring.map(String.init)
-        if half == nil, match.output[2].substring == nil { return nil } // a bare "3" is not a time
+        if half == nil, match.output[2].substring == nil { return nil }
         if half == "pm", hour < 12 { hour += 12 }
         if half == "am", hour == 12 { hour = 0 }
         guard hour < 24, minute < 60 else { return nil }
         return (hour, minute)
     }
 
-    /// Words that name a time zone but, before "time", mean something else.
     private static let notPlaces: Set<String> = ["christmas", "easter", "wake"]
 
     private static func time(_ text: String) -> Answer? {
         let display = DateFormatter()
         display.dateFormat = "h:mm a, EEE"
 
-        // "time in tokyo", "tokyo time", "what time is it in tokyo"
         for pattern in [#"^(?:what )?time(?: is it)? in (.+)$"#, #"^(.+) time$"#] {
             if let match = text.firstMatch(of: try! Regex(pattern)), let place = match.output[1].substring,
-               // "christmas time" is a season, not Christmas Island's clock; same for Easter and Wake (L7).
                !(pattern.hasSuffix(" time$") && notPlaces.contains(String(place))),
                let target = zone(String(place)) {
                 display.timeZone = target
@@ -229,14 +209,12 @@ enum Converter {
             }
         }
 
-        // "3pm london in new york", "3pm in tokyo" (from here)
         guard let match = text.firstMatch(of: try! Regex(#"^(.+?)\s+(?:in|to)\s+(.+)$"#)),
               let left = match.output[1].substring, let right = match.output[2].substring,
               let target = zone(String(right)) else { return nil }
         let words = left.split(separator: " ").map(String.init)
         var source = TimeZone.current
         var clockText = String(left)
-        // The clock is the first one or two words; anything after is the source place.
         for count in [2, 1] where words.count >= count {
             let candidate = words.prefix(count).joined(separator: " ")
             guard clock(candidate) != nil else { continue }
@@ -265,15 +243,12 @@ enum Converter {
     }
 }
 
-/// Exchange rates from the European Central Bank, through the free Frankfurter service. No key and no
-/// personal data: the request is a plain fetch of today's rates. Kept on disk and refreshed twice a day.
 final class Rates {
     static let shared = Rates()
 
     private struct Saved: Codable {
         var fetched: Date
         var rates: [String: Double]
-        /// The day the bank published these rates, as the service reports it.
         var day: String?
     }
 
@@ -282,7 +257,6 @@ final class Rates {
         .appendingPathComponent("Beeline/rates.json")
     private var isFetching = false
 
-    /// Rates per euro, or nil until the first fetch has finished.
     var current: [String: Double]? { saved?.rates }
     var day: String? { saved?.day }
 
@@ -290,7 +264,6 @@ final class Rates {
         if let data = try? Data(contentsOf: file) { saved = try? JSONDecoder().decode(Saved.self, from: data) }
     }
 
-    /// Fetches new rates when there are none or they are over twelve hours old. `done` runs on the main thread.
     func refreshIfStale(wait: Bool = false, done: @escaping () -> Void = {}) {
         if let saved, Date().timeIntervalSince(saved.fetched) < 12 * 3600 { return }
         guard !isFetching, let url = URL(string: "https://api.frankfurter.dev/v1/latest") else { return }

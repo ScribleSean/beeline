@@ -1,7 +1,5 @@
 import Foundation
 
-/// Reads a JSON file of saved state. A file that exists but no longer decodes (a corrupted write, or a
-/// format change by a newer version) is moved aside and kept, never silently replaced by the next save.
 enum JSONStore {
     static func read<T: Decodable>(_ type: T.Type, from file: URL, name: String) -> T? {
         guard let data = try? Data(contentsOf: file) else { return nil }

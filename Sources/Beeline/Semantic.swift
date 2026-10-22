@@ -1,15 +1,12 @@
 import Foundation
 import NaturalLanguage
 
-/// Matches by meaning using the language model that ships with macOS, so "flight" can find
-/// "trip details". Free and on-device, but rough: its results are shown as best guesses.
 final class Semantic {
     private let sentence = NLEmbedding.sentenceEmbedding(for: .english)
     private let word = NLEmbedding.wordEmbedding(for: .english)
     private var vectors: [String: [Double]] = [:]
     private let lock = NSLock()
     /// The embeddings are not safe to use from two threads at once: overlapping calls corrupt memory and crash.
-    /// Every call into them goes through this lock. Each takes a few milliseconds, so waits stay short.
     private let modelLock = NSLock()
 
     private func sentenceVector(_ text: String) -> [Double]? {
@@ -18,19 +15,15 @@ final class Semantic {
         return sentence?.vector(for: text)
     }
 
-    /// Similarity below this is treated as unrelated. Set high on purpose: on sample requests,
-    /// nonsense input scored up to 0.63 and correct matches from 0.62 to 0.79, so the model
-    /// cannot be trusted below the top of its range.
+    /// On sample requests, nonsense input scored up to 0.63 and correct matches from 0.62 to 0.79.
     private let cutoff = 0.75
 
     static func text(for item: Item) -> String {
         item.keywords.isEmpty ? item.title : item.title + " " + item.keywords
     }
 
-    /// Texts that stay cached for good: apps, settings and actions. Window, tab and menu texts come and go.
     private var permanent = Set<String>()
 
-    /// Computes and stores vectors for new texts. Each takes about 2 ms, so call this off the main thread.
     func prepare(_ items: [Item], permanent keep: Bool = false) {
         guard sentence != nil else { return }
         if keep {
@@ -49,13 +42,11 @@ final class Semantic {
             vectors[text] = unit
             lock.unlock()
         }
-        // Titles of windows and tabs long closed would otherwise pile up for the whole session.
         lock.lock()
         if vectors.count > 3000 { vectors = vectors.filter { permanent.contains($0.key) } }
         lock.unlock()
     }
 
-    /// The items closest in meaning to the query, best first, with their similarity from 0 to 1.
     func rank(_ query: String, in items: [Item], limit: Int, minimum: Double? = nil) -> [(item: Item, similarity: Double)] {
         let cutoff = minimum ?? cutoff
         guard sentence != nil, let raw = sentenceVector(query) else { return [] }
@@ -70,8 +61,6 @@ final class Semantic {
             guard let vector = known[Self.text(for: item)] else { return nil }
             return (item, zip(queryVector, vector).reduce(0) { $0 + $1.0 * $1.1 })
         }
-        // Word-level similarity is checked only for the leading candidates: it is slower per item,
-        // but catches single-word links the sentence vector blurs.
         let shortlist = bySentence.sorted { $0.1 > $1.1 }.prefix(40)
         let rescored = shortlist.map { item, similarity -> (item: Item, similarity: Double) in
             let best = bestWordSimilarity(queryWords, Self.words(Self.text(for: item)))

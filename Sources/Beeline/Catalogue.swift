@@ -4,8 +4,6 @@ enum Kind {
     case app, setting, tab, window, menu, action, file, calculation, control, clipboard
 }
 
-/// One thing Beeline can do: open an app or settings pane, switch to a tab or window, run a menu command, or perform an action.
-/// Why an item is in the results. Shown in the optional details strip.
 enum Source {
     case words, partial, learned(Int), model([String]), meaning, alias
 }
@@ -15,47 +13,31 @@ struct Item: Identifiable {
     let kind: Kind
     var verb: String
     let title: String
-    /// Shown as the chip on the right, and searched at low weight.
     let subtitle: String
-    /// Extra words that should find this item but are not shown.
     let keywords: String
-    /// Whole phrases that mean this item ("turn off the computer"). Matched against the request as typed.
     var phrases: [String] = []
     let icon: NSImage?
     let run: () -> Void
-    /// True when the item was found by meaning, not by the words typed.
     var isGuess = false
     var source = Source.words
-    /// True for actions that cannot be undone. The bar asks for Return twice.
     var needsConfirm = false
-    /// What the confirm card says under the title, when "This can't be undone" is not the whole story.
     var confirmNote: String?
-    /// For windows: moves and resizes the window to a side of the screen, or to fill it.
     var tile: ((Accessibility.Side) -> Void)?
-    /// For windows: true when this is the window the user was working in.
     var isCurrentWindow = false
-    /// For tabs: closes the tab.
     var close: (() -> Void)?
-    /// For buttons and menu commands: whether the target is still there and still the same, checked
-    /// right before acting, because the window may have changed since it was read.
     var stillValid: (() -> Bool)?
-    /// Where the item is on screen right now, in Accessibility coordinates, for the bee to fly to.
-    /// Nil for things with no place on screen (apps, settings, actions), which run without the bee.
     var target: (() -> CGRect?)?
 
-    /// True when it is ranked first because it was picked for these words before.
     var isLearned: Bool {
         if case .learned = source { return true }
         return false
     }
 
-    /// True when the typed words are the user's alias for it.
     var isAlias: Bool {
         if case .alias = source { return true }
         return false
     }
 
-    /// Runs the item if its target is still valid. False when it was not run.
     func runIfValid() -> Bool {
         if let stillValid, !stillValid() { return false }
         run()
@@ -69,14 +51,9 @@ final class Catalogue {
     private var tabs: [Item] = []
     private var windows: [Item] = []
     private var menus: [Item] = []
-    /// Windows left out of search because something else already stands for them (a browser's tabs,
-    /// or the app itself when the window carries only the app's name). A plan can still tile them.
     private var planOnlyWindows: [Item] = []
-    /// "Move this window to the left half" and its siblings, for the window in front.
     private var tiles: [Item] = []
-    /// Buttons, links, checkboxes and fields inside the front window.
     private var controls: [Item] = []
-    /// Files found for `filesQuery`. They arrive a moment after the words are typed.
     private var files: [Item] = []
     private var filesQuery = ""
     private let fileQueue = DispatchQueue(label: "beeline.files", qos: .userInitiated)
@@ -93,7 +70,6 @@ final class Catalogue {
     private var quits: [Item] = []
     private var runningAppPaths: Set<String> = []
 
-    /// The app the user is working in. Its menu commands are the ones offered.
     private var frontApp: NSRunningApplication?
     private let scanQueue = DispatchQueue(label: "beeline.screen-map", qos: .userInitiated)
     private var activationObserver: NSObjectProtocol?
@@ -101,32 +77,25 @@ final class Catalogue {
     let clipboard = Clipboard()
     private let usage = Usage()
     let aliases: Aliases
-    /// The user's own shortcuts from the Shortcuts app. Set directly only by tests.
     var shortcuts: [Item] = []
     private var shortcutsRead = Date.distantPast
 
-    /// Tests pass aliases of their own, so they never change the ones other tests read.
     init(aliases: Aliases = .shared) {
         self.aliases = aliases
         apps = Self.scanApps()
         settings = SettingsPanes.items()
         refreshRunning()
-        // The baseline for "has an Applications folder changed" is taken now, not at the first bar opening.
         refreshAppsIfChanged()
     }
 
-    /// Blocks until apps and settings can be matched by meaning. The app does this in the background instead.
     func prepareMeaningNow() {
         semantic.prepare(actions + apps + settings, permanent: true)
     }
 
-    /// Keeps the screen map current in the background, so it is ready before the bar opens.
     func startWatching() {
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            // Only the window list on an app switch: walking the menu bar and every control of the new
-            // front app on each switch cost up to a second of CPU, and the full walk happens when the bar opens.
             self?.refreshScreen(full: false) {}
         }
         let fixed = actions + apps + settings
@@ -144,40 +113,31 @@ final class Catalogue {
         }
     }
 
-    /// Called when an item is run, so the same words find it faster next time.
     func recordUse(of item: Item, query: String) {
         guard item.kind != .calculation, item.kind != .clipboard, Settings.isOn(Settings.learnFromUse) else { return }
-        // A reminder, a web search, a desktop or a file chore is one of a kind: learning it would only put
-        // the typed text (which can be private) on disk.
         let oneOff = ["reminder:", "web-search", "desktop-", "file-tool:", "close-tabs:", "close:", "undo"]
         guard !oneOff.contains(where: { item.id.hasPrefix($0) }) else { return }
         usage.record(item, query: query)
     }
 
-    /// Words worth teaching speech recognition, most useful first, since only the first 100 are used: your
-    /// aliases, Beeline's commands, the apps running now, then the rest of the apps.
     func vocabulary() -> [String] {
         let running = apps.filter { runningAppPaths.contains($0.id) }.map(\.title)
         return aliases.entries.keys.sorted() + ["undo", "dark mode", "Wi-Fi", "night shift"] + actions.map(\.title)
             + running + apps.map(\.title)
     }
 
-    /// Reads the user's shortcuts again, at most every two minutes: when the bar opens is often enough.
     func refreshShortcuts() {
         guard Date().timeIntervalSince(shortcutsRead) > 120 else { return }
         shortcutsRead = Date()
         UserShortcuts.load { [weak self] found in self?.shortcuts = found }
     }
 
-    /// True for an item an alias may stand for: one that lasts. A reminder or a file chore is one of a kind,
-    /// and a calculation is its words.
     static func canHaveAlias(_ item: Item) -> Bool {
         guard [.app, .setting, .action, .file, .menu].contains(item.kind) else { return false }
         let oneOff = ["reminder:", "web-search", "desktop-", "file-tool:", "close-tabs:", "close:", "rewrite", "copied", "undo"]
         return !oneOff.contains { item.id.hasPrefix($0) }
     }
 
-    /// Undoes what was learned for this item and these words, so it ranks on its name alone again.
     func forgetPick(of item: Item, query: String) {
         usage.forget(item, for: query)
     }
@@ -188,20 +148,12 @@ final class Catalogue {
     }
 
     private var scanning = false
-    /// How many scans have finished. Tests use it to tell which scan answered a request.
     private(set) var scansCompleted = 0
     private var scanWaiters: [() -> Void] = []
-    /// Callers that asked while a scan was running. They are answered by the scan that starts next,
-    /// never by the one already under way, whose picture may predate their request.
     private var nextScanWaiters: [() -> Void] = []
 
-    /// Which app the menus and controls on hand were read from.
     private var scannedApp: pid_t?
 
-    /// Re-reads open windows and, for a full scan, the front app's menu commands and controls, then calls
-    /// `done` on the main thread. A windows-only scan keeps menus and controls if the front app is the
-    /// same, and drops them if it changed. Requests that arrive while a scan runs are folded into one more
-    /// scan, never queued one by one.
     func refreshScreen(full: Bool = true, done: @escaping () -> Void) {
         guard !scanning else {
             nextScanWaiters.append(done)
@@ -248,15 +200,12 @@ final class Catalogue {
                     self.refreshScreen { next.forEach { $0() } }
                 }
             }
-            // Only windows: menu commands are never ranked by meaning, and their vectors (up to 1,500 a
-            // scan) delayed the next scan and pushed the useful ones out of the cache.
             self.semantic.prepare(searchable)
         }
     }
 
     private var appFolderDates: [Date] = []
 
-    /// Rescans installed apps when an Applications folder has changed, so a new app appears without a relaunch.
     func refreshAppsIfChanged() {
         let dates = Self.appFolders.map { (try? FileManager.default.attributesOfItem(atPath: $0)[.modificationDate] as? Date) ?? .distantPast }
         guard dates != appFolderDates else { return }
@@ -270,7 +219,6 @@ final class Catalogue {
         }
     }
 
-    /// Waits for pick history to reach disk. Used before the command-line modes exit.
     func flushHistory() {
         usage.flush()
     }
@@ -290,7 +238,6 @@ final class Catalogue {
         }
     }
 
-    /// Reads open tabs from every running browser off the main thread, then calls `done` on it.
     func refreshTabs(done: @escaping () -> Void) {
         let running = Set(NSWorkspace.shared.runningApplications.compactMap { $0.bundleIdentifier })
         DispatchQueue.global(qos: .userInitiated).async {
@@ -303,10 +250,8 @@ final class Catalogue {
         }
     }
 
-    /// Off for screenshot previews, whose images should not show the names of real files.
     var includeFiles = true
 
-    /// Looks up files named like the query, then calls `done` on the main thread if the query still stands.
     private var newestFileQuery = ""
     private let fileQueryLock = NSLock()
 
@@ -317,7 +262,6 @@ final class Catalogue {
         newestFileQuery = query
         fileQueryLock.unlock()
         fileQueue.async {
-            // Typing quickly queues a search per keystroke; only the newest one is worth running.
             self.fileQueryLock.lock()
             let current = self.newestFileQuery == query
             self.fileQueryLock.unlock()
@@ -331,14 +275,12 @@ final class Catalogue {
         }
     }
 
-    /// The same lookup, waited for. Used by the command-line test mode.
     func loadFilesNow(for query: String) {
         files = Files.search(Matcher.parse(query).tokens)
         filesQuery = query
     }
 
     func search(_ query: String, limit: Int = 6) -> [Item] {
-        // "undo" offers to take back the last thing that can be.
         if let undo = UndoLog.shared.item(for: query) {
             return [undo]
         }
@@ -352,13 +294,10 @@ final class Catalogue {
         if let desktops = Desktops.results(for: query) {
             return desktops
         }
-        // File chores lead the list but do not own it: "sound" with a video selected still reaches Sound settings.
         if let chores = FileTools.results(for: query) {
             let ids = Set(chores.map(\.id))
             return Array((chores + search(words: query, limit: limit).filter { !ids.contains($0.id) }).prefix(limit))
         }
-        // Arithmetic and conversions answer in a single row; Return copies the answer.
-        // The answer card shows the value large, its kind above it, and the working underneath.
         if let answer = Calculator.answer(query) ?? Converter.answer(query) {
             return [Item(id: "calculation", kind: .calculation, verb: "Copy", title: answer.value, subtitle: answer.label,
                          keywords: answer.detail, icon: NSImage(systemSymbolName: "equal.circle", accessibilityDescription: nil)) {
@@ -373,8 +312,6 @@ final class Catalogue {
         return found
     }
 
-    /// A request shaped like a question is one only when it ends in "?" or when nothing matched every
-    /// word of it: "do not disturb" is Focus and "can you mute" is Mute, not questions for Claude.
     func isQuestion(_ query: String) -> Bool {
         isQuestion(query, search(words: query, limit: 1))
     }
@@ -385,12 +322,10 @@ final class Catalogue {
         return !(found.first.map { !$0.isGuess } ?? false)
     }
 
-    /// Opens the default browser on a web search for the text.
-    /// The address of a web search for the text.
     static func webSearchURL(for query: String) -> URL {
         var address = URLComponents(string: "https://www.google.com/search")!
         address.queryItems = [URLQueryItem(name: "q", value: query)]
-        // URLQueryItem leaves "+" as it is, which a search engine reads as a space: "c++" would reach it as "c  " (L9).
+        // URLQueryItem leaves "+" as it is, which a search engine reads as a space: "c++" would reach it as "c  ".
         address.percentEncodedQuery = address.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         return address.url!
     }
@@ -408,8 +343,6 @@ final class Catalogue {
         guard !parsed.tokens.isEmpty else { return [] }
         let wantsClose = !Matcher.quitWords.isDisjoint(with: parsed.tokens)
         let target = parsed.tokens.filter { !Matcher.quitWords.contains($0) }
-        // "close every tab about hltv" is about tabs, not about quitting an app. When no tab matches, the
-        // words fall through to the normal search, where the browser's own Close Tab command lives.
         if wantsClose, parsed.hint == .tab {
             let closes = closeTabResults(matching: target, limit: limit)
             if !closes.isEmpty { return closes }
@@ -417,9 +350,6 @@ final class Catalogue {
         let all = actions + Desktops.items() + apps + settings + shortcuts + tabs + windows + tiles + menus + controls + (wantsClose ? quitResults(for: target) : [])
             + (filesQuery == query ? files : [])
         let scored: [(Item, Matcher.Score)] = all.compactMap { item in
-            // Something picked before for exactly these words goes to the top, and is no longer a guess,
-            // even when the words do not appear in its name. This is how a model guess becomes instant.
-            // The user's own alias for exactly these words beats everything, picks included.
             if aliases.matches(query, item) {
                 return (item, Matcher.Score(value: 1000, isComplete: true, isAlias: true))
             }
@@ -428,18 +358,11 @@ final class Catalogue {
                 return (item, Matcher.Score(value: 300 + min(picked, 20) * 5, isComplete: true, timesLearned: picked))
             }
             guard var score = Matcher.score(item, parsed) else { return nil }
-            // A menu command or a button acts on the app in front the moment Return is pressed, and can be
-            // something like Close All. It is only offered when every typed word matches it, never as a guess.
-            // The same goes for anything that needs a second Return: "restart chrome" must not offer Restart.
             if item.kind == .menu || item.kind == .control || item.needsConfirm, !score.isComplete { return nil }
-            // Files are plentiful and loosely named, so they need every word.
             if item.kind == .file, !score.isComplete { return nil }
             score.value += usage.habitBoost(for: item)
             return (item, score)
         }
-        // Items matching every typed word come first, then files, then partial matches marked as guesses.
-        // A file never outranks an app, setting or action on its name alone: "wifi" must give Wi-Fi settings,
-        // not a file that happens to start with those letters. Asking for a "file" or "folder" lifts them.
         let filesLead = parsed.hint == .file
         func tier(_ entry: (Item, Matcher.Score)) -> Int {
             if entry.1.isAlias { return 4 }
@@ -447,8 +370,6 @@ final class Catalogue {
             guard entry.1.isComplete else { return 0 }
             return entry.0.kind == .file && !filesLead ? 1 : 2
         }
-        // At most two buttons from the front window: they are often file names and labels that crowd out
-        // what was meant ("bee" finding three attachments in a chat).
         var controlsShown = 0
         var results: [Item] = scored
             .sorted { (tier($0), $0.1.value) > (tier($1), $1.1.value) }
@@ -465,10 +386,7 @@ final class Catalogue {
                 return item
             }
 
-        // Meaning is the last resort, used only when the words typed matched nothing at all.
         if results.isEmpty, parsed.tokens.contains(where: { $0.count >= 3 }) {
-            // Menu commands and window buttons act at once, so they are never offered as a guess by meaning,
-            // and nor is anything drastic enough to need a second Return.
             let guessable = all.filter { $0.kind != .menu && $0.kind != .control && !$0.needsConfirm }
             let pool = parsed.hint.map { hint in guessable.filter { $0.kind == hint } } ?? guessable
             results = semantic.rank(parsed.tokens.joined(separator: " "), in: pool, limit: 2).map { guess in
@@ -482,7 +400,6 @@ final class Catalogue {
         return results.map(markedIfRunning)
     }
 
-    /// An app that is already open is switched to, not opened.
     private func markedIfRunning(_ item: Item) -> Item {
         guard item.kind == .app, runningAppPaths.contains(item.id) else { return item }
         var running = item
@@ -490,8 +407,6 @@ final class Catalogue {
         return running
     }
 
-    /// "Quit Safari" rows, only for apps actually named in the request. A quit word on its own, or beside
-    /// words that name something else, must never surface a row that closes an app.
     private func quitResults(for target: [String]) -> [Item] {
         guard !target.isEmpty else { return [] }
         return quits.filter { quit in
@@ -500,27 +415,20 @@ final class Catalogue {
         }
     }
 
-    /// Replaces the tabs read from the browsers. Used by tests.
     func useTabs(_ items: [Item]) {
         tabs = items
     }
 
-    /// One row to close every matching tab, then a row for each of them. Closing is stricter than finding:
-    /// each word must start a whole word of the tab's title or address, the browser's name counts only as
-    /// "every tab in that browser", and closing more than one tab needs Return twice.
     private func closeTabResults(matching target: [String], limit: Int) -> [Item] {
-        // "browser" and "web" say nothing about which tabs.
         var words = target.filter { !["browser", "browsers", "web"].contains($0) }
         var pool = tabs.filter { $0.close != nil }
         var browserNamed: String?
-        // Only the word that is the browser's own name: "browser" is not Brave, and "google" is a site.
         let browserWords = ["chrome": "Chrome", "safari": "Safari", "brave": "Brave Browser", "edge": "Microsoft Edge"]
         if let hit = words.first(where: { browserWords[$0] != nil }), let shortName = browserWords[hit] {
             words.removeAll { $0 == hit }
             pool = pool.filter { $0.subtitle == shortName }
             browserNamed = shortName
         }
-        // "close all tabs" with nothing to narrow it is too sweeping to offer at all.
         guard !words.isEmpty || browserNamed != nil else { return [] }
         let matches = pool.filter { Matcher.matchesForClose($0, words) }
         var rows: [Item] = []
@@ -542,24 +450,18 @@ final class Catalogue {
         return Array(rows.prefix(limit))
     }
 
-    /// True when word matching did not settle the request, so the model should be asked.
     func needsChooser(_ query: String, _ results: [Item]) -> Bool {
-        // A question wants an answer, not a guessed app: "how far is the moon" must not become Safari.
         if Matcher.isQuestion(query) { return false }
         guard Settings.isOn(Settings.useOnDeviceModel), Chooser.isAvailable else { return false }
         guard Matcher.parse(query).tokens.contains(where: { $0.count >= 3 }) else { return false }
         return results.first?.isGuess ?? true
     }
 
-    /// Words the model adds to almost every answer. They match half the catalogue and say nothing.
     private static let vagueWords: Set<String> = [
         "app", "apps", "application", "mac", "macos", "settings", "setting", "system", "tool", "tools", "feature",
         "preferences", "software", "control", "mode", "adjustment", "management", "access", "option", "options",
     ]
 
-    /// Asks the on-device model what the request is about, then finds the items its words describe.
-    /// Returns the best few, marked as guesses.
-    /// Runs on the main thread, where the catalogue's lists are changed, so it never reads them mid-update.
     @MainActor
     func choose(_ query: String) async -> [Item] {
         let parsed = Matcher.parse(query)
@@ -571,9 +473,6 @@ final class Catalogue {
         guard !words.isEmpty else { return [] }
         let expanded = Matcher.Parsed(tokens: words, hint: parsed.hint)
 
-        // Menu commands are left out: a guess must never be one keypress from Close All. Nor is anything
-        // that needs a second Return, or an action at all unless the model added words of its own: a guess
-        // scored on the typed words alone ("sleep apnea article") must not bring Sleep back.
         let candidates = (actions.filter { !$0.needsConfirm && !extra.isEmpty } + settings + tabs + windows + tiles + apps)
         return candidates
             .compactMap { item in Matcher.score(item, expanded, anyWord: true).map { (item, $0.value) } }
@@ -587,17 +486,12 @@ final class Catalogue {
             }
     }
 
-    /// Everything a plan may be built from. Irreversible actions are left out on purpose:
-    /// a plan is written by a model reading window and tab titles, which other apps control.
     func planOptions(for request: String = "") -> [PlanStep] {
         var options: [PlanStep] = []
-        // A title is data from another app. Quotes, line breaks and control characters are taken out and
-        // long ones cut, so a title cannot pose as part of an option's structure.
         func clean(_ title: String) -> String {
             let flat = title.unicodeScalars.map { $0.properties.generalCategory == .control || $0 == "\"" ? " " : Character($0) }
             return String(String(flat).split(whereSeparator: \.isWhitespace).joined(separator: " ").prefix(120))
         }
-        // The current window first, then the front app's, so the cap never drops "this window".
         let frontName = frontApp?.localizedName
         let ordered = (windows + planOnlyWindows).sorted { a, b in
             (a.isCurrentWindow ? 0 : a.subtitle == frontName ? 1 : 2) < (b.isCurrentWindow ? 0 : b.subtitle == frontName ? 1 : 2)
@@ -624,7 +518,6 @@ final class Catalogue {
                 options.append(PlanStep(text: "Close \(name)", icon: tab.icon, run: close))
             }
         }
-        // Quit only for apps the request names, as the search does: a plan must not be able to quit anything.
         let requestWords = Matcher.parse(request).tokens
         let namedQuits = quits.filter { quit in
             let nameWords = Matcher.parse(String(quit.title.dropFirst(5))).tokens
@@ -639,11 +532,9 @@ final class Catalogue {
         let appsWithWindows = Set((windows + planOnlyWindows).map(\.subtitle))
         for item in apps where !item.keywords.isEmpty || runningAppPaths.contains(item.id) {
             options.append(PlanStep(text: "Open the app \(item.title)", icon: item.icon, run: item.run))
-            // An app with no window yet cannot be tiled as a window, so opening and placing is one step.
             guard !appsWithWindows.contains(item.title) else { continue }
             let url = URL(fileURLWithPath: item.id)
-            // Checked after it settles: the app must be running before the next step relies on it. Compared
-            // by bundle id, because an app's path can be a link into a system cryptex.
+            // Compared by bundle id, because an app's path can be a link into a system cryptex.
             let bundleID = Bundle(url: url)?.bundleIdentifier
             let launched = {
                 NSWorkspace.shared.runningApplications.contains {
@@ -669,7 +560,6 @@ final class Catalogue {
             step.target = item.target
             options.append(step)
         }
-        // Menus that list documents, pages or history would send their names to Claude; they stay out.
         let dynamicMenus = ["Open Recent", "History", "Bookmarks", "Recent Items", "Reading List", "Recently Closed"]
         let plannable = menus.filter { menu in !dynamicMenus.contains { menu.subtitle.contains($0) } }
         for item in plannable.prefix(150) where !item.needsConfirm {
@@ -681,8 +571,6 @@ final class Catalogue {
         return options
     }
 
-    /// The folders apps live in. Watched for changes and scanned, one level into plain subfolders
-    /// (Adobe, Setapp) as well, plus Finder, which lives in CoreServices.
     static let appFolders = ["/Applications", "/System/Applications", "/System/Applications/Utilities",
                              "/Applications/Utilities", NSHomeDirectory() + "/Applications"]
 
@@ -707,7 +595,6 @@ final class Catalogue {
                 let title = String(name.dropLast(4))
                 guard seen.insert(title).inserted else { continue }
                 let url = URL(fileURLWithPath: path)
-                // "public.app-category.music" becomes the keyword "music", so "music" finds Spotify.
                 let category = (Bundle(url: url)?.object(forInfoDictionaryKey: "LSApplicationCategoryType") as? String ?? "")
                     .replacingOccurrences(of: "public.app-category.", with: "")
                     .replacingOccurrences(of: "-", with: " ")

@@ -1,5 +1,3 @@
-/// Everyday words for common apps, so "spreadsheet" finds Numbers and "video call" finds FaceTime.
-/// App names alone carry no meaning a word match can use, so these are written by hand.
 enum AppAliases {
     static let words: [String: String] = [
         "Safari": "browser web internet",
