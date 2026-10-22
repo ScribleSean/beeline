@@ -123,50 +123,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.alert(title, detail)
                 }
             }
-            let branch = Self.shell("git rev-parse --abbrev-ref HEAD", in: root)
-            guard branch.ok else {
-                return finish("Can't update", "Beeline's source folder isn't a git checkout, so there is nothing to fetch from.")
-            }
-            let branchName = branch.output.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard branchName == "main" else {
-                return finish("Can't update", "The source folder is on the branch “\(branchName)”. Update only installs main; switch branches in Terminal first.")
-            }
-            let fetch = Self.shell("git fetch --quiet origin", in: root, timeout: 60)
-            let reachedGitHub = fetch.ok
-            let incoming = Self.shell("git log --oneline HEAD..origin/main", in: root).output
-                .split(whereSeparator: \.isNewline).map(String.init)
-            let head = Self.shell("git rev-parse HEAD", in: root).output.trimmingCharacters(in: .whitespacesAndNewlines)
-            let hasLocalEdits = !Self.shell("git status --porcelain --untracked-files=no", in: root).output.isEmpty
-
-            if incoming.isEmpty, !head.isEmpty, head == built, !hasLocalEdits {
+            let what: String
+            let incoming: [String]
+            switch Update.check(root: root, built: built) {
+            case .refused(let why):
+                return finish("Can't update", why)
+            case .upToDate(let head, let reachedGitHub):
                 let note = reachedGitHub ? "" : "\n\nCouldn't reach GitHub, so this was checked against the copy on this Mac only."
                 return finish("Beeline is up to date", "You're on the newest version (\(head.prefix(7))).\(note)")
-            }
-
-            let what: String
-            if incoming.isEmpty {
-                what = hasLocalEdits ? "The source folder has edits that aren't committed. Rebuild Beeline from them?"
-                    : "This copy was built from a different commit than the source folder has. Rebuild from \(head.prefix(7))?"
-            } else {
-                let listed = incoming.prefix(8).joined(separator: "\n")
-                let more = incoming.count > 8 ? "\n…and \(incoming.count - 8) more" : ""
-                what = "\(incoming.count) new \(incoming.count == 1 ? "commit" : "commits") on GitHub:\n\n\(listed)\(more)"
-                    + (hasLocalEdits ? "\n\nThe source folder also has uncommitted edits, which will be built in." : "")
+            case .offer(let commits, let hasLocalEdits, let head):
+                incoming = commits
+                if incoming.isEmpty {
+                    what = hasLocalEdits ? "The source folder has edits that aren't committed. Rebuild Beeline from them?"
+                        : "This copy was built from a different commit than the source folder has. Rebuild from \(head.prefix(7))?"
+                } else {
+                    let listed = incoming.prefix(8).joined(separator: "\n")
+                    let more = incoming.count > 8 ? "\n…and \(incoming.count - 8) more" : ""
+                    what = "\(incoming.count) new \(incoming.count == 1 ? "commit" : "commits") on GitHub:\n\n\(listed)\(more)"
+                        + (hasLocalEdits ? "\n\nThe source folder also has uncommitted edits, which will be built in." : "")
+                }
             }
             guard self.confirm("Update Beeline?", what, action: "Update") else {
                 return DispatchQueue.main.async { self.resetUpdateItem() }
             }
 
-            if !incoming.isEmpty {
-                let merged = Self.shell("git merge --ff-only --quiet origin/main", in: root)
-                guard merged.ok else {
-                    let reason = merged.errors.split(whereSeparator: \.isNewline).first.map(String.init) ?? "git merge failed"
-                    return finish("Couldn't update", "The copy on this Mac couldn't simply move to the newest version: \(reason)")
-                }
+            if !incoming.isEmpty, let reason = Update.fastForward(root: root) {
+                return finish("Couldn't update", "The copy on this Mac couldn't simply move to the newest version: \(reason)")
             }
 
             DispatchQueue.main.async { self.updateItem.title = "Updating…" }
-            let build = Self.shell("bash scripts/build-app.sh", in: root, timeout: 900)
+            let build = Update.shell("bash scripts/build-app.sh", in: root, timeout: 900)
             DispatchQueue.main.async {
                 guard build.ok else {
                     self.resetUpdateItem()
@@ -183,37 +169,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         isUpdating = false
         updateItem.title = "Update Beeline"
         updateItem.isEnabled = true
-    }
-
-    /// A login shell, because an app opened from Finder doesn't get the terminal's PATH or git credentials.
-    private static func shell(_ command: String, in directory: String, timeout: TimeInterval = 30) -> (ok: Bool, output: String, errors: String) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = ["-lc", command]
-        process.currentDirectoryURL = URL(fileURLWithPath: directory)
-        process.standardInput = FileHandle.nullDevice
-        let out = Pipe(), err = Pipe()
-        process.standardOutput = out
-        process.standardError = err
-        do { try process.run() } catch { return (false, "", error.localizedDescription) }
-        var timedOut = false
-        DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
-            if process.isRunning {
-                timedOut = true
-                process.terminate()
-            }
-        }
-        var errors = ""
-        let errorsRead = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
-            errors = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            errorsRead.signal()
-        }
-        let output = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        process.waitUntilExit()
-        errorsRead.wait()
-        if timedOut { errors += "\nGave up after \(Int(timeout)) seconds." }
-        return (process.terminationStatus == 0 && !timedOut, output, errors)
     }
 
     private func confirm(_ title: String, _ detail: String, action: String) -> Bool {
