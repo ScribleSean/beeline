@@ -53,10 +53,4 @@ import Testing
         #expect(undone == "")
         #expect(log.undoLatest() == "Move “a.txt” to Desktop")
     }
-
-    // The undo row itself is never learned or given an alias.
-    @Test func undoIsOneOfAKind() {
-        let row = Item(id: "undo", kind: .action, verb: "Undo", title: "Mute", subtitle: "Undo", keywords: "", icon: nil, run: {})
-        #expect(!Catalogue.canHaveAlias(row))
-    }
 }

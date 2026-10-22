@@ -41,10 +41,14 @@ private let music = Item(id: "/Applications/Music.app", kind: .app, verb: "Open"
 
 @Test func onlyLastingThingsCanHaveAnAlias() {
     #expect(Catalogue.canHaveAlias(music))
-    let reminder = Item(id: "reminder:call", kind: .action, verb: "", title: "Remind me", subtitle: "", keywords: "", icon: nil, run: {})
-    #expect(!Catalogue.canHaveAlias(reminder))
-    let sum = Item(id: "calc", kind: .calculation, verb: "", title: "4", subtitle: "", keywords: "", icon: nil, run: {})
-    #expect(!Catalogue.canHaveAlias(sum))
+    let fleeting: [Item] = [
+        Item(id: "reminder:call", kind: .action, verb: "", title: "Remind me", subtitle: "", keywords: "", icon: nil, run: {}),
+        Item(id: "calc", kind: .calculation, verb: "", title: "4", subtitle: "", keywords: "", icon: nil, run: {}),
+        Item(id: "undo", kind: .action, verb: "Undo", title: "Mute", subtitle: "Undo", keywords: "", icon: nil, run: {}),
+    ]
+    for item in fleeting {
+        #expect(!Catalogue.canHaveAlias(item), Comment(rawValue: item.id))
+    }
 }
 
 @Test func shortcutNamesAreReadOnePerLine() {
