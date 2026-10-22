@@ -43,6 +43,12 @@ struct Item: Identifiable {
     /// Nil for things with no place on screen (apps, settings, actions), which run without the bee.
     var target: (() -> CGRect?)?
 
+    /// True when it is ranked first because it was picked for these words before.
+    var isLearned: Bool {
+        if case .learned = source { return true }
+        return false
+    }
+
     /// Runs the item if its target is still valid. False when it was not run.
     func runIfValid() -> Bool {
         if let stillValid, !stillValid() { return false }
@@ -133,6 +139,11 @@ final class Catalogue {
         let oneOff = ["reminder:", "web-search", "desktop-", "file-tool:", "close-tabs:", "close:"]
         guard !oneOff.contains(where: { item.id.hasPrefix($0) }) else { return }
         usage.record(item, query: query)
+    }
+
+    /// Undoes what was learned for this item and these words, so it ranks on its name alone again.
+    func forgetPick(of item: Item, query: String) {
+        usage.forget(item, for: query)
     }
 
     func refreshRunning() {

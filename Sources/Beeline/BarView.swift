@@ -313,6 +313,16 @@ final class BarModel: ObservableObject {
         selected = (selected + delta + results.count) % results.count
     }
 
+    /// Forgets that the selected result was picked for these words, and ranks again without it.
+    /// False when the selected result wasn't a learned one.
+    @discardableResult
+    func forgetSelectedPick() -> Bool {
+        guard results.indices.contains(selected), results[selected].isLearned else { return false }
+        catalogue.forgetPick(of: results[selected], query: query)
+        refresh()
+        return true
+    }
+
     func runSelected() {
         if let plan {
             onRunPlan(plan)
@@ -479,6 +489,9 @@ struct BarView: View {
                     } else if !model.results.isEmpty {
                         Text("↑↓ move")
                         Text("↩ open")
+                        if model.results.indices.contains(model.selected), model.results[model.selected].isLearned {
+                            Text("⇧⌘⌫ forget pick")
+                        }
                     } else {
                         Text("\(Settings.activeShortcutLabel) opens Beeline anywhere")
                     }
@@ -589,6 +602,10 @@ private struct ResultRow: View {
                 Text("This can't be undone").foregroundStyle(.red)
             } else if item.isGuess {
                 Text("best guess").foregroundStyle(.tertiary)
+            } else if item.isLearned {
+                // Promoted because it was picked for these words before; ⇧⌘⌫ forgets that.
+                Text("learned").foregroundStyle(.tertiary)
+                    .accessibilityLabel("ranked first because you picked it before")
             }
             Text(item.subtitle)
                 .foregroundStyle(.secondary)

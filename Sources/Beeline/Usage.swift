@@ -13,7 +13,14 @@ final class Usage {
         var items: [String: Entry] = [:]
         /// For each thing typed, the items picked for it and how many times.
         var queries: [String: [String: Int]] = [:]
+        /// When each of those was last picked. Optional, so history saved before it existed still loads;
+        /// a pick with no date counts as fresh until it is picked again.
+        var queryLast: [String: [String: Date]]?
     }
+
+    /// A pick not repeated for this long stops ranking first for its words, as Alfred's does: habits
+    /// change, and an old pick must not hold the top spot for good.
+    static let pickLifetime: TimeInterval = 28 * 86_400
 
     private var store = Store()
     private let file: URL
@@ -61,6 +68,9 @@ final class Usage {
         let typed = Self.normalise(query)
         if !typed.isEmpty {
             store.queries[typed, default: [:]][key, default: 0] += 1
+            var dates = store.queryLast ?? [:]
+            dates[typed, default: [:]][key] = Date()
+            store.queryLast = dates
         }
         // Keep the file small: once it grows, the items not picked for 90 days go, then any phrase whose
         // items have all gone. New phrases can always be learned.
@@ -71,7 +81,24 @@ final class Usage {
                 let kept = picks.filter { store.items[$0.key] != nil }
                 return kept.isEmpty ? nil : kept
             }
+            store.queryLast = store.queryLast?.filter { store.queries[$0.key] != nil }
         }
+        save()
+    }
+
+    /// Stops this item ranking first for these words, and drops its habit boost: the "Forget this pick"
+    /// action, for a pick that was wrong or is no longer wanted.
+    func forget(_ item: Item, for query: String) {
+        let key = Self.key(for: item)
+        let typed = Self.normalise(query)
+        store.queries[typed]?[key] = nil
+        if store.queries[typed]?.isEmpty == true { store.queries[typed] = nil }
+        store.queryLast?[typed]?[key] = nil
+        store.items[key] = nil
+        save()
+    }
+
+    private func save() {
         let snapshot = store
         // Written in the background so choosing a result never waits on the disk.
         saveQueue.async { [file] in
@@ -92,9 +119,11 @@ final class Usage {
     }
 
     /// How many times this item was picked for exactly these words. Zero when never, or when learning is off.
-    func timesPicked(_ item: Item, for query: String) -> Int {
+    func timesPicked(_ item: Item, for query: String, now: Date = Date()) -> Int {
         guard Settings.isOn(Settings.learnFromUse) else { return 0 }
-        return store.queries[Self.normalise(query)]?[Self.key(for: item)] ?? 0
+        let typed = Self.normalise(query), key = Self.key(for: item)
+        if let last = store.queryLast?[typed]?[key], now.timeIntervalSince(last) > Self.pickLifetime { return 0 }
+        return store.queries[typed]?[key] ?? 0
     }
 
     /// Extra score for items picked often and recently, up to 40. Halves every two weeks unused.

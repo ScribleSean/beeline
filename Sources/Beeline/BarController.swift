@@ -66,6 +66,10 @@ final class BarController: NSObject, NSWindowDelegate {
             guard let self, self.panel.isKeyWindow else { return event }
             // While an input method is composing (Japanese, Chinese, Korean), Return and Escape belong to it.
             if let editor = self.panel.firstResponder as? NSTextView, editor.hasMarkedText() { return event }
+            // ⇧⌘⌫ forgets a learned pick. Only then: otherwise the keys belong to the search field.
+            if Int(event.keyCode) == kVK_Delete,
+               event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.command, .shift],
+               self.model.forgetSelectedPick() { return nil }
             if self.handleEditShortcut(event) { return nil }
             switch Int(event.keyCode) {
             case kVK_Escape:
