@@ -11,6 +11,8 @@ final class Voice {
     }
 
     var onText: (String) -> Void = { _ in }
+    /// The last words of a hold, once recognition has settled on them. Comes after `stop`.
+    var onFinal: (String) -> Void = { _ in }
     var onState: (State) -> Void = { _ in }
     /// How loud the microphone is, from 0 to 1, about fifty times a second while listening.
     var onLevel: (Double) -> Void = { _ in }
@@ -155,10 +157,12 @@ final class Voice {
 
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             let text = result?.bestTranscription.formattedString
-            let finished = result?.isFinal == true || error != nil
+            let isFinal = result?.isFinal == true
+            let finished = isFinal || error != nil
             DispatchQueue.main.async {
                 guard let self, session == self.generation else { return }
                 if let text { self.onText(text) }
+                if isFinal, let text { self.onFinal(text) }
                 if finished { self.task = nil; self.request = nil }
             }
         }

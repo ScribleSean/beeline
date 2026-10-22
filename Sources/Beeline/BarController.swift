@@ -81,6 +81,8 @@ final class BarController: NSObject, NSWindowDelegate {
                 if self.isListening {
                     // Escape while holding ⌘Space throws the words away.
                     self.cancelListening()
+                } else if self.cancelPendingAct() {
+                    // Escape in the beat after letting go keeps the words but runs nothing.
                 } else if self.runGuard.isRunning {
                     self.runGuard.stop(.escape)
                 } else if self.model.isShowingPlan {
@@ -303,6 +305,7 @@ final class BarController: NSObject, NSWindowDelegate {
             let last = self.model.voiceLevel ?? 0
             self.model.voiceLevel = level > last ? level : last * 0.7 + level * 0.3
         }
+        voice.onFinal = { [weak self] text in self?.heard(text) }
         voice.onState = { [weak self] state in
             guard let self else { return }
             switch state {
@@ -315,6 +318,42 @@ final class BarController: NSObject, NSWindowDelegate {
             }
         }
         voice.start()
+    }
+
+    /// What was going to run by itself after a hold, and the moment it runs. Escape, typing or closing the bar
+    /// cancels it.
+    private var pendingAct: (item: Item, timer: Timer)?
+
+    /// The final words of a hold. When they plainly name one safe thing, it runs after a short beat;
+    /// otherwise the words wait in the bar for Return, as typing does.
+    func heard(_ text: String) {
+        guard !isListening, isShown, Settings.isOn(Settings.actOnRelease), Settings.isOn(Settings.holdToTalk),
+              model.query == text, model.armedID == nil, !model.isShowingPlan,
+              let item = AutoAct.pick(model.results, spoken: text) else { return }
+        model.selected = model.results.firstIndex { $0.id == item.id } ?? 0
+        let verb = item.verb.isEmpty ? "Running" : item.verb == "Open" ? "Opening" : item.verb
+        model.voiceNote = "\(verb) \(item.title) · esc to cancel"
+        DemoLog.note("auto-act", ["title": item.title])
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: false) { [weak self] _ in
+            guard let self, let pending = self.pendingAct, pending.item.id == item.id else { return }
+            self.pendingAct = nil
+            self.model.voiceNote = nil
+            // The list may have changed in the beat: only the very item announced runs.
+            guard self.model.query == text, let current = self.model.results.first(where: { $0.id == item.id }) else { return }
+            self.model.run(current)
+        }
+        pendingAct = (item, timer)
+    }
+
+    /// Stops a run that was about to happen on release. True when there was one.
+    @discardableResult
+    func cancelPendingAct() -> Bool {
+        guard let pending = pendingAct else { return false }
+        pending.timer.invalidate()
+        pendingAct = nil
+        model.voiceNote = nil
+        DemoLog.note("auto-act-cancelled")
+        return true
     }
 
     /// Stops listening and drops what was heard, so letting go of ⌘Space afterwards does nothing.
@@ -380,6 +419,8 @@ final class BarController: NSObject, NSWindowDelegate {
         // still to come: a transcript landing in the next bar would overwrite what is typed there.
         holdTimer?.invalidate()
         holdTimer = nil
+        // A result about to run on release never runs once the bar is gone, or after another one ran.
+        cancelPendingAct()
         if isListening { stopListening() }
         voice.cancel()
         // A banner about the microphone is about the last hold, not the next bar (L12).
