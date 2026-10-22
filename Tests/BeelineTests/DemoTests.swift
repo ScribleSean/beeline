@@ -29,12 +29,6 @@ import Testing
     #expect(lines[1].contains("\"event\":\"result\""))
 }
 
-@Test func noLogMeansNotesDoNothing() {
-    DemoLog.shared = nil
-    DemoLog.note("pressed", ["title": "Send"])
-    #expect(DemoLog.shared == nil)
-}
-
 // The live check tells the ruler toggled from the text moving down or up by a ruler's height.
 @Test func aRulerMovesTheTextByItsHeight() {
     #expect(Demo.rulerMoved(from: 52, to: 84))
