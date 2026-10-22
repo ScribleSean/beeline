@@ -7,7 +7,7 @@ import ApplicationServices
 /// zoom), checks before every action that its own document is still the front window, and gives up
 /// otherwise. What happened goes to the JSON log (see DemoLog), ending with a "result" line.
 enum Demo {
-    static let scenarios = ["press", "plan", "escape", "click", "welcome"]
+    static let scenarios = ["press", "plan", "escape", "click", "welcome", "release"]
 
     /// The scenario asked for, or nil in normal use.
     static var requested: String? {
@@ -68,6 +68,7 @@ enum Demo {
             guard await openDocument() else { return (false, "couldn't open a TextEdit document to work in") }
             switch scenario {
             case "press": return await press()
+            case "release": return await release()
             case "plan": return await plan(interrupt: nil)
             case "escape": return await plan(interrupt: .escape)
             default: return await plan(interrupt: .takeover)
@@ -113,6 +114,39 @@ enum Demo {
                                       "textTopAfter": textTop().map(Double.init) ?? -1, "flew": flew, "pressed": pressed, "rulerToggled": flipped])
             return flew && pressed && flipped ? (true, "the bee flew to the menu, then “\(before)” was pressed and the ruler toggled")
                 : (false, "flew \(flew), pressed \(pressed), ruler toggled \(flipped)")
+        }
+
+        /// Letting go of ⌘Space after saying "TextEdit": Beeline announces it, Escape in that beat stops it,
+        /// and without Escape it opens (TextEdit is already in front, so nothing changes on screen). Speech
+        /// can't be faked here, so the final words go to the same place real recognition sends them.
+        private func release() async -> (Bool, String) {
+            guard Settings.isOn(Settings.actOnRelease), Settings.isOn(Settings.holdToTalk) else {
+                return (false, "“Act when you let go” or hold-to-talk is off in Settings")
+            }
+            bar.show()
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            bar.model.query = "TextEdit"
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard isOurs() else { return (false, "the TextEdit document wasn't in front, so nothing was tried") }
+
+            // First, Escape in the beat: nothing runs.
+            bar.heard("TextEdit")
+            guard DemoLog.shared?.count("auto-act") == 1 else {
+                let top = bar.model.results.first.map { "\($0.verb) \($0.title)" } ?? "nothing"
+                return (false, "letting go announced nothing; the top result was \(top)")
+            }
+            await shot("announced")
+            bar.cancelPendingAct()
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            let stopped = DemoLog.shared?.count("pressed") == 0 && DemoLog.shared?.count("auto-act-cancelled") == 1
+
+            // Then without Escape: it runs.
+            bar.heard("TextEdit")
+            await waitFor(seconds: 3) { (DemoLog.shared?.count("pressed") ?? 0) > 0 }
+            let ran = DemoLog.shared?.last("pressed")?["title"] as? String == "TextEdit"
+            DemoLog.note("verified", ["escStopped": stopped, "ranAfterBeat": ran])
+            return stopped && ran ? (true, "esc stopped it in the beat; left alone, it opened TextEdit")
+                : (false, "esc stopped it \(stopped), ran after the beat \(ran)")
         }
 
         /// A two-step plan: toggle the ruler, then zoom in. With `interrupt`, a stop arrives while the bee is

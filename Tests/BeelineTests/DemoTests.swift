@@ -6,7 +6,7 @@ import Testing
 @Test func theLiveCheckIsOffUnlessAskedFor() {
     #expect(ProcessInfo.processInfo.environment["BEELINE_DEMO"] == nil)
     #expect(Demo.requested == nil)
-    #expect(Demo.scenarios == ["press", "plan", "escape", "click", "welcome"])
+    #expect(Demo.scenarios == ["press", "plan", "escape", "click", "welcome", "release"])
 }
 
 // Each line of the log is one JSON object a script can read, in the order things happened.

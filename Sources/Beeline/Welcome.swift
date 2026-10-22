@@ -59,6 +59,17 @@ private final class WelcomeState: ObservableObject {
     @Published var trusted = Accessibility.isTrusted
     /// True while Spotlight still holds ⌘Space and Beeline had to take another shortcut.
     @Published var spotlightHasShortcut = Settings.spotlightHasShortcut
+
+    /// What the card says: what holds ⌘Space, and where to switch it off.
+    var conflict: (title: String, detail: String) {
+        let fallback = "Beeline uses \(Settings.activeShortcutLabel) for now."
+        if let holder = ShortcutConflicts.current(for: "command").first {
+            return ("\(holder.section) has ⌘Space",
+                    "\(fallback) In Keyboard Shortcuts › \(holder.section), turn off “\(holder.name)”, and ⌘Space is Beeline's.")
+        }
+        return ("Another app has ⌘Space",
+                "\(fallback) A launcher such as Alfred or Raycast may hold it: free it in that app's settings, and ⌘Space is Beeline's.")
+    }
     /// True when an earlier build was trusted, so a grant that no longer matches is the likely cause.
     var wasTrustedBefore: Bool { UserDefaults.standard.bool(forKey: Settings.wasTrusted) }
     private var timer: Timer?
@@ -122,8 +133,8 @@ private struct WelcomeView: View {
                         .frame(width: 36, height: 36)
                         .background(Theme.honeyTile, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Spotlight has ⌘Space").font(.system(size: 14, weight: .semibold))
-                        Text("Beeline uses \(Settings.activeShortcutLabel) for now. In Keyboard Shortcuts › Spotlight, turn off Show Spotlight search, and ⌘Space is Beeline's.")
+                        Text(state.conflict.title).font(.system(size: 14, weight: .semibold))
+                        Text(state.conflict.detail)
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)

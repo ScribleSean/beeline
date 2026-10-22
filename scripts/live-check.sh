@@ -15,8 +15,8 @@ set -uo pipefail
 
 app="${BEELINE_APP:-$HOME/Applications/Beeline.app}"
 [ -d "$app" ] || { echo "No Beeline at $app (set BEELINE_APP)." >&2; exit 2; }
-known=" press plan escape click welcome "
-if [ $# -gt 0 ]; then scenarios=("$@"); else scenarios=(press plan escape click welcome); fi
+known=" press plan escape click welcome release "
+if [ $# -gt 0 ]; then scenarios=("$@"); else scenarios=(press plan escape click welcome release); fi
 # An unknown name would start an ordinary Beeline instead of a check.
 for scenario in "${scenarios[@]}"; do
     case "$known" in *" $scenario "*) ;; *) echo "Unknown scenario “$scenario”. Known:$known" >&2; exit 2 ;; esac
