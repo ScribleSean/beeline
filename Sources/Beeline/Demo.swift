@@ -135,7 +135,10 @@ enum Demo {
                 let top = bar.model.results.first.map { "\($0.verb) \($0.title)" } ?? "nothing"
                 return (false, "letting go announced nothing; the top result was \(top)")
             }
-            await shot("announced")
+            // The beat is 0.7 s, shorter than the usual pause for a screenshot: mark the moment, wait a little,
+            // and press Escape well inside the beat.
+            DemoLog.note("shot", ["name": "announced"])
+            try? await Task.sleep(nanoseconds: 300_000_000)
             bar.cancelPendingAct()
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             let stopped = DemoLog.shared?.count("pressed") == 0 && DemoLog.shared?.count("auto-act-cancelled") == 1
