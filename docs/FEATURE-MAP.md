@@ -4,13 +4,13 @@ What a user can do, how they reach it, and what checks it today. Tests are in `T
 
 | Feature | How a user reaches it | Checked by |
 | --- | --- | --- |
-| Open the bar | ⌘Space (or ⌥/⌃Space), menu bar | live `open` (not yet run) |
+| Open the bar | ⌘Space (or ⌥/⌃Space), menu bar | live `open` (passed 22 Oct 2026) |
 | Hotkey conflict card | Welcome screen when Spotlight holds ⌘Space | ShortcutConflictTests, live `welcome` |
 | Search and rank apps, settings, actions | Type in the bar | RankingTests, MatcherTests, `--query` |
 | Search files | Type in the bar | none (only `--files` by hand) |
 | Switch to a window | Type its name | AutoActTests (safety only) |
-| Switch browser tabs | Type a tab's title | BrowserTests (tab list, titles stay text in AppleScript), live `tab` (not yet run) |
-| Close tabs by browser or word | "close chrome tabs", "close tabs about x" | TabTests, BrowserTests (quoting), live `tab` closes one tab (not yet run) |
+| Switch browser tabs | Type a tab's title | BrowserTests (tab list, titles stay text in AppleScript), live `tab` (fails: Safari didn't load the test pages; scenario needs fixing) |
+| Close tabs by browser or word | "close chrome tabs", "close tabs about x" | TabTests, BrowserTests (quoting), live `tab` closes one tab (scenario not working yet) |
 | Menu commands of the front app | "show ruler" | ControlsTests (labels, same window), live `press` |
 | Press buttons in the front window | Type a button's label | ControlsTests (labels), ScreenScanTests, live `press` |
 | Confirm card for drastic items | Return twice | BarModelTests, ControlsTests, RankingTests |
@@ -26,7 +26,7 @@ What a user can do, how they reach it, and what checks it today. Tests are in `T
 | File chores: move, copy, replace | Finder selection, "move this to desktop" | FileToolsTests |
 | Compress | "compress" with a Finder selection | FileToolsTests |
 | Rename, convert, resize images | "rename to x", "convert to jpg" | TextMatchingTests (row titles only) |
-| Rewrite selected text | "make this more formal" | TextMatchingTests (when it is offered), live `rewrite` (not yet run) |
+| Rewrite selected text | "make this more formal" | TextMatchingTests (when it is offered), live `rewrite` (passed 22 Oct 2026) |
 | Clipboard history | Type "clipboard" | ClipboardTests |
 | Voice: hold to talk | Hold ⌘Space | VoiceLevelTests (meter and hints only) |
 | Act on release | Let go of ⌘Space | AutoActTests, live `release` |
@@ -48,10 +48,10 @@ Severity is how much a user loses if it breaks silently (10 = Beeline is useless
 
 | Severity | Feature | Status |
 | --- | --- | --- |
-| 9 | Open the bar with the shortcut | live `open` written; run it once to close |
+| 9 | Open the bar with the shortcut | closed: live `open` passed |
 | 8 | Plan with Claude: reading the reply | closed: PlannerTests |
-| 7 | Switch browser tabs | unit parts closed (BrowserTests); live `tab` written, run it once |
-| 7 | Rewrite selected text | live `rewrite` written, run it once |
+| 7 | Switch browser tabs | unit parts closed (BrowserTests); live `tab` fails before testing Beeline: Safari didn't load the temp-folder test pages. Open |
+| 7 | Rewrite selected text | closed: live `rewrite` passed |
 | 7 | Update Beeline | closed: UpdateTests. Open: the confirm dialog and relaunch |
 | 6 | Move the front window to half or full | open: live check that tiles the TextEdit window and reads its frame |
 | 6 | Mac controls actually acting (mute, dark mode) | open: live check that toggles twice and compares |
