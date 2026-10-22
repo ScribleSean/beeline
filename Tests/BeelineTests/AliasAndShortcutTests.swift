@@ -28,11 +28,13 @@ private let music = Item(id: "/Applications/Music.app", kind: .app, verb: "Open"
 
 // The user's alias ranks first, above learned picks and name matches.
 @Test func anAliasRanksFirst() {
+    // A catalogue of its own: changing the shared one would race the tests reading it.
     TestEnvironment.prepare()
-    let finder = try! #require(sharedCatalogue.search("finder").first { $0.title == "Finder" })
-    sharedCatalogue.aliases.set("zq", for: finder)
-    defer { sharedCatalogue.aliases.remove("zq") }
-    let top = sharedCatalogue.search("zq").first
+    let catalogue = Catalogue(aliases: scratchAliases())
+    let finder = try! #require(catalogue.search("finder").first { $0.title == "Finder" })
+    catalogue.aliases.set("zq", for: finder)
+    defer { catalogue.aliases.remove("zq") }
+    let top = catalogue.search("zq").first
     #expect(top?.title == "Finder")
     #expect(top?.isAlias == true)
 }
@@ -55,9 +57,8 @@ private let music = Item(id: "/Applications/Music.app", kind: .app, verb: "Open"
 // Your own shortcuts are found by name, but can do anything, so they are never a step in Claude's plans.
 @Test func shortcutsAreResultsButNeverPlanSteps() {
     TestEnvironment.prepare()
-    let saved = sharedCatalogue.shortcuts
-    defer { sharedCatalogue.shortcuts = saved }
-    sharedCatalogue.shortcuts = UserShortcuts.items(["Log water intake"])
-    #expect(sharedCatalogue.search("log water").first?.id == "shortcut:Log water intake")
-    #expect(!sharedCatalogue.planOptions().contains { $0.text.contains("Log water") })
+    let catalogue = Catalogue()
+    catalogue.shortcuts = UserShortcuts.items(["Log water intake"])
+    #expect(catalogue.search("log water").first?.id == "shortcut:Log water intake")
+    #expect(!catalogue.planOptions().contains { $0.text.contains("Log water") })
 }

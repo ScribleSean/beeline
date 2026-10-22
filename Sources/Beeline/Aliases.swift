@@ -13,8 +13,16 @@ final class Aliases {
     /// The app's one store. Tests make their own with `init(file:)`.
     static let shared = Aliases()
 
-    private(set) var entries: [String: Entry] = [:]
+    /// Read from searches on background queues and changed from the bar, so every access takes the lock.
+    private var stored: [String: Entry] = [:]
+    private let lock = NSLock()
     private let file: URL
+
+    var entries: [String: Entry] {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored
+    }
     private let saveQueue = DispatchQueue(label: "beeline.aliases", qos: .userInitiated)
 
     convenience init() {
@@ -26,7 +34,7 @@ final class Aliases {
 
     init(file: URL) {
         self.file = file
-        entries = JSONStore.read([String: Entry].self, from: file, name: "aliases") ?? [:]
+        stored = JSONStore.read([String: Entry].self, from: file, name: "aliases") ?? [:]
     }
 
     /// The words an alias is stored under: lower case, single spaces. Nil for nothing usable.
@@ -39,14 +47,18 @@ final class Aliases {
     @discardableResult
     func set(_ text: String, for item: Item) -> Bool {
         guard let alias = Self.normalise(text) else { return false }
-        entries[alias] = Entry(key: Usage.key(for: item), title: item.title)
+        lock.lock()
+        stored[alias] = Entry(key: Usage.key(for: item), title: item.title)
+        lock.unlock()
         save()
         return true
     }
 
     func remove(_ alias: String) {
         guard let alias = Self.normalise(alias) else { return }
-        entries[alias] = nil
+        lock.lock()
+        stored[alias] = nil
+        lock.unlock()
         save()
     }
 
