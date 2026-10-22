@@ -8,13 +8,11 @@ private func item(_ id: String, confirm: Bool = false) -> Item {
     return item
 }
 
-/// One model for these tests; building one scans the installed apps.
 @MainActor let sharedModel: BarModel = {
     TestEnvironment.prepare()
     return BarModel()
 }()
 
-// M1: the second Return runs the item on the card, not whatever row the selection moved to.
 @Test @MainActor func secondReturnRunsTheArmedItem() {
     let model = sharedModel
     var ran: [String] = []
@@ -24,7 +22,6 @@ private func item(_ id: String, confirm: Bool = false) -> Item {
     model.runSelected()
     #expect(model.armedID == "Work")
     #expect(ran.isEmpty)
-    // The selection drifts (a hover, a late refresh) before the second Return.
     model.selected = 1
     model.runSelected()
     #expect(ran == ["Work"])
@@ -43,7 +40,6 @@ private func item(_ id: String, confirm: Bool = false) -> Item {
     #expect(model.armedID == nil)
 }
 
-// M1: a double-click must not land its second click on the card's red button.
 @Test @MainActor func aClickRightAfterArmingDoesNotConfirm() {
     let model = sharedModel
     var ran: [String] = []

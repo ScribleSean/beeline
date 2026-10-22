@@ -16,7 +16,6 @@ private let music = Item(id: "/Applications/Music.app", kind: .app, verb: "Open"
     #expect(usage.timesPicked(music, for: "songs") == 0)
 }
 
-// A pick not repeated for four weeks stops ranking first.
 @Test func anOldPickFades() {
     UserDefaults.standard.set(true, forKey: Settings.learnFromUse)
     let usage = scratchUsage()
@@ -34,11 +33,9 @@ private let music = Item(id: "/Applications/Music.app", kind: .app, verb: "Open"
     usage.record(music, query: "songs")
     usage.forget(music, for: "tunes")
     #expect(usage.timesPicked(music, for: "tunes") == 0)
-    // What was learned for other words stays.
     #expect(usage.timesPicked(music, for: "songs") == 1)
 }
 
-// History saved before picks had dates still loads, and its picks count as fresh.
 @Test func historyWithoutDatesStillLoads() throws {
     UserDefaults.standard.set(true, forKey: Settings.learnFromUse)
     let file = FileManager.default.temporaryDirectory.appendingPathComponent("beeline-usage-\(UUID().uuidString).json")

@@ -2,7 +2,6 @@ import Foundation
 import Testing
 @testable import Beeline
 
-/// A throwaway folder for one test, removed afterwards.
 struct Scratch {
     let url: URL
 
@@ -32,7 +31,6 @@ struct Scratch {
     }
 }
 
-/// The entry names inside a zip archive.
 private func entries(of archive: URL) -> [String] {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
@@ -45,7 +43,6 @@ private func entries(of archive: URL) -> [String] {
     return output.split(separator: "\n").map(String.init)
 }
 
-// H1: file names must never be read as zip options.
 @Test func compressTreatsDashNamesAsFiles() throws {
     let scratch = try Scratch()
     defer { scratch.remove() }
@@ -60,7 +57,6 @@ private func entries(of archive: URL) -> [String] {
     #expect(Set(entries(of: archive)) == ["report.txt", "-m", "-TT"])
 }
 
-// H1: a selection spanning folders includes every file, not only the ones beside the first.
 @Test func compressIncludesFilesFromSeveralFolders() throws {
     let scratch = try Scratch()
     defer { scratch.remove() }
@@ -72,7 +68,6 @@ private func entries(of archive: URL) -> [String] {
     #expect(Set(entries(of: archive)) == ["a.txt", "b.txt"])
 }
 
-// H1 / M19: a name that cannot be read fails the whole chore and leaves no half-written archive.
 @Test func compressLeavesNothingBehindOnFailure() throws {
     let scratch = try Scratch()
     defer { scratch.remove() }
@@ -83,7 +78,6 @@ private func entries(of archive: URL) -> [String] {
     #expect(!scratch.exists("Archive.zip"))
 }
 
-// Codex 5: a link inside a selected folder is stored as a link, never as what it points to.
 @Test func compressKeepsLinksAsLinks() throws {
     let scratch = try Scratch()
     defer { scratch.remove() }
@@ -98,7 +92,6 @@ private func entries(of archive: URL) -> [String] {
     #expect(!listed.contains { $0.contains("secret.txt") })
 }
 
-// Codex 6: same-named items from two folders are refused, not merged into one entry.
 @Test func compressRefusesTwoItemsWithOneName() throws {
     let scratch = try Scratch()
     defer { scratch.remove() }
@@ -109,7 +102,6 @@ private func entries(of archive: URL) -> [String] {
     #expect(!scratch.exists("one/Archive.zip"))
 }
 
-// M19: a second archive beside the first gets its own name, never the first one's.
 @Test func compressNeverReplacesAnExistingArchive() throws {
     let scratch = try Scratch()
     defer { scratch.remove() }
@@ -121,12 +113,7 @@ private func entries(of archive: URL) -> [String] {
     #expect(second.lastPathComponent == "Archive 2.zip")
 }
 
-// MARK: Copy, move and install (H2)
-
-/// These share the `FileTools.trash` hook, so they run one at a time.
 @Suite(.serialized) struct TransferTests {
-
-/// Routes "trash" into a folder inside the scratch so tests never touch the real Trash.
     private func useScratchTrash(_ scratch: Scratch) throws -> URL {
     let bin = scratch.url.appendingPathComponent("trash-bin", isDirectory: true)
     try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
@@ -142,7 +129,6 @@ private func entries(of archive: URL) -> [String] {
     let scratch = try Scratch()
     defer { scratch.remove() }
     let bin = try useScratchTrash(scratch)
-    // ~/Downloads/Foo/Foo moved "to downloads": the target is the folder the source sits in.
     let source = try scratch.file("Foo", "inside", in: "Downloads/Foo")
     let downloads = scratch.url.appendingPathComponent("Downloads")
 
@@ -191,7 +177,6 @@ private func entries(of archive: URL) -> [String] {
     let old = try scratch.file("report.pdf", "old", in: "Desktop")
     let desktop = old.deletingLastPathComponent()
 
-    // Nothing was confirmed, so the old file stays and nothing is copied over it.
     #expect(FileTools.transfer([source], to: desktop, copying: true, replacing: [:]).isEmpty)
     #expect(try String(contentsOf: old, encoding: .utf8) == "old")
 
@@ -216,7 +201,6 @@ private func entries(of archive: URL) -> [String] {
     #expect(try FileManager.default.contentsOfDirectory(atPath: scratch.url.appendingPathComponent("Applications").path) == ["app.txt"])
 }
 
-    // Codex 8: if the item on the card is swapped for another before Return, the other one is not trashed.
     @Test func replaceLeavesAnItemThatChangedSinceTheCard() throws {
     let scratch = try Scratch()
     defer { scratch.remove() }
@@ -227,7 +211,6 @@ private func entries(of archive: URL) -> [String] {
     let shown = FileTools.replacements(["report.pdf"], in: desktop)
     #expect(shown.count == 1)
 
-    // Something else saves a different report.pdf there after the card was shown.
     try FileManager.default.removeItem(at: old)
     _ = try scratch.file("report.pdf", "someone else's", in: "Desktop")
 
@@ -236,7 +219,6 @@ private func entries(of archive: URL) -> [String] {
     #expect(try FileManager.default.contentsOfDirectory(atPath: bin.path).isEmpty)
 }
 
-    // Codex 9: two names that differ only in case count as one name at the destination.
     @Test func namesThatDifferOnlyInCaseAreOneName() throws {
     let scratch = try Scratch()
     defer { scratch.remove() }
@@ -251,7 +233,6 @@ private func entries(of archive: URL) -> [String] {
     #expect(try FileManager.default.contentsOfDirectory(atPath: desktop.path).isEmpty)
     #expect(try FileManager.default.contentsOfDirectory(atPath: bin.path).isEmpty)
 }
-    // "undo" after a replacing copy: the copy goes to the Trash and the old file comes back.
     @Test func undoPutsTheReplacedFileBack() throws {
     let scratch = try Scratch()
     defer { scratch.remove() }
@@ -268,7 +249,6 @@ private func entries(of archive: URL) -> [String] {
     #expect(try FileManager.default.contentsOfDirectory(atPath: bin.path).count == 1, "the copy went to the Trash")
 }
 
-    // "undo" after a move puts the item back where it came from.
     @Test func undoMovesAnItemBack() throws {
     let scratch = try Scratch()
     defer { scratch.remove() }
@@ -284,13 +264,11 @@ private func entries(of archive: URL) -> [String] {
 }
 }
 
-// Codex 10: Finder's answer is one file URL per line, so a line break inside a name can't split it.
 @Test func finderSelectionIsReadAsURLs() throws {
     let scratch = try Scratch()
     defer { scratch.remove() }
     let odd = try scratch.file("line\nbreak.txt", "x")
     let plain = try scratch.file("plain.txt", "x")
-    // A real path that the broken-up pieces would have matched before.
     _ = try scratch.file("line", "decoy")
     let output = scratch.url.absoluteString + "\n" + odd.absoluteString + "\n" + plain.absoluteString + "\n"
     #expect(odd.absoluteString.contains("%0A"))

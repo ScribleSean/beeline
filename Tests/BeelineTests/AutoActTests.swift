@@ -16,13 +16,10 @@ private let nightShift = item("setting:night", .setting, "Night Shift")
 }
 
 @Test func anythingLessThanPlainWaitsForReturn() {
-    // Not its name.
     #expect(AutoAct.pick([safari], spoken: "browser") == nil)
-    // A guess never runs by itself.
     var guess = safari
     guess.isGuess = true
     #expect(AutoAct.pick([guess], spoken: "safari") == nil)
-    // Two results with that name: which one is unclear.
     let other = item("/Users/x/Safari.app", .app, "Safari")
     #expect(AutoAct.pick([safari, other], spoken: "safari") == nil)
     #expect(AutoAct.pick([], spoken: "safari") == nil)
@@ -42,7 +39,6 @@ private let nightShift = item("setting:night", .setting, "Night Shift")
     #expect(!AutoAct.isSafe(confirm))
 }
 
-// Your alias or a learned pick is clear enough, as long as it is safe.
 @Test func aliasesAndLearnedPicksRunOnRelease() {
     var aliased = safari
     aliased.source = .alias

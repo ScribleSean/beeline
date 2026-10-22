@@ -2,7 +2,6 @@ import Foundation
 import Testing
 @testable import Beeline
 
-/// Fake tabs in a catalogue of their own, with a record of which ones were closed.
 @Suite(.serialized) struct CloseTabTests {
     final class Closed { var titles: [String] = [] }
     let closed = Closed()
@@ -32,7 +31,6 @@ import Testing
         catalogue.search(query).first { $0.id.hasPrefix("close-tabs:") }
     }
 
-    // H4: the browser's name means every tab in that browser, never a text match, and needs confirming.
     @Test func browserNameClosesOnlyThatBrowsersTabsAfterConfirming() throws {
         let row = try #require(closeAllRow("close chrome tabs"))
         #expect(row.title == "Close 5 Tabs in Chrome")
@@ -42,7 +40,6 @@ import Testing
         #expect(!closed.titles.contains("Weather"))
     }
 
-    // H4: a word inside the browser's name is not a match.
     @Test func wordInsideABrowserNameMatchesNothing() {
         #expect(closeAllRow("close tabs about rome")?.title == nil)
         let rows = catalogue.search("close tabs about rome").filter { $0.id.hasPrefix("close:") }
@@ -50,7 +47,6 @@ import Testing
         #expect(catalogue.search("close far tabs").filter { $0.id.hasPrefix("close") }.isEmpty)
     }
 
-    // H4: short words must be whole words, so "ai" is claude.ai and not Gmail.
     @Test func shortWordsMustBeWholeWords() throws {
         let row = try #require(closeAllRow("close ai tabs"))
         #expect(row.title == "Close 2 Tabs Matching “ai”")
@@ -65,7 +61,6 @@ import Testing
         #expect(row.subtitle == "Chrome, Safari")
     }
 
-    // L28: "close tab" with nothing to match falls through to the normal search instead of showing nothing.
     @Test func closeTabWithNoTargetOffersNoCloseRows() {
         #expect(catalogue.search("close tab").filter { $0.id.hasPrefix("close") }.isEmpty)
         #expect(catalogue.search("close other tabs").filter { $0.id.hasPrefix("close") }.isEmpty)
@@ -82,7 +77,6 @@ import Testing
 }
 
 @Suite(.serialized) struct CloseTabWordTests {
-    // A word like "browser" or "google" is not a browser's name.
     @Test func onlyABrowsersOwnNameNarrowsAClose() throws {
         TestEnvironment.prepare()
         let catalogue = Catalogue()

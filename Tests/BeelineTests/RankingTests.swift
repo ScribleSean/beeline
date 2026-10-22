@@ -2,7 +2,6 @@ import Foundation
 import Testing
 @testable import Beeline
 
-/// One catalogue for all ranking tests: scanning installed apps takes a moment.
 let sharedCatalogue: Catalogue = {
     TestEnvironment.prepare()
     return Catalogue()
@@ -12,7 +11,6 @@ private func titles(_ query: String) -> [String] {
     sharedCatalogue.search(query).map(\.title)
 }
 
-// H3: drastic actions need Return twice, and never surface for a keyword typed in part.
 @Test func restartShutDownAndLogOutNeedConfirming() {
     for title in ["Restart", "Shut Down", "Log Out"] {
         let item = sharedCatalogue.search(title.lowercased()).first { $0.title == title }
@@ -53,7 +51,6 @@ private func titles(_ query: String) -> [String] {
     }
 }
 
-// Codex 7: ejecting every disk asks first, and the card says which ones.
 @Test func ejectAllDisksNeedsConfirming() {
     let item = sharedCatalogue.search("eject all disks").first { $0.title == "Eject All Disks" }
     #expect(item?.needsConfirm == true)
@@ -63,7 +60,6 @@ private func titles(_ query: String) -> [String] {
     #expect(Actions.ejectSummary(["Backup", "Photos", "USB"]).hasPrefix("Backup, Photos and USB are ejected."))
 }
 
-// M11: everyday requests act instead of turning into questions or the wrong direction.
 @Test func requestsThatMatchEveryWordAreNotQuestions() {
     #expect(titles("do not disturb").first == "Focus")
     #expect(titles("can you mute").first == "Mute")
@@ -96,13 +92,11 @@ private func titles(_ query: String) -> [String] {
     #expect(sharedCatalogue.clipboard.results(for: "paste and match style", limit: 6) == nil)
 }
 
-// L9: "+" survives the trip into a web search.
-// Codex 11: through the code the app runs, not a copy of it.
 @Test func plusIsKeptInWebSearches() {
     #expect(Catalogue.webSearchURL(for: "what is c++?").absoluteString == "https://www.google.com/search?q=what%20is%20c%2B%2B?")
 }
 
-// L8: Finder lives in CoreServices, not an Applications folder.
+// Finder lives in CoreServices, not an Applications folder.
 @Test func finderCanBeFound() {
     #expect(titles("finder").contains("Finder"))
 }

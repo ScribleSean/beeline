@@ -2,14 +2,12 @@ import Foundation
 import Testing
 @testable import Beeline
 
-// The live check only starts when asked for by name.
 @Test func theLiveCheckIsOffUnlessAskedFor() {
     #expect(ProcessInfo.processInfo.environment["BEELINE_DEMO"] == nil)
     #expect(Demo.requested == nil)
     #expect(Demo.scenarios == ["press", "plan", "escape", "click", "welcome", "release"])
 }
 
-// Each line of the log is one JSON object a script can read, in the order things happened.
 @Test func theLiveCheckLogIsOneJSONObjectPerLine() throws {
     let path = FileManager.default.temporaryDirectory.appendingPathComponent("beeline-demo-\(UUID().uuidString).jsonl").path
     defer { try? FileManager.default.removeItem(atPath: path) }
@@ -25,11 +23,9 @@ import Testing
     #expect(first["event"] as? String == "bee-takeoff")
     #expect(first["to"] as? [Double] == [10, 20])
     #expect(first["t"] is Double)
-    // The script finds the result with a plain text search.
     #expect(lines[1].contains("\"event\":\"result\""))
 }
 
-// The live check tells the ruler toggled from the text moving down or up by a ruler's height.
 @Test func aRulerMovesTheTextByItsHeight() {
     #expect(Demo.rulerMoved(from: 52, to: 84))
     #expect(Demo.rulerMoved(from: 84, to: 52))

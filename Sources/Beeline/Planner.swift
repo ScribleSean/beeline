@@ -1,30 +1,21 @@
 import AppKit
 
-/// One thing a plan can do, described in words for the preview.
 struct PlanStep: Identifiable {
     let id = UUID()
     let text: String
     let icon: NSImage?
     let run: () -> Void
-    /// How long to wait after this step before the next. Opening an app and placing it takes seconds.
     var settleTime = 0.35
-    /// Checked just before running: false means the target is gone or changed, and the plan stops.
     var stillValid: (() -> Bool)?
-    /// Checked after the step settles: false means it did not take effect, and the plan stops.
     var succeeded: (() -> Bool)?
-    /// Where the step acts on screen, in Accessibility coordinates, for the bee. Nil when it has no place.
     var target: (() -> CGRect?)?
 }
 
 struct Plan {
     let steps: [PlanStep]
-    /// Claude's one-sentence summary, or its reason when it found no way to do the request.
     let note: String
 }
 
-/// Asks Claude, through the Claude Code sign-in already on this Mac, to turn a request into steps.
-/// Claude has no tools: it can only reply with numbers from the list of options it is shown,
-/// and nothing runs until the plan has been previewed and confirmed.
 enum Planner {
     enum Failure: Error {
         case message(String)
@@ -45,7 +36,6 @@ enum Planner {
         No markdown, no lists, no preamble. If you are not sure, say so briefly.
         """
 
-    /// A short spoken-style answer to a question, shown in the bar. Same sign-in, still no tools.
     static func answer(_ question: String) async -> Result<String, Failure> {
         await ask(question, system: answerSystem)
     }
@@ -56,12 +46,10 @@ enum Planner {
         Keep the meaning, the language and the formatting unless asked to change them.
         """
 
-    /// The selected text rewritten as asked. Same sign-in, still no tools.
     static func rewrite(_ text: String, instruction: String) async -> Result<String, Failure> {
         await ask("Instruction: \(instruction)\n<text>\n\(text)\n</text>", system: rewriteSystem)
     }
 
-    /// Claude's reply, trimmed, or why there is none.
     private static func ask(_ prompt: String, system: String) async -> Result<String, Failure> {
         let result: Result<String, Failure> = await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
@@ -86,17 +74,14 @@ enum Planner {
         case .success(let text): reply = text
         case .failure(let failure): return .failure(failure)
         }
-        // Tolerates a code fence or stray words around the JSON, and nothing else.
         guard reply.utf8.count < 20_000, let start = reply.firstIndex(of: "{"), let end = reply.lastIndex(of: "}"), start < end,
               let object = try? JSONSerialization.jsonObject(with: Data(reply[start...end].utf8)) as? [String: Any],
               let numbers = object["steps"] as? [Any] else {
             return .failure(.message("Claude's reply wasn't a plan."))
         }
-        // The preview must be able to show every step, so a long plan is refused rather than cut short.
         guard numbers.count <= maxSteps else {
             return .failure(.message("That plan has more than \(maxSteps) steps. Try a smaller request."))
         }
-        // Each step must be a whole option number from the list, used once. Anything else rejects the plan.
         var used = Set<Int>()
         var steps: [PlanStep] = []
         for value in numbers {
@@ -111,7 +96,6 @@ enum Planner {
 
     static let maxSteps = 8
 
-    /// The Claude process currently running, so Escape can stop it instead of leaving it to finish.
     private static var running: Process?
     private static let runningLock = NSLock()
 
@@ -123,14 +107,11 @@ enum Planner {
         if let process, process.isRunning { process.terminate() }
     }
 
-    /// Makes a write into a pipe whose reader has gone an error instead of a signal that kills the app.
-    /// Called once at launch. The prompt for a plan can exceed what a pipe holds, so the write can still be
-    /// under way when `claude` exits, or when Escape ends it.
+    /// A write into a pipe whose reader has gone raises SIGPIPE, which kills the app by default.
     static func ignoreBrokenPipes() {
         signal(SIGPIPE, SIG_IGN)
     }
 
-    /// Writes everything to the pipe and closes it. False when the reader had already gone.
     static func feed(_ data: Data, to pipe: Pipe) -> Bool {
         let handle = pipe.fileHandleForWriting
         defer { try? handle.close() }
@@ -142,9 +123,8 @@ enum Planner {
         }
     }
 
-    /// Where the `claude` command is. Beeline starts from launchd with a bare PATH, and a bash login shell
-    /// never reads zsh's profile, where Claude Code's installer and Homebrew add themselves. So the usual
-    /// places are checked directly, then the user's own shell is asked. Remembered once found.
+    /// An app started by launchd gets a bare PATH, and a bash login shell never reads zsh's profile,
+    /// where Claude Code's installer and Homebrew add themselves.
     private static var cachedClaude: URL?
     private static let claudeLock = NSLock()
 
@@ -162,7 +142,6 @@ enum Planner {
         return found
     }
 
-    /// The first candidate that is an executable file.
     static func find(in candidates: [URL]) -> URL? {
         candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }
     }
@@ -191,16 +170,12 @@ enum Planner {
         guard let claude = claudePath() else { return .failure(.message(notFoundMessage)) }
         let process = Process()
         process.executableURL = claude
-        // Every tool, MCP server and settings file is switched off, so this is a plain question and
-        // answer with no way to act on the Mac.
         process.arguments = ["-p", "--model", "sonnet", "--tools", "", "--strict-mcp-config", "--setting-sources", "",
                              "--no-session-persistence", "--output-format", "text", "--system-prompt", system]
-        // Only a few named variables are passed on. API keys and provider switches (Bedrock, Vertex, a keyed
-        // proxy) are left out whatever they are called, so the call goes through the Claude Code sign-in
-        // already on this Mac and never a paid API account.
+        // Claude Code bills a paid API account instead of the sign-in on this Mac when its environment
+        // holds an API key or a provider switch (Bedrock, Vertex, a keyed proxy).
         let inherited = ProcessInfo.processInfo.environment
         var environment: [String: String] = [:]
-        // Where Claude Code keeps its sign-in, and how to reach the network, are not billing switches.
         for name in ["HOME", "USER", "LOGNAME", "LANG", "TMPDIR", "SHELL", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME",
                      "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy", "NODE_EXTRA_CA_CERTS"] {
             if let value = inherited[name] { environment[name] = value }
@@ -221,7 +196,6 @@ enum Planner {
         running = process
         runningLock.unlock()
 
-        // Claude normally answers in a few seconds; never leave the bar waiting on a stuck process.
         var timedOut = false
         DispatchQueue.global().asyncAfter(deadline: .now() + 40) {
             if process.isRunning {
@@ -229,8 +203,7 @@ enum Planner {
                 process.terminate()
             }
         }
-        // The prompt is written while the reply is read: a prompt bigger than the pipe would otherwise
-        // block until claude drains it, and a write into a pipe claude has left is an error, not a crash.
+        // A write bigger than the pipe buffer blocks until claude reads it.
         let fed = DispatchQueue(label: "beeline.claude-input")
         fed.async { _ = feed(Data(prompt.utf8), to: input) }
         var errorText = ""

@@ -2,7 +2,6 @@ import Foundation
 import Testing
 @testable import Beeline
 
-// M7: a saved file that no longer decodes is moved aside, not silently replaced by the next save.
 @Test func unreadableUsageFileIsKeptAside() throws {
     let scratch = try Scratch()
     defer { scratch.remove() }

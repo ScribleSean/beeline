@@ -2,7 +2,6 @@ import Foundation
 import Testing
 @testable import Beeline
 
-/// The undo log is shared, so these run one at a time and tidy up after themselves.
 @Suite(.serialized) struct UndoTests {
     @Test func undoRunsTheLatestOnce() {
         let log = UndoLog()
@@ -30,7 +29,6 @@ import Testing
         #expect(log.undoLatest(now: then.addingTimeInterval(UndoLog.lifetime + 1)) == nil)
     }
 
-    // "undo" offers a row; an empty bar only hints, for a couple of minutes, so Return there undoes nothing.
     @Test func theUndoRowAppearsOnlyWhenAskedFor() {
         let log = UndoLog()
         let then = Date()
@@ -42,7 +40,6 @@ import Testing
         #expect(log.hint(now: then.addingTimeInterval(300)) == nil)
     }
 
-    // A row undoes only what it showed, never something recorded after it was drawn.
     @Test func aRowUndoesOnlyWhatItShowed() {
         let log = UndoLog()
         var undone = ""

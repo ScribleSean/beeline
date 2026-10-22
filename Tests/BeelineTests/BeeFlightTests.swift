@@ -5,7 +5,6 @@ import Testing
 private let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
 
 @Test func accessibilityRectsFlipToAppKit() {
-    // 100 points from the top of a 900-point screen, 40 tall: its bottom is 760 from the bottom.
     let rect = BeeFlight.appKitRect(fromAX: CGRect(x: 20, y: 100, width: 80, height: 40), primaryHeight: 900)
     #expect(rect == CGRect(x: 20, y: 760, width: 80, height: 40))
 }
@@ -19,12 +18,10 @@ private let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
 }
 
 @Test func theBeeStaysOnScreenAtTheEdges() {
-    // A button in the top-right corner: the bee moves to its left and below it.
     let corner = CGRect(x: 1400, y: 880, width: 40, height: 20)
     let perch = BeeFlight.perch(beside: corner, in: screen)
     #expect(perch.x + 15 <= screen.maxX && perch.y + 15 <= screen.maxY)
     #expect(perch.x < corner.minX && perch.y < corner.minY)
-    // A full-screen window leaves no outside; the bee still fits on screen.
     let whole = BeeFlight.perch(beside: screen, in: screen)
     #expect(screen.insetBy(dx: 15, dy: 15).contains(whole) || whole.x == screen.maxX - 15)
 }
@@ -32,7 +29,7 @@ private let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
 @Test func aPointOnTheTopOrRightEdgeIsOnThatScreen() {
     let left = CGRect(x: 0, y: 0, width: 1440, height: 900)
     let right = CGRect(x: 1440, y: 0, width: 1920, height: 1080)
-    // NSRect.contains would say no to both of these (review #32).
+    // NSRect.contains leaves out the top and right edges, so it would say no to both of these.
     #expect(BeeFlight.screen(containing: CGPoint(x: 1440, y: 500), among: [left, right]) != nil)
     #expect(BeeFlight.screen(containing: CGPoint(x: 100, y: 900), among: [left, right]) == left)
     #expect(BeeFlight.screen(containing: CGPoint(x: -5, y: 5), among: [left, right]) == nil)
@@ -49,10 +46,8 @@ private let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
     let path = BeeFlight.Path(from: CGPoint(x: 100, y: 100), to: CGPoint(x: 900, y: 300))
     #expect(path.point(at: 0) == CGPoint(x: 100, y: 100))
     #expect(path.point(at: 1) == CGPoint(x: 900, y: 300))
-    // It bows upward, not in a straight line.
     let middle = path.point(at: 0.5)
     #expect(middle.y > 200)
-    // Progress outside 0...1 is held at the ends.
     #expect(path.point(at: 1.5) == path.point(at: 1))
 }
 

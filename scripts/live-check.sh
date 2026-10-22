@@ -4,10 +4,8 @@
 #   bash scripts/live-check.sh                 # every scenario
 #   bash scripts/live-check.sh press escape    # some of them
 #
-# Each scenario launches Beeline with BEELINE_DEMO set. Beeline then opens a throwaway TextEdit document,
-# works only in it (TextEdit's ruler and zoom commands), closes it, and quits. Screenshots are taken at the
-# moments Beeline marks in its log. Keep your hands off the keyboard and mouse while it runs: a click or a
-# key stops a run, which is the point of two of the checks.
+# Beeline works in a throwaway TextEdit document. Keep your hands off the keyboard and mouse while it
+# runs: a click or a key stops a run.
 #
 # Needs: Beeline built with this live-check mode, at ~/Applications/Beeline.app (or BEELINE_APP), with
 # Accessibility allowed; and Screen Recording allowed for the terminal, for the screenshots.
@@ -17,7 +15,6 @@ app="${BEELINE_APP:-$HOME/Applications/Beeline.app}"
 [ -d "$app" ] || { echo "No Beeline at $app (set BEELINE_APP)." >&2; exit 2; }
 known=" press plan escape click welcome release "
 if [ $# -gt 0 ]; then scenarios=("$@"); else scenarios=(press plan escape click welcome release); fi
-# An unknown name would start an ordinary Beeline instead of a check.
 for scenario in "${scenarios[@]}"; do
     case "$known" in *" $scenario "*) ;; *) echo "Unknown scenario “$scenario”. Known:$known" >&2; exit 2 ;; esac
 done
@@ -25,19 +22,16 @@ out="$(mktemp -d "${TMPDIR:-/tmp}/beeline-live-check.XXXXXX")"
 echo "Screenshots and logs: $out"
 echo "Hands off the keyboard and mouse until it finishes."
 
-# One value from one JSON line, or nothing.
 field() { printf '%s' "$1" | plutil -extract "$2" raw -o - - 2>/dev/null; }
 
 shots=0
 capture() {
     shots=$((shots + 1))
-    # One file per display, so a bee on a second screen is caught too.
+    # screencapture takes one file name per display.
     local name="$out/$scenario-$(printf '%02d' "$shots")-$1"
     screencapture -x "$name.png" "$name-display2.png" "$name-display3.png"
 }
 
-# Only one Beeline runs at a time, so the usual one steps aside and comes back at the end, from wherever
-# it was running, even if this script is stopped partway.
 running_copy=""
 if pid="$(pgrep -x Beeline | head -1)"; then
     executable="$(ps -o comm= -p "$pid")"
@@ -70,8 +64,6 @@ for scenario in "${scenarios[@]}"; do
             line="$(sed -n "${seen}p" "$log")"
             case "$(field "$line" event)" in
                 shot) capture "$(field "$line" name)" ;;
-                # Partway through the flight, so the bee is caught in the air (and before the escape and
-                # click checks interrupt it, at 40%).
                 bee-takeoff) sleep "$(awk -v s="$(field "$line" seconds)" 'BEGIN { print s * 0.3 }')"; capture flight ;;
                 bee-landed) capture landed ;;
             esac

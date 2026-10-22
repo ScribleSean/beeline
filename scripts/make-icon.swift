@@ -1,5 +1,5 @@
-// Builds the app icon and the menu bar glyph from Resources/AppIcon-source.png, the chosen
-// "Escape, inverted" design generated with Codex. Run from the repo root:  swift scripts/make-icon.swift
+// Builds the app icon and the menu bar glyph from Resources/AppIcon-source.png.
+// Run from the repo root:  swift scripts/make-icon.swift
 import AppKit
 
 let source = NSImage(contentsOfFile: "Resources/AppIcon-source.png")!
@@ -18,8 +18,7 @@ func bitmap(_ size: Int, draw: (CGContext) -> Void) -> NSBitmapImageRep {
     return rep
 }
 
-/// The source image, placed in the standard macOS icon tile: an 824-point rounded square in a
-/// 1024-point canvas. The tile's own corner rounding trims the black corners around the source art.
+/// The standard macOS icon tile is an 824-point rounded square in a 1024-point canvas.
 func drawIcon(size: Int) -> NSBitmapImageRep {
     bitmap(size) { context in
         let side = CGFloat(size)
@@ -27,15 +26,12 @@ func drawIcon(size: Int) -> NSBitmapImageRep {
         let tile = CGRect(x: inset, y: inset, width: side - inset * 2, height: side - inset * 2)
         context.addPath(CGPath(roundedRect: tile, cornerWidth: tile.width * 0.225, cornerHeight: tile.width * 0.225, transform: nil))
         context.clip()
-        // The source has its own darker rim and corners; enlarging it slightly pushes them outside the clip.
         context.draw(sourceImage, in: tile.insetBy(dx: -tile.width * 0.035, dy: -tile.width * 0.035))
     }
 }
 
-/// The menu bar glyph: the same mark, cut from the yellow so only the dark lines remain, as a black
-/// shape on transparent that macOS tints for light and dark menu bars. 36 pixels, shown at 18 points.
+/// macOS tints a black shape on transparent for light and dark menu bars. 36 pixels, shown at 18 points.
 func drawGlyph() -> NSBitmapImageRep {
-    // Crop inside the tile's rounded corners so their black does not read as part of the mark.
     let width = CGFloat(sourceImage.width), margin = width * 0.07
     let crop = sourceImage.cropping(to: CGRect(x: margin, y: margin, width: width - margin * 2, height: width - margin * 2))!
     let size = 36
@@ -48,7 +44,6 @@ func drawGlyph() -> NSBitmapImageRep {
     let rep = bitmap(size) { _ in }
     for y in 0..<size {
         for x in 0..<size {
-            // Yellow is light and the ink is near black: darker means more opaque.
             let level = Double(lightness[y * size + x]) / 255
             let alpha = max(0, min(1, (0.55 - level) / 0.3))
             rep.setColor(NSColor(deviceRed: 0, green: 0, blue: 0, alpha: alpha), atX: x, y: y)

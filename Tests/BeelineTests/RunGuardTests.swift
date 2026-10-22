@@ -10,7 +10,6 @@ private func reason(_ type: NSEvent.EventType, key: Int = 0, _ modifiers: NSEven
 
 @Test func escapeAnywhereStopsARun() {
     #expect(reason(.keyDown, key: kVK_Escape) == .escape)
-    // Caps Lock and Fn are not held keys: Escape still means stop.
     #expect(reason(.keyDown, key: kVK_Escape, [.capsLock, .function]) == .escape)
 }
 
@@ -18,11 +17,9 @@ private func reason(_ type: NSEvent.EventType, key: Int = 0, _ modifiers: NSEven
     #expect(reason(.leftMouseDown) == .takeover)
     #expect(reason(.rightMouseDown) == .takeover)
     #expect(reason(.keyDown, key: kVK_ANSI_A) == .takeover)
-    // ⌘⌥Esc is Force Quit, not a plain stop, but it is still you taking over.
     #expect(reason(.keyDown, key: kVK_Escape, [.command, .option]) == .takeover)
 }
 
-// Review #3: a hand on the trackpad must not cancel anything.
 @Test func movingThePointerChangesNothing() {
     #expect(reason(.mouseMoved) == nil)
     #expect(reason(.scrollWheel) == nil)

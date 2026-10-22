@@ -6,7 +6,6 @@ import Testing
     #expect(Voice.level(rms: 0) == 0)
     #expect(Voice.level(rms: 1) == 1)
     #expect(Voice.level(rms: 2) == 1)
-    // -50 dB is the floor; -25 dB is halfway.
     #expect(Voice.level(rms: 0.003) == 0)
     #expect(abs(Voice.level(rms: pow(10, -25.0 / 20)) - 0.5) < 0.001)
 }
@@ -20,7 +19,6 @@ import Testing
     #expect(Voice.level(of: buffer) > 0.8)
 }
 
-// App names and commands go to the recognizer: distinct, a useful length, at most 100.
 @Test func customWordsAreTidy() {
     let words = Voice.contextualStrings(["Figma", " figma ", "x", "Raycast", String(repeating: "a", count: 60)])
     #expect(words == ["Figma", "Raycast"])

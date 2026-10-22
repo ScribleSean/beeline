@@ -2,7 +2,6 @@ import Foundation
 import Testing
 @testable import Beeline
 
-// H8: writing a big prompt into a pipe whose reader has exited must be an error, not a signal that kills the app.
 @Test func writingToAChildThatHasExitedDoesNotKillTheApp() throws {
     Planner.ignoreBrokenPipes()
     let child = Process()
@@ -15,7 +14,6 @@ import Testing
     #expect(Planner.feed(Data(count: 1_000_000), to: input) == false)
 }
 
-// M9: claude is looked for where installers put it, as an executable file.
 @Test func findsClaudeAmongCandidates() throws {
     let scratch = try Scratch()
     defer { scratch.remove() }

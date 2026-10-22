@@ -26,9 +26,7 @@ private let music = Item(id: "/Applications/Music.app", kind: .app, verb: "Open"
     #expect(Aliases(file: file).matches("mu", music))
 }
 
-// The user's alias ranks first, above learned picks and name matches.
 @Test func anAliasRanksFirst() {
-    // A catalogue of its own: changing the shared one would race the tests reading it.
     TestEnvironment.prepare()
     let catalogue = Catalogue(aliases: scratchAliases())
     let finder = try! #require(catalogue.search("finder").first { $0.title == "Finder" })
@@ -58,7 +56,6 @@ private let music = Item(id: "/Applications/Music.app", kind: .app, verb: "Open"
     #expect(items.first?.verb == "Run Shortcut")
 }
 
-// Your own shortcuts are found by name, but can do anything, so they are never a step in Claude's plans.
 @Test func shortcutsAreResultsButNeverPlanSteps() {
     TestEnvironment.prepare()
     let catalogue = Catalogue()

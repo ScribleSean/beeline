@@ -1,8 +1,6 @@
 import AVFoundation
 import Speech
 
-/// Turns speech into text while the shortcut is held, on this Mac. The first use asks for the
-/// microphone and speech recognition through the standard macOS prompts.
 final class Voice {
     enum State {
         case listening
@@ -11,32 +9,24 @@ final class Voice {
     }
 
     var onText: (String) -> Void = { _ in }
-    /// The last words of a hold, once recognition has settled on them. Comes after `stop`.
     var onFinal: (String) -> Void = { _ in }
     var onState: (State) -> Void = { _ in }
-    /// How loud the microphone is, from 0 to 1, about fifty times a second while listening.
     var onLevel: (Double) -> Void = { _ in }
 
     private let engine = AVAudioEngine()
-    /// The Mac's own language when it can be recognised on the Mac, otherwise US English.
     private let recognizer: SFSpeechRecognizer? = {
         if let own = SFSpeechRecognizer(locale: .current), own.supportsOnDeviceRecognition { return own }
         return SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     }()
-    /// Words to listen out for: app names and Beeline's own commands, which general recognition mishears
-    /// ("Figma", "Raycast"). Set before `start`.
     var vocabulary: [String] = []
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
-    /// Set when the key comes up before the permission prompts are answered, so listening never starts late.
     private var cancelledBeforeStart = false
-    /// Counts listening sessions. A callback from an earlier session is ignored, so an old transcript or a
-    /// slow permission answer can never act on a newer one.
     private var generation = 0
 
     init() {
-        // The engine stops itself when the audio hardware changes (AirPods connecting, a mic unplugged).
-        // Its tap would otherwise be left behind, and a second tap on the same bus stops the whole app.
+        // AVAudioEngine stops itself when the audio hardware changes (AirPods connecting, a mic unplugged)
+        // and leaves its tap behind; a second tap on the same bus crashes the app.
         NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
             self?.stop()
         }
@@ -54,12 +44,11 @@ final class Voice {
         }
     }
 
-    /// Ends listening. The last words still arrive through `onText` a moment later.
     func stop() {
         cancelledBeforeStart = true
         if engine.isRunning { engine.stop() }
-        // Always, whatever the engine says: removing a tap that is not there is harmless, and leaving one
-        // behind after the engine stopped itself is what crashed the next hold.
+        // Removing a tap that is not there is harmless; one left behind after the engine stopped itself
+        // crashes the next installTap.
         engine.inputNode.removeTap(onBus: 0)
         guard let request else { return }
         request.endAudio()
@@ -67,8 +56,6 @@ final class Voice {
         onState(.stopped)
     }
 
-    /// Ends listening and drops anything still to come from it: a transcript that arrives after the bar
-    /// has closed, or after the request was sent on, must not act on a newer bar.
     func cancel() {
         generation += 1
         task?.cancel()
@@ -77,7 +64,6 @@ final class Voice {
     }
 
     private func authorise(_ done: @escaping (String?) -> Void) {
-        // Both already allowed, the usual case: start now, without a round trip that delays the first word.
         if SFSpeechRecognizer.authorizationStatus() == .authorized,
            AVCaptureDevice.authorizationStatus(for: .audio) == .authorized {
             return done(nil)
@@ -92,7 +78,6 @@ final class Voice {
         }
     }
 
-    /// The custom words handed to the recognizer: distinct, of a useful length, at most 100.
     static func contextualStrings(_ words: [String]) -> [String] {
         var seen = Set<String>()
         return words.map { $0.trimmingCharacters(in: .whitespaces) }
@@ -101,8 +86,6 @@ final class Voice {
             .map { $0 }
     }
 
-    /// A buffer's loudness from 0 (silence, -50 dB and below) to 1 (0 dB), on a decibel scale so quiet
-    /// speech still moves the meter.
     static func level(of buffer: AVAudioPCMBuffer) -> Double {
         guard let samples = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return 0 }
         var sum: Float = 0
@@ -119,7 +102,6 @@ final class Voice {
         guard let recognizer, recognizer.isAvailable else {
             return onState(.unavailable("Speech recognition isn't available right now."))
         }
-        // Audio never leaves the Mac: without on-device recognition, Beeline does not listen at all.
         guard recognizer.supportsOnDeviceRecognition else {
             return onState(.unavailable("On-device speech recognition isn't available for English on this Mac."))
         }
