@@ -48,6 +48,8 @@ enum Demo {
         var textTopAtStart: CGFloat?
         var textEdit: NSRunningApplication?
         var document: URL?
+        /// The document's name, so its window can be found even if it never came to the front.
+        var name = ""
         var window: AXUIElement?
 
         init(bar: BarController) {
@@ -226,7 +228,7 @@ enum Demo {
 
         /// Opens a new rich-text document in TextEdit and waits until it is the front window.
         private func openDocument() async -> Bool {
-            let name = "Beeline live check \(UUID().uuidString.prefix(6))"
+            name = "Beeline live check \(UUID().uuidString.prefix(6))"
             let url = FileManager.default.temporaryDirectory.appendingPathComponent(name + ".rtf")
             let text = NSAttributedString(string: "Beeline live check. This document is temporary; Beeline closes it when the check ends.\n")
             guard let data = try? text.data(from: NSRange(location: 0, length: text.length),
@@ -302,13 +304,24 @@ enum Demo {
         /// can't be sure is its own. False when the document is still open, in which case its file stays too.
         func cleanUp() async -> Bool {
             bar.runGuard.stop(.replaced)
-            guard let textEdit, let window else {
+            guard let textEdit else {
+                if let document { try? FileManager.default.removeItem(at: document) }
+                return true
+            }
+            // A document that opened but never came to the front (the screen was locked, say) is found by its
+            // name, so it is closed too and never left holding a file that's gone.
+            if window == nil {
+                let windows: [AXUIElement] = Accessibility.attribute(Accessibility.applicationElement(textEdit), kAXWindowsAttribute) ?? []
+                window = windows.first { (Accessibility.attribute($0, kAXTitleAttribute) as String?)?.hasPrefix(name) == true }
+            }
+            guard let window else {
                 if let document { try? FileManager.default.removeItem(at: document) }
                 return true
             }
             if let actual = menuCommand("Actual Size"), actual.stillValid?() ?? true { actual.run() }
             if rulerToggled(since: textTopAtStart), let ruler = rulerCommand(), ruler.stillValid?() ?? true { ruler.run() }
-            if isOurs(), let close: AXUIElement = Accessibility.attribute(window, kAXCloseButtonAttribute) {
+            // Its own close button, whether or not it is in front: the window is certainly this check's own.
+            if let close: AXUIElement = Accessibility.attribute(window, kAXCloseButtonAttribute) {
                 AXUIElementPerformAction(close, kAXPressAction as CFString)
                 try? await Task.sleep(nanoseconds: 600_000_000)
             }

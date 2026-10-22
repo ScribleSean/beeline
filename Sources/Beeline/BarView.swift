@@ -479,7 +479,8 @@ struct BarView: View {
 
             if let note = model.voiceNote {
                 HStack(spacing: 8) {
-                    Image(systemName: note.hasPrefix("Listening") ? "mic.fill" : "mic.slash")
+                    // Listening, about to act on release, or a reason listening couldn't start.
+                    Image(systemName: note.hasPrefix("Listening") ? "mic.fill" : note.hasSuffix("esc to cancel") ? "arrow.forward" : "mic.slash")
                         .foregroundStyle(note.hasPrefix("Listening") ? Theme.ink : Color.secondary)
                         .frame(width: 22, height: 22)
                         .background(note.hasPrefix("Listening") ? Theme.yellow : Theme.honeyTile, in: Circle())
