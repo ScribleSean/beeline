@@ -1,10 +1,12 @@
 #!/bin/bash
-# Hands-free live check of the bee, the stop keys and the welcome card.
+# Hands-free live check of the bee, the stop keys, the welcome card, the shortcut, rewriting and browser tabs.
 #
 #   bash scripts/live-check.sh                 # every scenario
 #   bash scripts/live-check.sh press escape    # some of them
 #
-# Beeline works in a throwaway TextEdit document. Keep your hands off the keyboard and mouse while it
+# Beeline works in a throwaway TextEdit document, and `tab` in a Safari window it opens and closes itself
+# (Safari must be open; Beeline needs Automation for Safari). `rewrite` asks Claude, so it needs Claude Code
+# signed in; it puts your clipboard back when it ends. Keep your hands off the keyboard and mouse while it
 # runs: a click or a key stops a run.
 #
 # Needs: Beeline built with this live-check mode, at ~/Applications/Beeline.app (or BEELINE_APP), with
@@ -13,8 +15,8 @@ set -uo pipefail
 
 app="${BEELINE_APP:-$HOME/Applications/Beeline.app}"
 [ -d "$app" ] || { echo "No Beeline at $app (set BEELINE_APP)." >&2; exit 2; }
-known=" press plan escape click welcome release "
-if [ $# -gt 0 ]; then scenarios=("$@"); else scenarios=(press plan escape click welcome release); fi
+known=" press plan escape click welcome release open rewrite tab "
+if [ $# -gt 0 ]; then scenarios=("$@"); else scenarios=(press plan escape click welcome release open rewrite tab); fi
 for scenario in "${scenarios[@]}"; do
     case "$known" in *" $scenario "*) ;; *) echo "Unknown scenario “$scenario”. Known:$known" >&2; exit 2 ;; esac
 done

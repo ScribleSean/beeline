@@ -84,3 +84,12 @@ import Testing
     let (_, later) = Reminders.splitDate("call Sam at 5pm", now: now)
     #expect(calendar.isDate(try #require(later), inSameDayAs: now))
 }
+
+@Test func rewritingIsOfferedOnlyForRequestsAboutTheText() {
+    for query in ["make this more formal", "fix the typos", "shorter please", "Translate to French", "make it friendlier", "proofread"] {
+        #expect(Rewrite.isRequest(query), "\(query)")
+    }
+    for query in ["open safari", "make a new folder", "fix wifi", "", "dark mode", "show ruler"] {
+        #expect(!Rewrite.isRequest(query), "\(query)")
+    }
+}

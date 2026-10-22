@@ -2,10 +2,13 @@ import Foundation
 import Testing
 @testable import Beeline
 
-@Test func theLiveCheckIsOffUnlessAskedFor() {
-    #expect(ProcessInfo.processInfo.environment["BEELINE_DEMO"] == nil)
-    #expect(Demo.requested == nil)
-    #expect(Demo.scenarios == ["press", "plan", "escape", "click", "welcome", "release"])
+@Test func theLiveCheckScriptRunsEveryScenarioTheAppKnows() throws {
+    let script = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("scripts/live-check.sh")
+    let text = try String(contentsOf: script, encoding: .utf8)
+    let known = try #require(text.split(separator: "\n").first { $0.hasPrefix("known=") })
+    #expect(known.dropFirst(6).trimmingCharacters(in: CharacterSet(charactersIn: "\" ")).split(separator: " ").map(String.init) == Demo.scenarios)
+    #expect(text.contains("scenarios=(\(Demo.scenarios.joined(separator: " ")))"), "running with no names must run them all")
 }
 
 @Test func theLiveCheckLogIsOneJSONObjectPerLine() throws {

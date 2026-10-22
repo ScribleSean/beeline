@@ -1,8 +1,9 @@
 import AppKit
 import ApplicationServices
+import Carbon.HIToolbox
 
 enum Demo {
-    static let scenarios = ["press", "plan", "escape", "click", "welcome", "release"]
+    static let scenarios = ["press", "plan", "escape", "click", "welcome", "release", "open", "rewrite", "tab"]
 
     static var requested: String? {
         guard let name = ProcessInfo.processInfo.environment["BEELINE_DEMO"], scenarios.contains(name) else { return nil }
@@ -61,6 +62,9 @@ enum Demo {
             switch scenario {
             case "press": return await press()
             case "release": return await release()
+            case "open": return await openWithShortcut()
+            case "rewrite": return await rewrite()
+            case "tab": return await switchTabs()
             case "plan": return await plan(interrupt: nil)
             case "escape": return await plan(interrupt: .escape)
             default: return await plan(interrupt: .takeover)
@@ -194,6 +198,157 @@ enum Demo {
                 ? (true, "the bee flew to both steps and both ran") : (false, "landed \(landed), pressed \(pressed), finished \(finished)")
         }
 
+        private func tapShortcut(_ name: String) {
+            let keys: [String: (CGEventFlags, Int)] = ["command": (.maskCommand, kVK_Command), "option": (.maskAlternate, kVK_Option),
+                                                       "control": (.maskControl, kVK_Control)]
+            guard let (flag, modifier) = keys[name] else { return }
+            let source = CGEventSource(stateID: .hidSystemState)
+            let events = [(modifier, true, flag), (kVK_Space, true, flag), (kVK_Space, false, flag), (modifier, false, CGEventFlags())]
+            for (key, down, flags) in events {
+                let event = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(key), keyDown: down)
+                event?.flags = flags
+                event?.post(tap: .cghidEventTap)
+                usleep(30_000)
+            }
+        }
+
+        private func openWithShortcut() async -> (Bool, String) {
+            guard let active = Settings.activeShortcut else { return (false, "no shortcut could be registered") }
+            guard isOurs(), !bar.isOpen else { return (false, "the TextEdit document wasn't in front with the bar closed") }
+            let label = Settings.label(for: active)
+            tapShortcut(active)
+            await waitFor(seconds: 3) { self.bar.isOpen }
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            await shot("opened")
+            let opened = bar.isOpen
+            tapShortcut(active)
+            await waitFor(seconds: 3) { !self.bar.isOpen }
+            let closed = !bar.isOpen
+            DemoLog.note("verified", ["shortcut": active, "opened": opened, "closedAgain": closed])
+            return opened && closed ? (true, "\(label) opened the bar, it stayed open, and \(label) again closed it")
+                : (false, "\(label): opened \(opened), closed again \(closed)")
+        }
+
+        private func rewrite() async -> (Bool, String) {
+            guard Settings.isOn(Settings.offerClaude) else { return (false, "“Offer Claude” is off in Settings") }
+            guard let area = textArea(), let before: String = Accessibility.attribute(area, kAXValueAttribute),
+                  let word = before.range(of: "temporary") else { return (false, "couldn't read the TextEdit document's text") }
+            var range = CFRange(location: before.distance(from: before.startIndex, to: word.lowerBound), length: 9)
+            guard let value = AXValueCreate(.cfRange, &range),
+                  AXUIElementSetAttributeValue(area, kAXSelectedTextRangeAttribute as CFString, value) == .success else {
+                return (false, "couldn't select a word in the TextEdit document")
+            }
+            let board = NSPasteboard.general
+            let yours = board.pasteboardItems?.map { item in item.types.compactMap { type in item.data(forType: type).map { (type, $0) } } } ?? []
+            defer {
+                board.clearContents()
+                board.writeObjects(yours.map { pairs in
+                    let item = NSPasteboardItem()
+                    for (type, data) in pairs { item.setData(data, forType: type) }
+                    return item
+                })
+            }
+            let sentinel = "Beeline live check clipboard \(UUID().uuidString.prefix(6))"
+            board.clearContents()
+            board.setString(sentinel, forType: .string)
+
+            bar.show()
+            await waitFor(seconds: 3) { Rewrite.selection?.text == "temporary" }
+            guard Rewrite.selection?.text == "temporary" else { return (false, "the bar didn't pick up the selected word") }
+            bar.model.query = "make this all capitals"
+            await waitFor(seconds: 3) { self.bar.model.results.first?.id == BarModel.rewriteRowID }
+            guard let row = bar.model.results.first, row.id == BarModel.rewriteRowID else {
+                return (false, "the bar didn't offer “Rewrite the selected text” first")
+            }
+            await shot("rewrite-offered")
+            bar.model.run(row)
+            await waitFor(seconds: 40) { self.bar.model.rewritten != nil || self.bar.model.planProblem != nil }
+            guard let rewritten = bar.model.rewritten else {
+                return (false, "Claude didn't rewrite it: \(bar.model.planProblem ?? "no answer in 40 seconds")")
+            }
+            await shot("rewrite-preview")
+            guard isOurs() else { return (false, "the TextEdit document wasn't in front, so nothing was pasted") }
+            bar.model.runSelected()
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            await shot("rewritten")
+            let after: String = Accessibility.attribute(area, kAXValueAttribute) ?? ""
+            let replaced = after.contains("This document is \(rewritten);") && !after.contains("temporary")
+            let restored = board.string(forType: .string) == sentinel
+            DemoLog.note("verified", ["rewritten": rewritten, "replaced": replaced, "clipboardRestored": restored])
+            return replaced && restored ? (true, "Claude's “\(rewritten)” replaced the selected word and the clipboard came back")
+                : (false, "got “\(rewritten.prefix(40))”, replaced in place \(replaced), clipboard restored \(restored)")
+        }
+
+        private var safariWindow: Int?
+
+        private func safari(_ script: String) -> String? {
+            Browser.osascript("tell application \"Safari\"\n\(script)\nend tell", timeout: 20)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        private func switchTabs() async -> (Bool, String) {
+            guard NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == "com.apple.Safari" }) else {
+                return (false, "Safari isn't open; the check only adds a window to a running Safari")
+            }
+            let titles = ["A", "B"].map { "Beeline live check tab \($0) \(name.suffix(6))" }
+            var pages: [URL] = []
+            for title in titles {
+                let page = FileManager.default.temporaryDirectory.appendingPathComponent(title.replacingOccurrences(of: " ", with: "-") + ".html")
+                guard (try? "<title>\(title)</title><p>Temporary page for Beeline's live check.</p>".write(to: page, atomically: true, encoding: .utf8)) != nil
+                else { return (false, "couldn't write the test pages") }
+                pages.append(page)
+            }
+            defer { pages.forEach { try? FileManager.default.removeItem(at: $0) } }
+            guard let id = safari("""
+                make new document with properties {URL:\(Browser.quoted(pages[0].absoluteString))}
+                set w to front window
+                tell w to set current tab to (make new tab with properties {URL:\(Browser.quoted(pages[1].absoluteString))})
+                return id of w
+                """).flatMap(Int.init) else {
+                return (false, "couldn't open a Safari window (is Automation for Safari allowed for Beeline?)")
+            }
+            safariWindow = id
+            let current = { self.safari("return name of current tab of window id \(id)") ?? "" }
+            await waitFor(seconds: 8) { current() == titles[1] && self.safari("return name of tab 1 of window id \(id)") == titles[0] }
+            guard current() == titles[1] else { return (false, "the test pages didn't load in Safari") }
+
+            bar.show()
+            bar.model.query = titles[0]
+            await waitFor(seconds: 10) { self.bar.model.results.contains { $0.kind == .tab && $0.title == titles[0] } }
+            guard let row = bar.model.results.first(where: { $0.kind == .tab && $0.title == titles[0] }) else {
+                return (false, "the tab “\(titles[0])” didn't come up in the bar")
+            }
+            await shot("tab-found")
+            bar.model.run(row)
+            await waitFor(seconds: 5) { current() == titles[0] }
+            let switched = current() == titles[0]
+            await shot("switched")
+
+            let other = bar.model.catalogue.search(titles[1]).first { $0.kind == .tab && $0.title == titles[1] }
+            other?.close?()
+            await waitFor(seconds: 5) { self.safari("return count of tabs of window id \(id)") == "1" }
+            let closed = safari("return count of tabs of window id \(id)") == "1" && current() == titles[0]
+            DemoLog.note("verified", ["switched": switched, "closedOne": closed])
+            return switched && closed ? (true, "typing a tab's title switched to it, and closing the other tab closed only that one")
+                : (false, "switched \(switched), closed only the other tab \(closed)")
+        }
+
+        private func textArea() -> AXUIElement? {
+            guard let window else { return nil }
+            var queue: [(AXUIElement, Int)] = [(window, 0)]
+            var visited = 0
+            while !queue.isEmpty, visited < 400 {
+                let (node, depth) = queue.removeFirst()
+                visited += 1
+                if (Accessibility.attribute(node, kAXRoleAttribute) as String?) == kAXTextAreaRole { return node }
+                if depth < 8 {
+                    let children: [AXUIElement] = Accessibility.attribute(node, kAXChildrenAttribute) ?? []
+                    queue += children.map { ($0, depth + 1) }
+                }
+            }
+            return nil
+        }
+
         private func openDocument() async -> Bool {
             name = "Beeline live check \(UUID().uuidString.prefix(6))"
             let url = FileManager.default.temporaryDirectory.appendingPathComponent(name + ".rtf")
@@ -240,22 +395,9 @@ enum Demo {
         }
 
         private func textTop() -> CGFloat? {
-            guard let window, let windowFrame = Accessibility.frame(of: window) else { return nil }
-            var queue: [(AXUIElement, Int)] = [(window, 0)]
-            var visited = 0
-            while !queue.isEmpty, visited < 400 {
-                let (node, depth) = queue.removeFirst()
-                visited += 1
-                if (Accessibility.attribute(node, kAXRoleAttribute) as String?) == kAXTextAreaRole,
-                   let frame = Accessibility.frame(of: node) {
-                    return frame.minY - windowFrame.minY
-                }
-                if depth < 8 {
-                    let children: [AXUIElement] = Accessibility.attribute(node, kAXChildrenAttribute) ?? []
-                    queue += children.map { ($0, depth + 1) }
-                }
-            }
-            return nil
+            guard let window, let windowFrame = Accessibility.frame(of: window), let area = textArea(),
+                  let frame = Accessibility.frame(of: area) else { return nil }
+            return frame.minY - windowFrame.minY
         }
 
         private func rulerToggled(since before: CGFloat?) -> Bool {
@@ -265,6 +407,16 @@ enum Demo {
 
         func cleanUp() async -> Bool {
             bar.runGuard.stop(.replaced)
+            if let safariWindow {
+                _ = safari("close window id \(safariWindow)")
+                DemoLog.note("cleanup", ["safariWindowClosed": safari("return exists window id \(safariWindow)") == "false"])
+            }
+            for _ in 0..<5 {
+                guard let textEdit, isOurs(), let undo = Accessibility.menuCommands(of: textEdit).first(where: { $0.title.hasPrefix("Undo") }),
+                      undo.stillValid?() ?? true else { break }
+                undo.run()
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
             guard let textEdit else {
                 if let document { try? FileManager.default.removeItem(at: document) }
                 return true

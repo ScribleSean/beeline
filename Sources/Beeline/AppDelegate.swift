@@ -40,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let scenario = Demo.requested {
             Log.append("live check \(scenario) \(Date())")
+            if scenario == "open" { registerShortcut() }
             Demo.start(scenario, bar: bar, welcome: welcomeWindow)
             return
         }

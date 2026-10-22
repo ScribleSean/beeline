@@ -97,6 +97,7 @@ final class BarController: NSObject, NSWindowDelegate {
     }
 
     private var isShown = false
+    var isOpen: Bool { isShown }
     private let bee = Bee()
     let runGuard = RunGuard()
     private var runTask: Task<Void, Never>?
