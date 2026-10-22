@@ -74,6 +74,14 @@ enum Planner {
         case .success(let text): reply = text
         case .failure(let failure): return .failure(failure)
         }
+        return read(reply, optionCount: options.count).map { picked in
+            Plan(steps: picked.steps.map { options[$0 - 1] }, note: picked.note)
+        }
+    }
+
+    /// Reads Claude's reply as option numbers, 1-based. Anything that isn't a short list of distinct
+    /// whole numbers from the list is refused, so Claude can only pick from what Beeline offered.
+    static func read(_ reply: String, optionCount: Int) -> Result<(steps: [Int], note: String), Failure> {
         guard reply.utf8.count < 20_000, let start = reply.firstIndex(of: "{"), let end = reply.lastIndex(of: "}"), start < end,
               let object = try? JSONSerialization.jsonObject(with: Data(reply[start...end].utf8)) as? [String: Any],
               let numbers = object["steps"] as? [Any] else {
@@ -83,15 +91,16 @@ enum Planner {
             return .failure(.message("That plan has more than \(maxSteps) steps. Try a smaller request."))
         }
         var used = Set<Int>()
-        var steps: [PlanStep] = []
+        var steps: [Int] = []
         for value in numbers {
             guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
-                  let index = value as? Int, index >= 1, index <= options.count, used.insert(index).inserted else {
+                  let index = value as? Int,
+                  index >= 1, index <= optionCount, used.insert(index).inserted else {
                 return .failure(.message("Claude's plan referred to a step that doesn't exist."))
             }
-            steps.append(options[index - 1])
+            steps.append(index)
         }
-        return .success(Plan(steps: steps, note: object["note"] as? String ?? ""))
+        return .success((steps, object["note"] as? String ?? ""))
     }
 
     static let maxSteps = 8
