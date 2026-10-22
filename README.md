@@ -14,9 +14,12 @@ A Mac assistant that works out what you mean and does it, on your Mac.</p>
 - **Controls the Mac:** sleep, lock, mute, dark mode, Wi-Fi, quitting apps, and moving the front window to half or full screen
 - **Answers on the spot:** sums, units, currencies and time zones
 - **Handles chores:** reminders and goals, saved desktops of apps, windows and tabs, file moves and copies from Finder, compressing, renaming, converting and shrinking files, and rewriting selected text in any app
-- **Listens:** hold ⌘Space and speak; your words fill the bar as you talk
+- **Listens:** hold ⌘Space and speak; your words fill the bar as you talk. Say an app, a setting or a window plainly and it opens when you let go, after a beat to press esc
+- **Runs your Shortcuts:** anything you built in the Shortcuts app shows up by name
+- **Takes things back:** type "undo" to reverse the last toggle, window move or file copy or move, including a file it replaced
 - **Plans with Claude:** asks Claude to answer a question or plan a multi-step request, which you see and approve before anything runs
-- **Learns:** what you pick for a phrase comes first next time
+- **Learns, visibly:** what you pick for a phrase comes first next time, marked "learned"; ⇧⌘⌫ forgets it, and an unused pick fades after four weeks
+- **Aliases:** type a few letters, select a result and press ⇧⌘A; those letters open it from then on
 
 <p align="center">
   <img src="docs/images/answer.png" width="49%" alt="A currency conversion shown as a large answer">
@@ -42,7 +45,8 @@ The bee goes only to things with a place on screen: buttons, fields, menu comman
 ## How it works
 
 - **Matching happens on your Mac.** Beeline reads your apps, settings, windows and tabs, plus the front app's menus and buttons through Accessibility, and ranks them against what you type. The on-device language model rewrites loose requests into search words.
-- **Speech is recognised on your Mac.** Without on-device recognition for your language, Beeline doesn't listen at all.
+- **Speech is recognised on your Mac,** in your Mac's language when it can be, with your app names as hints. Without on-device recognition, Beeline doesn't listen at all.
+- **Letting go acts only when it's plain and safe.** If your words name one app, setting, window or toggle exactly (or your alias for it), it runs after a short beat you can stop with esc. Anything that sends, deletes, closes, quits or runs a Shortcut waits for ↩. "Act when you let go" in Settings turns this off.
 - **Claude only picks from a list.** For a plan, Claude sees numbered options built from what is on your Mac and replies with option numbers. It has no tools and cannot run anything. You see every step before pressing Run.
 - **Anything that can't be undone asks twice:** emptying the Trash, restarting, shutting down, logging out, ejecting disks, closing several tabs, replacing a file, and buttons or menu commands like Delete, Send, Don't Save, Close All Tabs, or OK in a dialog.
 
@@ -60,7 +64,7 @@ The welcome screen walks you through Accessibility. **Update Beeline** in the me
 
 ### ⌘Space and Spotlight
 
-Spotlight owns ⌘Space until you turn its shortcut off in System Settings › Keyboard › Keyboard Shortcuts › Spotlight. Until then Beeline opens with ⌥Space and says so; the welcome screen has a button that takes you to the right page. You can choose ⌘, ⌥ or ⌃Space in Settings.
+Spotlight owns ⌘Space until you turn its shortcut off in System Settings › Keyboard › Keyboard Shortcuts › Spotlight. Until then Beeline opens with ⌥Space and says so; the welcome screen names what holds ⌘Space (Spotlight, input-source switching or another app) and has a button that takes you to the right page. You can choose ⌘, ⌥ or ⌃Space in Settings.
 
 ## Permissions
 
@@ -96,6 +100,9 @@ Clipboard history stays in memory and ends when Beeline quits. Anything a passwo
 | ↩ | Open, run or copy |
 | esc | Back, then close |
 | esc, in any app | Stop what the bee is doing |
+| esc, while holding ⌘Space | Throw away what you said |
+| ⇧⌘A | Make what you typed an alias for the selected result |
+| ⇧⌘⌫ | Forget a learned pick or remove an alias |
 
 ## Development
 
@@ -109,7 +116,7 @@ build/Beeline.app/Contents/MacOS/Beeline --preview "wifi" bar.png    # render th
 build/Beeline.app/Contents/MacOS/Beeline --rewrite "more formal" "hey u free?"  # a rewrite, replaces nothing
 ```
 
-`bash scripts/live-check.sh` checks the bee on a real screen, hands-free. It runs Beeline in a throwaway TextEdit document it opens and closes itself, presses only TextEdit's ruler and zoom commands, takes screenshots, and reports pass or fail for a press, a two-step plan, Escape and a click mid-flight, and the Spotlight card. It needs the app installed in `~/Applications` with Accessibility, and Screen Recording for the terminal.
+`bash scripts/live-check.sh` checks the bee on a real screen, hands-free. It runs Beeline in a throwaway TextEdit document it opens and closes itself, presses only TextEdit's ruler and zoom commands, takes screenshots, and reports pass or fail for a press, a two-step plan, Escape and a click mid-flight, the Spotlight card, and acting on release. It needs the app installed in `~/Applications` with Accessibility, and Screen Recording for the terminal.
 
 Each ad hoc build is a new app to macOS, so its permissions stop working after a rebuild even though System Settings still shows Beeline switched on; the fix is to remove Beeline from the list with − and add it again. To keep permissions across rebuilds, put a code-signing certificate's name or fingerprint in an untracked `.signing-identity` file in this folder (git worktrees use the main checkout's). `BEELINE_SIGNING_IDENTITY` works too, but only for builds started from a shell that sets it: **Update Beeline** never sees variables from `~/.zshrc`. The build prints a warning when it signs ad hoc.
 
