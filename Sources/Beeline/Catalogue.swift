@@ -100,12 +100,14 @@ final class Catalogue {
     private let semantic = Semantic()
     let clipboard = Clipboard()
     private let usage = Usage()
-    let aliases = Aliases.shared
+    let aliases: Aliases
     /// The user's own shortcuts from the Shortcuts app. Set directly only by tests.
     var shortcuts: [Item] = []
     private var shortcutsRead = Date.distantPast
 
-    init() {
+    /// Tests pass aliases of their own, so they never change the ones other tests read.
+    init(aliases: Aliases = .shared) {
+        self.aliases = aliases
         apps = Self.scanApps()
         settings = SettingsPanes.items()
         refreshRunning()
@@ -147,7 +149,7 @@ final class Catalogue {
         guard item.kind != .calculation, item.kind != .clipboard, Settings.isOn(Settings.learnFromUse) else { return }
         // A reminder, a web search, a desktop or a file chore is one of a kind: learning it would only put
         // the typed text (which can be private) on disk.
-        let oneOff = ["reminder:", "web-search", "desktop-", "file-tool:", "close-tabs:", "close:"]
+        let oneOff = ["reminder:", "web-search", "desktop-", "file-tool:", "close-tabs:", "close:", "undo"]
         guard !oneOff.contains(where: { item.id.hasPrefix($0) }) else { return }
         usage.record(item, query: query)
     }
@@ -163,7 +165,7 @@ final class Catalogue {
     /// and a calculation is its words.
     static func canHaveAlias(_ item: Item) -> Bool {
         guard [.app, .setting, .action, .file, .menu].contains(item.kind) else { return false }
-        let oneOff = ["reminder:", "web-search", "desktop-", "file-tool:", "close-tabs:", "close:", "rewrite", "copied"]
+        let oneOff = ["reminder:", "web-search", "desktop-", "file-tool:", "close-tabs:", "close:", "rewrite", "copied", "undo"]
         return !oneOff.contains { item.id.hasPrefix($0) }
     }
 
@@ -328,6 +330,11 @@ final class Catalogue {
     }
 
     func search(_ query: String, limit: Int = 6) -> [Item] {
+        // "undo", or an empty bar shortly after something that can be taken back.
+        if let undo = UndoLog.shared.item(for: query) {
+            return [undo]
+        }
+        if query.trimmingCharacters(in: .whitespaces).isEmpty { return [] }
         if let clips = clipboard.results(for: query, limit: limit) {
             return clips
         }

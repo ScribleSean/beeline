@@ -130,7 +130,11 @@ private func entries(of archive: URL) -> [String] {
     private func useScratchTrash(_ scratch: Scratch) throws -> URL {
     let bin = scratch.url.appendingPathComponent("trash-bin", isDirectory: true)
     try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
-    FileTools.trash = { url in try FileManager.default.moveItem(at: url, to: bin.appendingPathComponent(url.lastPathComponent)) }
+    FileTools.trash = { url in
+        let landed = bin.appendingPathComponent(url.lastPathComponent + "-" + UUID().uuidString.prefix(4))
+        try FileManager.default.moveItem(at: url, to: landed)
+        return landed
+    }
     return bin
 }
 
@@ -194,7 +198,7 @@ private func entries(of archive: URL) -> [String] {
     let copied = FileTools.transfer([source], to: desktop, copying: true, replacing: FileTools.replacements(["report.pdf"], in: desktop))
     #expect(copied == [old])
     #expect(try String(contentsOf: old, encoding: .utf8) == "new")
-    #expect(try FileManager.default.contentsOfDirectory(atPath: bin.path) == ["report.pdf"])
+    #expect(try FileManager.default.contentsOfDirectory(atPath: bin.path).map { $0.hasPrefix("report.pdf") } == [true])
     #expect(scratch.exists("Downloads/report.pdf"), "a copy leaves the source")
 }
 
@@ -246,6 +250,37 @@ private func entries(of archive: URL) -> [String] {
     #expect(scratch.exists("a/Notes.txt") && scratch.exists("b/notes.txt"))
     #expect(try FileManager.default.contentsOfDirectory(atPath: desktop.path).isEmpty)
     #expect(try FileManager.default.contentsOfDirectory(atPath: bin.path).isEmpty)
+}
+    // "undo" after a replacing copy: the copy goes to the Trash and the old file comes back.
+    @Test func undoPutsTheReplacedFileBack() throws {
+    let scratch = try Scratch()
+    defer { scratch.remove() }
+    let bin = try useScratchTrash(scratch)
+    let source = try scratch.file("report.pdf", "new", in: "Downloads")
+    let old = try scratch.file("report.pdf", "old", in: "Desktop")
+    let desktop = old.deletingLastPathComponent()
+    _ = FileTools.transfer([source], to: desktop, copying: true, replacing: FileTools.replacements(["report.pdf"], in: desktop))
+    #expect(try String(contentsOf: old, encoding: .utf8) == "new")
+    #expect(UndoLog.shared.latest()?.title == "Copy “report.pdf” to Desktop")
+    UndoLog.shared.undoLatest()
+    #expect(try String(contentsOf: old, encoding: .utf8) == "old")
+    #expect(try String(contentsOf: source, encoding: .utf8) == "new", "the source was never touched")
+    #expect(try FileManager.default.contentsOfDirectory(atPath: bin.path).count == 1, "the copy went to the Trash")
+}
+
+    // "undo" after a move puts the item back where it came from.
+    @Test func undoMovesAnItemBack() throws {
+    let scratch = try Scratch()
+    defer { scratch.remove() }
+    _ = try useScratchTrash(scratch)
+    let source = try scratch.file("notes.txt", "mine", in: "Downloads")
+    let desktop = scratch.url.appendingPathComponent("Desktop")
+    try FileManager.default.createDirectory(at: desktop, withIntermediateDirectories: true)
+    _ = FileTools.transfer([source], to: desktop, copying: false, replacing: [:])
+    #expect(!scratch.exists("Downloads/notes.txt"))
+    UndoLog.shared.undoLatest()
+    #expect(scratch.exists("Downloads/notes.txt"))
+    #expect(!scratch.exists("Desktop/notes.txt"))
 }
 }
 

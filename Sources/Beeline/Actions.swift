@@ -31,25 +31,39 @@ enum Actions {
         },
         Definition(title: "Mute", symbol: "speaker.slash", keywords: "sound volume silence quiet audio off") {
             script("set volume output muted true", what: "mute")
+            UndoLog.shared.record("Mute") { script("set volume output muted false", what: "unmute") }
         },
         Definition(title: "Unmute", symbol: "speaker.wave.2", keywords: "sound volume audio on") {
             script("set volume output muted false", what: "unmute")
+            UndoLog.shared.record("Unmute") { script("set volume output muted true", what: "mute") }
         },
         Definition(title: "Volume Up", symbol: "speaker.plus", keywords: "sound louder increase raise audio") {
             script("set volume output volume ((output volume of (get volume settings)) + 10)", what: "turn the volume up")
+            UndoLog.shared.record("Volume Up") {
+                script("set volume output volume ((output volume of (get volume settings)) - 10)", what: "turn the volume down")
+            }
         },
         Definition(title: "Volume Down", symbol: "speaker.minus", keywords: "sound quieter decrease lower audio") {
             script("set volume output volume ((output volume of (get volume settings)) - 10)", what: "turn the volume down")
+            UndoLog.shared.record("Volume Down") {
+                script("set volume output volume ((output volume of (get volume settings)) + 10)", what: "turn the volume up")
+            }
         },
         Definition(title: "Toggle Dark Mode", symbol: "circle.lefthalf.filled", keywords: "light mode appearance theme night switch turn") {
-            script("tell application \"System Events\" to tell appearance preferences to set dark mode to not dark mode",
-                   what: "switch dark mode", app: "System Events")
+            let toggle = {
+                script("tell application \"System Events\" to tell appearance preferences to set dark mode to not dark mode",
+                       what: "switch dark mode", app: "System Events")
+            }
+            toggle()
+            UndoLog.shared.record("Toggle Dark Mode", undo: toggle)
         },
         Definition(title: "Turn Wi-Fi Off", symbol: "wifi.slash", keywords: "wifi wireless internet disable disconnect") {
             setWiFi("off")
+            UndoLog.shared.record("Turn Wi-Fi Off") { setWiFi("on") }
         },
         Definition(title: "Turn Wi-Fi On", symbol: "wifi", keywords: "wifi wireless internet enable connect") {
             setWiFi("on")
+            UndoLog.shared.record("Turn Wi-Fi On") { setWiFi("off") }
         },
         Definition(title: "Keep Mac Awake for 1 Hour", symbol: "cup.and.saucer", keywords: "caffeinate no sleep stay awake prevent") {
             run("/usr/bin/caffeinate", "-d", "-t", "3600")
@@ -59,9 +73,11 @@ enum Actions {
         },
         Definition(title: "Hide Other Apps", symbol: "eye.slash", keywords: "hide others focus declutter clear windows") {
             let front = NSWorkspace.shared.frontmostApplication
-            for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular && app != front {
-                app.hide()
+            var hidden: [NSRunningApplication] = []
+            for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular && app != front && !app.isHidden {
+                if app.hide() { hidden.append(app) }
             }
+            UndoLog.shared.record("Hide Other Apps") { for app in hidden { app.unhide() } }
         },
         // Twice: a disk still being written to can lose what was on its way (Codex 7). The card names them.
         Definition(title: "Eject All Disks", symbol: "eject", keywords: "unmount drives usb external remove", needsConfirm: true) {

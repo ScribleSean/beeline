@@ -282,7 +282,12 @@ enum FileTools {
     }
 
     /// Sends an item to the Trash. Tests swap this for a move into a scratch folder.
-    static var trash: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
+    /// Sends an item to the Trash and says where it landed there, so "undo" can bring it back.
+    static var trash: (URL) throws -> URL? = { url in
+        var landed: NSURL?
+        try FileManager.default.trashItem(at: url, resultingItemURL: &landed)
+        return landed as URL?
+    }
 
     /// True when the two paths are the same item, or one holds the other. Compared by file identity, not
     /// by spelling: on a Mac's usual disk "~/desktop/Notes" and "~/Desktop/Notes" are one file.
@@ -326,6 +331,8 @@ enum FileTools {
         // Mac's usual folder, and the second would replace the first (Codex 9).
         var counts: [String: Int] = [:]
         for source in sources { counts[source.lastPathComponent.lowercased(), default: 0] += 1 }
+        // How to take each delivery back, newest last.
+        var undos: [() -> Void] = []
         let done: [URL] = sources.compactMap { source in
             let name = source.lastPathComponent
             // Two selected items with the same name would replace each other; neither is touched.
@@ -338,7 +345,9 @@ enum FileTools {
             // nothing to trash.
             guard !overlaps(source, target) else { return nil }
             guard FileManager.default.fileExists(atPath: target.path) else {
-                return (try? deliver(source, to: target, copying: copying)) == nil ? nil : target
+                guard (try? deliver(source, to: target, copying: copying)) != nil else { return nil }
+                undos.append { takeBack(target, to: source, copying: copying) }
+                return target
             }
             // Something is in the way, and it was not on the card, or is no longer the item that was: leave it alone.
             guard let shown = replacing[name], identity(of: target)?.isEqual(shown) == true else {
@@ -357,9 +366,10 @@ enum FileTools {
             }
             let staged = scratch.appendingPathComponent(name)
             guard (try? deliver(source, to: staged, copying: copying)) != nil else { return nil }
+            let trashed: URL?
             do {
                 // Recoverable: the old item goes to the Trash, never deleted outright.
-                try trash(target)
+                trashed = try trash(target)
             } catch {
                 Log.append("file tools: could not trash the old item (\((error as NSError).code))")
                 if !copying { try? FileManager.default.moveItem(at: staged, to: source) }
@@ -371,10 +381,34 @@ enum FileTools {
                 if !copying { try? FileManager.default.moveItem(at: staged, to: source) }
                 return nil
             }
+            undos.append {
+                takeBack(target, to: source, copying: copying)
+                // Then the item it replaced comes back out of the Trash, if the spot is free again.
+                if let trashed, !FileManager.default.fileExists(atPath: target.path) {
+                    try? FileManager.default.moveItem(at: trashed, to: target)
+                }
+            }
             return target
+        }
+        if !done.isEmpty {
+            let what = done.count == 1 ? "“\(done[0].lastPathComponent)”" : "\(done.count) items"
+            UndoLog.shared.record("\(copying ? "Copy" : "Move") \(what) to \(destination.lastPathComponent)") {
+                for undo in undos.reversed() { undo() }
+            }
         }
         if report { finish(done, copying ? "copy" : "move") }
         return done
+    }
+
+    /// Undoes one delivery: a copy goes to the Trash (recoverable, never deleted), a moved item goes back
+    /// where it came from, if nothing has taken its place there since.
+    private static func takeBack(_ target: URL, to source: URL, copying: Bool) {
+        guard FileManager.default.fileExists(atPath: target.path) else { return }
+        if copying {
+            _ = try? trash(target)
+        } else if !FileManager.default.fileExists(atPath: source.path) {
+            try? FileManager.default.moveItem(at: target, to: source)
+        }
     }
 
     private static func deliver(_ source: URL, to target: URL, copying: Bool) throws {

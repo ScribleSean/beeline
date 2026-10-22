@@ -82,6 +82,22 @@ enum Accessibility {
         if side == .right { origin.x += size.width }
 
         guard let position = AXValueCreate(.cgPoint, &origin), let extent = AXValueCreate(.cgSize, &size) else { return }
+        let before = frame(of: window)
+        setFrame(window, position, extent)
+        // "undo" puts the window back where it was.
+        if let before {
+            let title: String = attribute(window, kAXTitleAttribute) ?? ""
+            let name = title.isEmpty ? "the window" : "“\(title.prefix(40))”"
+            let place = side == .full ? "fill the screen" : "the \(side == .left ? "left" : "right") half"
+            UndoLog.shared.record(side == .full ? "Make \(name) \(place)" : "Move \(name) to \(place)") {
+                var oldOrigin = before.origin, oldSize = before.size
+                guard let position = AXValueCreate(.cgPoint, &oldOrigin), let extent = AXValueCreate(.cgSize, &oldSize) else { return }
+                setFrame(window, position, extent)
+            }
+        }
+    }
+
+    private static func setFrame(_ window: AXUIElement, _ position: AXValue, _ extent: AXValue) {
         AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, position)
         AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, extent)
         // Some apps clamp the first move to their old size, so the position is set again after resizing.
