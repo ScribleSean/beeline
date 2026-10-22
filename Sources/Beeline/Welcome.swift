@@ -1,8 +1,6 @@
 import AppKit
 import SwiftUI
 
-/// The first-run screen: what Beeline is, its shortcut, and why it asks for Accessibility.
-/// Shown once; type "beeline welcome" to see it again.
 final class WelcomeWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private let state = WelcomeState()
@@ -26,7 +24,6 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
     }
 
     var isShowing: Bool { window?.isVisible == true }
-    /// True when the window is showing the Spotlight card.
     var showsSpotlightCard: Bool { isShowing && state.spotlightHasShortcut }
 
     func close() {
@@ -39,7 +36,6 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
 }
 
 extension WelcomeWindowController {
-    /// Renders the welcome screen to a PNG, for checking its design without opening it.
     static func renderPreview(to path: String) {
         let host = NSHostingView(rootView: WelcomeView(state: WelcomeState()) {})
         host.frame = NSRect(origin: .zero, size: host.fittingSize)
@@ -53,14 +49,10 @@ extension WelcomeWindowController {
     }
 }
 
-/// Whether Accessibility is on, rechecked whenever the window comes forward and every second while
-/// it is open, so the card turns green as soon as the switch is flipped in System Settings.
 private final class WelcomeState: ObservableObject {
     @Published var trusted = Accessibility.isTrusted
-    /// True while Spotlight still holds ⌘Space and Beeline had to take another shortcut.
     @Published var spotlightHasShortcut = Settings.spotlightHasShortcut
 
-    /// What the card says: what holds ⌘Space, and where to switch it off.
     var conflict: (title: String, detail: String) {
         let fallback = "Beeline uses \(Settings.activeShortcutLabel) for now."
         if let holder = ShortcutConflicts.current(for: "command").first {
@@ -70,7 +62,6 @@ private final class WelcomeState: ObservableObject {
         return ("Another app has ⌘Space",
                 "\(fallback) A launcher such as Alfred or Raycast may hold it: free it in that app's settings, and ⌘Space is Beeline's.")
     }
-    /// True when an earlier build was trusted, so a grant that no longer matches is the likely cause.
     var wasTrustedBefore: Bool { UserDefaults.standard.bool(forKey: Settings.wasTrusted) }
     private var timer: Timer?
 
@@ -88,7 +79,6 @@ private final class WelcomeState: ObservableObject {
             guard let self else { return timer.invalidate() }
             self.trusted = Accessibility.isTrusted
             ticks += 1
-            // Every few seconds, try ⌘Space again, so the card clears soon after Spotlight lets go of it.
             if self.spotlightHasShortcut, ticks.isMultiple(of: 3) {
                 NotificationCenter.default.post(name: Settings.retryShortcut, object: nil)
                 self.spotlightHasShortcut = Settings.spotlightHasShortcut

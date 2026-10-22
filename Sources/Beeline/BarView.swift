@@ -1,11 +1,7 @@
 import SwiftUI
 
-/// Honey glass: frosted glass with a faint honey warmth, a white search capsule, and a calm list where
-/// the chosen row is raised and outlined in bee yellow. Every colour adapts to light and dark mode.
 enum Theme {
-    /// The brand yellow, #FFC21A, used for the selection outline and small marks.
     static let yellow = Color(red: 1.0, green: 0.761, blue: 0.102)
-    /// Near-black, #1A1407.
     static let ink = Color(red: 0.102, green: 0.078, blue: 0.027)
 
     private static func adaptive(light: NSColor, dark: NSColor) -> Color {
@@ -14,17 +10,14 @@ enum Theme {
         })
     }
 
-    /// Icons and hints: a readable gold in light mode, bee yellow in dark mode.
     static let accent = adaptive(light: NSColor(red: 0.69, green: 0.52, blue: 0.0, alpha: 1),
                                  dark: NSColor(red: 1.0, green: 0.761, blue: 0.102, alpha: 1))
-    /// Laid over the glass to warm it slightly.
     static let warmth = adaptive(light: NSColor(red: 0.984, green: 0.953, blue: 0.863, alpha: 0.55),
                                  dark: NSColor(red: 0.16, green: 0.13, blue: 0.06, alpha: 0.35))
     static let capsule = adaptive(light: .white, dark: NSColor(white: 1, alpha: 0.08))
     static let capsuleEdge = adaptive(light: NSColor(red: 0.925, green: 0.902, blue: 0.84, alpha: 1),
                                       dark: NSColor(white: 1, alpha: 0.09))
     static let raised = adaptive(light: .white, dark: NSColor(white: 1, alpha: 0.1))
-    /// The small tile behind symbol icons, and the Return keycap.
     static let honeyTile = adaptive(light: NSColor(red: 1.0, green: 0.953, blue: 0.80, alpha: 1),
                                     dark: NSColor(red: 1.0, green: 0.761, blue: 0.102, alpha: 0.16))
     static let panelEdge = adaptive(light: NSColor(white: 1, alpha: 0.7), dark: NSColor(white: 1, alpha: 0.1))
@@ -36,32 +29,25 @@ final class BarModel: ObservableObject {
     }
     @Published var results: [Item] = []
     @Published var selected = 0
-    /// Bumped each time the bar opens so the text field takes focus again.
     @Published var focusTick = 0
 
-    /// True until the user allows Accessibility; windows and menu commands are missing until then.
     @Published var needsAccess = false
 
     let catalogue = Catalogue()
     var onRun: (Item) -> Void = { _ in }
     var onRequestAccess: () -> Void = {}
 
-    /// How long the last search took, and the last on-device model call if there was one. For the details strip.
     @Published var searchMilliseconds = 0.0
     @Published var modelMilliseconds: Double?
 
-    /// True while the on-device model is deciding.
     @Published var isThinking = false
     private var thinking: Task<Void, Never>?
-    /// The exact words the model was last asked about, and what it picked.
     private var askedQuery: String?
     private var modelPicks: [Item] = []
 
     func refresh() {
-        // Files come from the Spotlight index a moment later, then the list is rebuilt with them in it.
         let typed = query
         catalogue.refreshFiles(for: typed) { [weak self] in
-            // Late file results join the list like tabs and windows do: the selection and an armed item stay.
             if let self, self.query == typed { self.refreshInBackground() }
         }
         let started = Date()
@@ -69,8 +55,6 @@ final class BarModel: ObservableObject {
         searchMilliseconds = Date().timeIntervalSince(started) * 1000
         if query != askedQuery { armedID = nil }
 
-        // Called again for the same words when the screen map refreshes in the background:
-        // keep the model's pick on top and do not ask it twice.
         if query == askedQuery {
             results = decorated(merged(modelPicks, found))
             return
@@ -90,7 +74,6 @@ final class BarModel: ObservableObject {
         let asked = query
         askedQuery = asked
         thinking = Task { @MainActor [weak self] in
-            // Wait for a pause in typing, so the model is not asked about half a sentence.
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard let self, !Task.isCancelled else { return }
             self.isThinking = true
@@ -100,8 +83,6 @@ final class BarModel: ObservableObject {
             self.modelMilliseconds = Date().timeIntervalSince(asking) * 1000
             self.isThinking = false
             self.modelPicks = picks
-            // The picks arrive a moment later. They lead the list, but the row already selected (or armed)
-            // stays where it is, so a Return in flight lands on what was shown.
             if !picks.isEmpty, self.armedID == nil {
                 let selectedID = self.results.indices.contains(self.selected) ? self.results[self.selected].id : nil
                 self.results = self.decorated(self.merged(picks, self.results))
@@ -110,13 +91,9 @@ final class BarModel: ObservableObject {
         }
     }
 
-    /// For results arriving in the background (tabs, windows). Leaves a plan, a confirm or a pending Claude
-    /// request alone, and keeps the same item selected if it is still there.
     func refreshInBackground() {
         guard !isShowingPlan else { return }
         if let armedID {
-            // A fresh scan may mean the armed button or menu command no longer belongs to what is in front.
-            // Then the card is taken down rather than left promising something it would refuse to do.
             if let armed = results.first(where: { $0.id == armedID }), armed.stillValid?() == false { self.armedID = nil }
             return
         }
@@ -125,40 +102,30 @@ final class BarModel: ObservableObject {
         if let selectedID, let index = results.firstIndex(where: { $0.id == selectedID }) { selected = index }
     }
 
-    /// The model's picks first, then whatever word matching found that it did not.
     private func merged(_ picks: [Item], _ found: [Item]) -> [Item] {
         let picked = Set(picks.map(\.id))
         return Array((picks + found.filter { !picked.contains($0.id) && $0.id != Self.claudeRowID && $0.id != Self.rewriteRowID }).prefix(6))
     }
 
-    // MARK: Claude plans
-
     static let claudeRowID = "ask-claude"
     static let rewriteRowID = "rewrite-selection"
 
-    /// The steps Claude proposed, waiting for Return. Nothing in a plan runs before that.
     @Published var plan: Plan?
     @Published var isAskingClaude = false
-    /// Shown when Claude could not be reached or found no way to do the request.
     @Published var planProblem: String?
     var onRunPlan: (Plan) -> Void = { _ in }
     private var planning: Task<Void, Never>?
 
-    /// Claude's reply to a question, shown in the bar. Return copies it.
     @Published var claudeAnswer: String?
 
-    /// The selected text as Claude rewrote it, waiting for Return to replace the selection.
     @Published var rewritten: String?
     private var rewriteTarget: pid_t = 0
 
     var isShowingPlan: Bool { plan != nil || isAskingClaude || planProblem != nil || claudeAnswer != nil || rewritten != nil }
 
-    /// Shown while listening, or why listening could not start.
     @Published var voiceNote: String?
-    /// The microphone's level while listening, from 0 to 1. Nil when not listening.
     @Published var voiceLevel: Double?
 
-    /// An example shown under the empty bar, different each time it opens.
     @Published var tip = BarModel.tips[0]
     static let tips = [
         "night shift", "20c in f", "remind me to call Sam at 5", "close every tab about flights", "clip",
@@ -170,9 +137,7 @@ final class BarModel: ObservableObject {
         tip = Self.tips.filter { $0 != tip }.randomElement() ?? tip
     }
 
-    /// Adds the "Ask Claude" row under the results once the request is more than a single word.
     private func decorated(_ items: [Item]) -> [Item] {
-        // With text selected, a request like "make this shorter" is about that text, so its row leads.
         if Settings.isOn(Settings.offerClaude), let selection = Rewrite.selection, Rewrite.isRequest(query) {
             let preview = selection.text.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
             let row = Item(id: Self.rewriteRowID, kind: .action, verb: "", title: "Rewrite the selected text",
@@ -181,14 +146,11 @@ final class BarModel: ObservableObject {
             return [row] + items.filter { $0.id != Self.claudeRowID }
         }
         let words = query.split(separator: " ").count
-        // An answer is complete on its own; Claude has nothing to add to "12 miles in km".
         guard words >= 2, Settings.isOn(Settings.offerClaude), items.first?.kind != .calculation else { return items }
         let question = catalogue.isQuestion(query)
         let row = Item(id: Self.claudeRowID, kind: .action, verb: "", title: question ? "Ask Claude" : "Ask Claude to work it out",
                        subtitle: question ? "answers here in a few seconds" : "takes a few seconds", keywords: "",
                        icon: NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil), run: {})
-        // A question, or a long request that nothing matched outright, is most likely a job for Claude,
-        // so that row leads. Either way it only asks; nothing runs before the preview.
         let leads = question || (words >= 5 && (items.first?.isGuess ?? true))
         return leads ? [row] + items : items + [row]
     }
@@ -237,7 +199,6 @@ final class BarModel: ObservableObject {
             self.isAskingClaude = false
             switch result {
             case .success(let plan):
-                // Counts only: requests and window or tab titles can be private, and the log is a plain file.
                 Log.append("plan: \(plan.steps.count) steps from \(options.count) options")
             case .failure(.message(let message)):
                 Log.append("plan failed: \(message)")
@@ -264,15 +225,11 @@ final class BarModel: ObservableObject {
         rewritten = nil
     }
 
-    /// The irreversible action waiting for a second Return, if any.
     @Published var armedID: String? {
         didSet { if armedID != nil, armedID != oldValue { armedAt = Date() } }
     }
-    /// When the card went up. A click that lands on its red button within a moment of the click that
-    /// armed it (a double-click) is ignored.
     private(set) var armedAt = Date.distantPast
 
-    /// Runs the item, unless it cannot be undone and has not been confirmed yet.
     func run(_ item: Item) {
         if item.id == Self.claudeRowID {
             askClaude()
@@ -291,13 +248,11 @@ final class BarModel: ObservableObject {
         onRun(item)
     }
 
-    /// The card's button: confirms the armed item, unless the click came too soon after the one that armed it.
     func confirmByClick() {
         guard Date().timeIntervalSince(armedAt) > 0.4 else { return }
         confirmArmed()
     }
 
-    /// Runs the armed item, by id: never whatever row the selection has moved to meanwhile.
     private func confirmArmed() {
         guard let armedID else { return }
         guard let armed = results.first(where: { $0.id == armedID }) else {
@@ -313,8 +268,6 @@ final class BarModel: ObservableObject {
         selected = (selected + delta + results.count) % results.count
     }
 
-    /// Forgets that the selected result was picked for these words, and ranks again without it.
-    /// False when the selected result wasn't a learned one.
     @discardableResult
     func forgetSelectedPick() -> Bool {
         guard results.indices.contains(selected) else { return false }
@@ -330,15 +283,12 @@ final class BarModel: ObservableObject {
         return true
     }
 
-    /// True when the typed words could become an alias for the selected result: short words, and a result
-    /// that lasts.
     var canAliasSelected: Bool {
         guard results.indices.contains(selected), !isShowingPlan, armedID == nil,
               let alias = Aliases.normalise(query), alias.count <= 12 else { return false }
         return Catalogue.canHaveAlias(results[selected])
     }
 
-    /// Makes the typed words an alias for the selected result. False when it can't be one.
     @discardableResult
     func aliasSelected() -> Bool {
         guard canAliasSelected else { return false }
@@ -366,21 +316,18 @@ final class BarModel: ObservableObject {
             return
         }
         guard !isShowingPlan else { return }
-        // While the card is up, Return means the item on the card and nothing else.
         if armedID != nil { return confirmArmed() }
         guard results.indices.contains(selected) else { return }
         run(results[selected])
     }
 }
 
-/// Five soft bars that rise with your voice, brightest in the middle, like a bee's hum.
 private struct LevelMeter: View {
     let level: Double
 
     var body: some View {
         HStack(alignment: .center, spacing: 3) {
             ForEach(0..<5, id: \.self) { index in
-                // The middle bar moves most, the outer ones less, so the meter reads as one shape.
                 let weight = [0.45, 0.75, 1.0, 0.75, 0.45][index]
                 Capsule()
                     .fill(Theme.yellow.opacity(0.55 + 0.45 * weight))
@@ -400,7 +347,6 @@ struct BarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // The search capsule.
             HStack(spacing: 12) {
                 Image(systemName: model.voiceLevel == nil ? "magnifyingglass" : "mic.fill")
                     .font(.system(size: 18, weight: .medium))
@@ -459,10 +405,8 @@ struct BarView: View {
                         }
                         ResultRow(item: item, isSelected: index == model.selected, isArmed: false)
                             .contentShape(Rectangle())
-                            // The row under the pointer becomes the selected one, so a click and Return agree.
                             .onHover { inside in if inside { model.selected = index } }
                             .onTapGesture {
-                                // A click arms and selects the same row, so a Return afterwards agrees with the card.
                                 model.selected = index
                                 model.run(item)
                             }
@@ -479,7 +423,6 @@ struct BarView: View {
 
             if let note = model.voiceNote {
                 HStack(spacing: 8) {
-                    // Listening, about to act on release, or a reason listening couldn't start.
                     Image(systemName: note.hasPrefix("Listening") ? "mic.fill" : note.hasSuffix("esc to cancel") ? "arrow.forward" : "mic.slash")
                         .foregroundStyle(note.hasPrefix("Listening") ? Theme.ink : Color.secondary)
                         .frame(width: 22, height: 22)
@@ -561,7 +504,6 @@ struct BarView: View {
         .onAppear { focused = true }
     }
 
-    /// A small heading above a result: "Top hit" for the first, then one each time the kind changes.
     private func sectionTitle(at index: Int) -> String? {
         let results = model.results
         let item = results[index]
@@ -610,8 +552,7 @@ struct BarView: View {
     }
 }
 
-/// The frosted glass behind the bar. Always drawn as active, so it stays bright even though
-/// Beeline itself never becomes the active app.
+/// Always drawn as active: Beeline never becomes the active app, and an inactive NSVisualEffectView draws dull.
 private struct Glass: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
@@ -627,7 +568,6 @@ private struct Glass: NSViewRepresentable {
 private struct ResultRow: View {
     let item: Item
     let isSelected: Bool
-    /// True when an irreversible action has had its first Return and is waiting for the second.
     let isArmed: Bool
 
     var body: some View {
@@ -647,7 +587,6 @@ private struct ResultRow: View {
                 Text("alias").foregroundStyle(.tertiary)
                     .accessibilityLabel("your alias")
             } else if item.isLearned {
-                // Promoted because it was picked for these words before; ⇧⌘⌫ forgets that.
                 Text("learned").foregroundStyle(.tertiary)
                     .accessibilityLabel("ranked first because you picked it before")
             }
@@ -679,7 +618,6 @@ private struct ResultRow: View {
         }
     }
 
-    /// App icons are shown as they are; symbol icons sit on a small honey tile.
     @ViewBuilder private var icon: some View {
         if let image = item.icon {
             if image.isTemplate {
@@ -700,7 +638,6 @@ private struct ResultRow: View {
     }
 }
 
-/// Claude's proposed steps, shown for approval. Return or Run runs them all; Escape goes back.
 private struct PlanSection: View {
     @ObservedObject var model: BarModel
 
@@ -757,7 +694,6 @@ private struct PlanSection: View {
                             if let icon = step.icon {
                                 Image(nsImage: icon).resizable().frame(width: 22, height: 22)
                             }
-                            // Cut in the middle when too long, so a long window title never hides "…to the left half".
                             Text(step.text).font(.system(size: 14)).lineLimit(3).truncationMode(.middle)
                                 .fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 0)
@@ -813,7 +749,6 @@ private struct PlanSection: View {
     }
 }
 
-/// A calculation or conversion: its kind, the value large, and the working underneath.
 private struct AnswerCard: View {
     let item: Item
 
@@ -847,13 +782,11 @@ private struct AnswerCard: View {
     }
 }
 
-/// The second step for anything that cannot be undone, with Cancel and the action side by side.
 private struct ConfirmCard: View {
     let item: Item
     let confirm: () -> Void
     let cancel: () -> Void
 
-    /// For Empty Trash, how much is in it. Nil when the Trash cannot be read.
     private var trashSummary: String? {
         guard item.id == "action:Empty Trash",
               let names = try? FileManager.default.contentsOfDirectory(atPath: NSHomeDirectory() + "/.Trash") else { return nil }
@@ -861,7 +794,6 @@ private struct ConfirmCard: View {
         return count == 1 ? "1 item will be deleted permanently." : "\(count) items will be deleted permanently."
     }
 
-    /// For Eject All Disks, which disks it would eject, read when the card shows.
     private var ejectSummary: String? {
         guard item.id == "action:Eject All Disks" else { return nil }
         return Actions.ejectSummary(Actions.ejectableDisks().map(\.name))
@@ -915,7 +847,6 @@ private struct ConfirmCard: View {
     }
 }
 
-/// The optional "what did Beeline understand" readout for the selected result.
 private struct DetailStrip: View {
     let item: Item
     let searchMilliseconds: Double

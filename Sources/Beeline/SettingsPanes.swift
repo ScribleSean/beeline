@@ -1,7 +1,5 @@
 import AppKit
 
-/// System Settings panes, each with the everyday words people use for what lives inside it.
-/// The keywords are what make "night shift" or "resolution" land on Displays.
 enum SettingsPanes {
     private static let panes: [(title: String, id: String, keywords: String)] = [
         ("Wi-Fi", "com.apple.wifi-settings-extension", "wifi wireless internet network hotspot"),

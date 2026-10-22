@@ -11,7 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let welcomeWindow = WelcomeWindowController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Applies to every accessibility element, not only app elements, so one stuck app can't stall a scan.
+        // Set on the system-wide element, the timeout applies to every accessibility element, not only app elements.
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.25)
         Settings.applyAppearance()
         NotificationCenter.default.addObserver(forName: Settings.openWelcome, object: nil, queue: .main) { [weak self] _ in
@@ -26,7 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.image = Self.menuBarGlyph()
 
         let menu = NSMenu()
-        // Items are enabled by hand, so "Updating…" really is disabled during a build.
+        // Otherwise NSMenu re-enables items with a valid target itself, ignoring isEnabled.
         menu.autoenablesItems = false
         openItem = menu.addItem(withTitle: "Open Beeline", action: #selector(toggleBar), keyEquivalent: "")
         openItem.target = self
@@ -38,9 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Quit Beeline", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         statusItem.menu = menu
 
-        // The hands-free live check takes no shortcut and shows no welcome: it drives the bar itself.
         if let scenario = Demo.requested {
-            // Appended, so the usual log isn't wiped by a check.
             Log.append("live check \(scenario) \(Date())")
             Demo.start(scenario, bar: bar, welcome: welcomeWindow)
             return
@@ -55,14 +53,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.retryShortcutIfNeeded()
         }
         Rates.shared.refreshIfStale()
-        // The first launch, or any launch without Accessibility, opens the welcome screen.
         if !UserDefaults.standard.bool(forKey: Settings.welcomed) || !Accessibility.isTrusted {
             welcomeWindow.show()
         }
     }
 
-    /// Registers the shortcut chosen in Settings. If another app holds it (Spotlight still on ⌘Space),
-    /// tries the other two so Beeline can still be opened, and publishes which one is in effect.
     private func registerShortcut() {
         hotKey = nil
         let preferred = UserDefaults.standard.string(forKey: Settings.shortcut) ?? "command"
@@ -84,10 +79,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Log.append("shortcut: \(label)")
     }
 
-    /// Tries the chosen shortcut again when it was not the one registered: Spotlight's may have been
-    /// turned off since launch, as the README suggests.
-    /// The shortcut in use is kept until the chosen one is actually registered, so a hold on the fallback
-    /// that is under way when this runs still gets its release.
     private func retryShortcutIfNeeded() {
         let preferred = UserDefaults.standard.string(forKey: Settings.shortcut) ?? "command"
         guard Settings.activeShortcut != preferred else { return }
@@ -111,13 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         bar.toggle()
     }
 
-    // MARK: Update
-
-    /// True from the click until the build ends. NSMenu re-enables items on its own, so the flag, not the
-    /// item's enabled state, is what stops a second run from building over the first.
     private var isUpdating = false
 
-    /// Pulls the newest pushed version, rebuilds and relaunches, or says so when there is nothing new.
     @objc private func update() {
         guard !isUpdating else { return }
         guard let root = Bundle.main.object(forInfoDictionaryKey: "BeelineSourceRoot") as? String,
@@ -150,7 +136,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let incoming = Self.shell("git log --oneline HEAD..origin/main", in: root).output
                 .split(whereSeparator: \.isNewline).map(String.init)
             let head = Self.shell("git rev-parse HEAD", in: root).output.trimmingCharacters(in: .whitespacesAndNewlines)
-            // Untracked files (Xcode's .swiftpm, say) are not edits.
             let hasLocalEdits = !Self.shell("git status --porcelain --untracked-files=no", in: root).output.isEmpty
 
             if incoming.isEmpty, !head.isEmpty, head == built, !hasLocalEdits {
@@ -158,7 +143,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return finish("Beeline is up to date", "You're on the newest version (\(head.prefix(7))).\(note)")
             }
 
-            // Say what is about to be built and run before building it: those commits run with Beeline's permissions.
             let what: String
             if incoming.isEmpty {
                 what = hasLocalEdits ? "The source folder has edits that aren't committed. Rebuild Beeline from them?"
@@ -174,7 +158,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             if !incoming.isEmpty {
-                // Fast-forward only: local work that has not been pushed is never overwritten.
                 let merged = Self.shell("git merge --ff-only --quiet origin/main", in: root)
                 guard merged.ok else {
                     let reason = merged.errors.split(whereSeparator: \.isNewline).first.map(String.init) ?? "git merge failed"
@@ -202,8 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateItem.isEnabled = true
     }
 
-    /// Runs a command in a login shell, so it sees the same PATH and git credentials as a terminal. Output
-    /// and errors are kept apart, so an error message is never mistaken for a commit hash.
+    /// A login shell, because an app opened from Finder doesn't get the terminal's PATH or git credentials.
     private static func shell(_ command: String, in directory: String, timeout: TimeInterval = 30) -> (ok: Bool, output: String, errors: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
@@ -234,7 +216,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return (process.terminationStatus == 0 && !timedOut, output, errors)
     }
 
-    /// Asks on the main thread and waits for the answer. Safe to call from a background queue.
     private func confirm(_ title: String, _ detail: String, action: String) -> Bool {
         var answer = false
         DispatchQueue.main.sync {
@@ -252,7 +233,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func relaunch(_ appPath: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        // Wait for this copy to quit, so the new one doesn't find Option+Space still taken.
         process.arguments = ["-c", "sleep 1; open \"$0\"", appPath]
         try? process.run()
         NSApp.terminate(nil)
@@ -266,10 +246,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.runModal()
     }
 
-    // MARK: Menu bar glyph
-
-    /// The app's mark at menu bar size, made from the icon art by scripts/make-icon.swift. A template image,
-    /// so macOS tints it for light and dark menu bars.
     private static func menuBarGlyph() -> NSImage {
         let image = Bundle.main.url(forResource: "MenuBarGlyph", withExtension: "png").flatMap(NSImage.init(contentsOf:))
             ?? NSImage(systemSymbolName: "hexagon", accessibilityDescription: nil)!

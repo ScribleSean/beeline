@@ -4,21 +4,17 @@ import SwiftUI
 Settings.registerDefaults()
 Planner.ignoreBrokenPipes()
 
-// The live check presses things through the bar, which records picks; they go to a scratch file, not the
-// real history.
 if Demo.requested != nil, ProcessInfo.processInfo.environment["BEELINE_USAGE_FILE"] == nil {
     setenv("BEELINE_USAGE_FILE", FileManager.default.temporaryDirectory.appendingPathComponent("beeline-live-check-usage.json").path, 1)
     setenv("BEELINE_ALIASES_FILE", FileManager.default.temporaryDirectory.appendingPathComponent("beeline-live-check-aliases.json").path, 1)
 }
 
-// A misspelt or incomplete flag prints what the flags are instead of starting a second full copy of the app.
 let knownFlags: [String: Int] = ["--query": 1, "--rewrite": 2, "--controls": 1, "--preview": 2, "--preview-welcome": 1,
                                  "--files": 2, "--pick": 2, "--ai": 1, "--plan": 1]
 // Single-dash arguments are macOS's and Xcode's own (-NSDocumentRevisionsDebugMode and the like).
 if let flag = CommandLine.arguments.dropFirst().first(where: { $0.hasPrefix("--") }) {
     let position = CommandLine.arguments.firstIndex(of: flag)!
     if let needed = knownFlags[flag], CommandLine.arguments.count > position + needed {
-        // Command-line modes must not write to the real pick history ("--preview … arm" records a pick).
         if ProcessInfo.processInfo.environment["BEELINE_USAGE_FILE"] == nil {
             setenv("BEELINE_USAGE_FILE", FileManager.default.temporaryDirectory.appendingPathComponent("beeline-cli-usage.json").path, 1)
         }
@@ -28,7 +24,6 @@ if let flag = CommandLine.arguments.dropFirst().first(where: { $0.hasPrefix("--"
     }
 }
 
-// `Beeline --query "wifi"` prints the ranked matches and exits, for checking the matcher without the UI.
 if let flag = CommandLine.arguments.firstIndex(of: "--query"), CommandLine.arguments.count > flag + 1 {
     let catalogue = Catalogue()
     catalogue.prepareMeaningNow()
@@ -40,8 +35,6 @@ if let flag = CommandLine.arguments.firstIndex(of: "--query"), CommandLine.argum
     exit(0)
 }
 
-// `Beeline --rewrite "make this shorter" "some text"` shows whether the bar would offer a rewrite, then
-// prints Claude's rewrite. Replaces nothing.
 if let flag = CommandLine.arguments.firstIndex(of: "--rewrite"), CommandLine.arguments.count > flag + 2 {
     let instruction = CommandLine.arguments[flag + 1]
     print(Rewrite.isRequest(instruction) ? "offered: Rewrite the selected text" : "not offered")
@@ -57,7 +50,6 @@ if let flag = CommandLine.arguments.firstIndex(of: "--rewrite"), CommandLine.arg
     exit(0)
 }
 
-// `Beeline --controls Safari` lists the controls Beeline would offer in that app's front window. Presses nothing.
 if let flag = CommandLine.arguments.firstIndex(of: "--controls"), CommandLine.arguments.count > flag + 1 {
     let name = CommandLine.arguments[flag + 1]
     if let app = NSWorkspace.shared.runningApplications.first(where: { $0.localizedName == name }) {
@@ -70,8 +62,7 @@ if let flag = CommandLine.arguments.firstIndex(of: "--controls"), CommandLine.ar
     exit(0)
 }
 
-// `Beeline --preview "strem" out.png [dark]` renders the bar with real results to an image, for checking
-// the design without opening it. The frosted glass cannot be captured offscreen, so a backdrop stands in.
+// The frosted glass cannot be captured offscreen, so a backdrop stands in.
 if let flag = CommandLine.arguments.firstIndex(of: "--preview"), CommandLine.arguments.count > flag + 2 {
     let app = NSApplication.shared
     app.setActivationPolicy(.prohibited)
@@ -79,10 +70,8 @@ if let flag = CommandLine.arguments.firstIndex(of: "--preview"), CommandLine.arg
     app.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
     let model = BarModel()
     model.catalogue.prepareMeaningNow()
-    // File results are left out: previews end up in screenshots, and file names are private.
     model.catalogue.includeFiles = false
     model.query = CommandLine.arguments[flag + 1]
-    // "arm" shows the confirm step for the top result; "plan" shows a sample Claude plan.
     if CommandLine.arguments.contains("arm") { model.runSelected() }
     if CommandLine.arguments.contains("plan") {
         let icon = { (name: String) in NSWorkspace.shared.icon(forFile: "/System/Applications/\(name).app") }
@@ -104,7 +93,7 @@ if let flag = CommandLine.arguments.firstIndex(of: "--preview"), CommandLine.arg
     window.contentView = backdrop
     backdrop.layoutSubtreeIfNeeded()
     RunLoop.main.run(until: Date().addingTimeInterval(0.4))
-    // Focusing the field selects its text; put the cursor at the end, as it is while typing.
+    // Focusing an NSTextField selects all its text.
     if let editor = window.firstResponder as? NSTextView {
         editor.setSelectedRange(NSRange(location: editor.string.utf16.count, length: 0))
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
@@ -115,16 +104,13 @@ if let flag = CommandLine.arguments.firstIndex(of: "--preview"), CommandLine.arg
     exit(0)
 }
 
-// `Beeline --preview-welcome out.png` renders the welcome screen.
 if let flag = CommandLine.arguments.firstIndex(of: "--preview-welcome"), CommandLine.arguments.count > flag + 1 {
     NSApplication.shared.setActivationPolicy(.prohibited)
     WelcomeWindowController.renderPreview(to: CommandLine.arguments[flag + 1])
     exit(0)
 }
 
-// `Beeline --files "compress" a.pdf b.pdf` shows the file chores offered for those files. Runs nothing.
 if let flag = CommandLine.arguments.firstIndex(of: "--files"), CommandLine.arguments.count > flag + 2 {
-    // A trailing folder path ending in "/" stands for the front Finder window; the rest are selected items.
     var paths = Array(CommandLine.arguments[(flag + 2)...])
     let folder = paths.last.flatMap { $0.hasSuffix("/") ? URL(fileURLWithPath: $0) : nil }
     if folder != nil { paths.removeLast() }
@@ -133,8 +119,6 @@ if let flag = CommandLine.arguments.firstIndex(of: "--files"), CommandLine.argum
     for item in rows {
         print("\(item.needsConfirm ? "!" : " ") \(item.title)  [\(item.subtitle)]")
     }
-    // With BEELINE_FILES_TEST set, the first chore is run too, and what it made is printed when it finishes.
-    // A chore that would need a second Return in the bar (a replace, a rename of several) is not run here.
     if ProcessInfo.processInfo.environment["BEELINE_FILES_TEST"] != nil, let first = rows.first {
         guard !first.needsConfirm else {
             print("not run: this chore needs confirming in the bar")
@@ -147,7 +131,6 @@ if let flag = CommandLine.arguments.firstIndex(of: "--files"), CommandLine.argum
     exit(0)
 }
 
-// `Beeline --pick "tunes" "Music"` records that Music was chosen for "tunes", as pressing Return would.
 if let flag = CommandLine.arguments.firstIndex(of: "--pick"), CommandLine.arguments.count > flag + 2 {
     let catalogue = Catalogue()
     if let item = catalogue.search(CommandLine.arguments[flag + 2], limit: 1).first {
@@ -158,7 +141,6 @@ if let flag = CommandLine.arguments.firstIndex(of: "--pick"), CommandLine.argume
     exit(0)
 }
 
-// `Beeline --ai "make my mac quieter"` asks the on-device model and prints its pick and how long it took.
 if let flag = CommandLine.arguments.firstIndex(of: "--ai"), CommandLine.arguments.count > flag + 1 {
     let catalogue = Catalogue()
     catalogue.prepareMeaningNow()
@@ -176,7 +158,6 @@ if let flag = CommandLine.arguments.firstIndex(of: "--ai"), CommandLine.argument
     dispatchMain()
 }
 
-// `Beeline --plan "mute and open sound settings"` asks Claude for a plan and prints it. Nothing is run.
 if let flag = CommandLine.arguments.firstIndex(of: "--plan"), CommandLine.arguments.count > flag + 1 {
     let catalogue = Catalogue()
     let request = CommandLine.arguments[flag + 1]
@@ -197,8 +178,6 @@ if let flag = CommandLine.arguments.firstIndex(of: "--plan"), CommandLine.argume
     dispatchMain()
 }
 
-// One copy at a time: a second menu-bar icon, clipboard poller and pick history writer would fight the first.
-// After an update the old copy may still be on its way out, so it is given a few seconds to go.
 if let bundleID = Bundle.main.bundleIdentifier {
     let me = ProcessInfo.processInfo.processIdentifier
     var others: [NSRunningApplication] = []

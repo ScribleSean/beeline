@@ -2,7 +2,6 @@ import AppKit
 import ServiceManagement
 import SwiftUI
 
-/// User preferences, kept in the standard macOS defaults for the app.
 enum Settings {
     static let showDetails = "showDetails"
     static let useOnDeviceModel = "useOnDeviceModel"
@@ -10,23 +9,16 @@ enum Settings {
     static let learnFromUse = "learnFromUse"
     static let clipboardHistory = "clipboardHistory"
     static let holdToTalk = "holdToTalk"
-    /// Whether the bee flies to what Beeline is about to act on.
     static let showBee = "showBee"
-    /// Whether letting go of the shortcut may run one plainly safe result without Return.
     static let actOnRelease = "actOnRelease"
-    /// Which modifier opens the bar with Space: "command", "option" or "control".
     static let shortcut = "shortcut"
-    /// "system", "light" or "dark".
     static let appearance = "appearance"
-    /// Set once the welcome screen has been shown.
     static let welcomed = "welcomed"
-    /// Set once Accessibility has been seen on, so a later build that finds itself untrusted can explain why.
     static let wasTrusted = "wasTrusted"
 
     static let forgetHistory = Notification.Name("BeelineForgetHistory")
     static let clearClipboard = Notification.Name("BeelineClearClipboard")
     static let shortcutChanged = Notification.Name("BeelineShortcutChanged")
-    /// Asks for the chosen shortcut again, keeping the one in use unless the chosen one can be had.
     static let retryShortcut = Notification.Name("BeelineRetryShortcut")
     static let open = Notification.Name("BeelineOpenSettings")
     static let openWelcome = Notification.Name("BeelineOpenWelcome")
@@ -42,7 +34,6 @@ enum Settings {
         UserDefaults.standard.bool(forKey: key)
     }
 
-    /// Applies the chosen appearance to every Beeline window, the bar included.
     static func applyAppearance() {
         switch UserDefaults.standard.string(forKey: appearance) {
         case "light": NSApp.appearance = NSAppearance(named: .aqua)
@@ -51,7 +42,6 @@ enum Settings {
         }
     }
 
-    /// The shortcut chosen in Settings.
     static var shortcutLabel: String {
         label(for: UserDefaults.standard.string(forKey: shortcut) ?? "command")
     }
@@ -64,30 +54,23 @@ enum Settings {
         }
     }
 
-    /// True when ⌘Space was chosen but another app (Spotlight, almost always) holds it.
     static var spotlightHasShortcut: Bool {
         forceSpotlightCard
             || (UserDefaults.standard.string(forKey: shortcut) ?? "command") == "command" && activeShortcut != "command"
     }
 
-    /// Set by the live check, to show the Spotlight card whatever the shortcut's state.
     static var forceSpotlightCard = false
 
-    /// The shortcut that actually opens the bar right now: the chosen one, or the fallback that could be
-    /// registered when another app holds it, or "none". Every screen shows this one, never the preference.
     static var activeShortcutLabel: String {
         if let activeShortcut { return label(for: activeShortcut) }
         return "No shortcut (⌘, ⌥ and ⌃Space are all taken)"
     }
 
-    /// Set by the app when it registers the hotkey: "command", "option", "control" or nil.
     static var activeShortcut: String? = UserDefaults.standard.string(forKey: shortcut) ?? "command"
 }
 
-/// Whether Beeline opens when you log in, through macOS's own login items list.
 private final class LoginItem: ObservableObject {
     @Published private(set) var isOn = SMAppService.mainApp.status == .enabled
-    /// Shown when macOS needs the user to approve the login item in System Settings.
     @Published private(set) var note: String?
 
     func set(_ on: Bool) {
@@ -108,8 +91,7 @@ private final class LoginItem: ObservableObject {
     }
 }
 
-/// The settings window's transient state. A plain observable object, because the `@State` macro
-/// needs a compiler plugin that the Command Line Tools do not ship.
+/// A plain observable object, because the `@State` macro needs a compiler plugin that the Command Line Tools do not ship.
 private final class SettingsState: ObservableObject {
     @Published var didForget = false
     @Published var didClearClipboard = false
@@ -267,7 +249,6 @@ private struct SettingsView: View {
     }
 }
 
-/// The aliases, sorted, kept current while Settings is open.
 private final class AliasList: ObservableObject {
     struct Row { let alias: String; let title: String }
     @Published var entries: [Row] = []

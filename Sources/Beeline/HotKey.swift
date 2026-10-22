@@ -1,7 +1,6 @@
 import Carbon.HIToolbox
 
-/// A system-wide hotkey. Uses the Carbon hotkey API, which needs no permission, and reports both the
-/// press and the release, so a tap and a hold can mean different things.
+/// Carbon hotkeys need no permission and report both the press and the release.
 final class HotKey {
     private var hotKeyRef: EventHotKeyRef?
     private var handlerRef: EventHandlerRef?
