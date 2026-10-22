@@ -217,17 +217,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func confirm(_ title: String, _ detail: String, action: String) -> Bool {
-        var answer = false
-        DispatchQueue.main.sync {
+        Self.onMain {
             let alert = NSAlert()
             alert.messageText = title
             alert.informativeText = detail
             alert.addButton(withTitle: action)
             alert.addButton(withTitle: "Not Now")
             NSApp.activate(ignoringOtherApps: true)
-            answer = alert.runModal() == .alertFirstButtonReturn
+            return alert.runModal() == .alertFirstButtonReturn
         }
-        return answer
+    }
+
+    static func onMain<T>(_ body: () -> T) -> T {
+        if Thread.isMainThread { return body() }
+        return DispatchQueue.main.sync(execute: body)
     }
 
     private func relaunch(_ appPath: String) {

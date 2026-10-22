@@ -1,5 +1,6 @@
 // Builds the app icon and the menu bar glyph from Resources/AppIcon-source.png.
 // Run from the repo root:  swift scripts/make-icon.swift
+// ICON_PREVIEW=/path/to/preview.png also writes a 512-pixel preview of the icon there.
 import AppKit
 
 let source = NSImage(contentsOfFile: "Resources/AppIcon-source.png")!

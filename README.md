@@ -118,6 +118,8 @@ build/Beeline.app/Contents/MacOS/Beeline --rewrite "more formal" "hey u free?"  
 
 `bash scripts/live-check.sh` checks the bee on a real screen, hands-free. It runs Beeline in a throwaway TextEdit document it opens and closes itself, presses only TextEdit's ruler and zoom commands, takes screenshots, and reports pass or fail for a press, a two-step plan, Escape and a click mid-flight, the Spotlight card, and acting on release. It needs the app installed in `~/Applications` with Accessibility, and Screen Recording for the terminal.
 
+`swift scripts/make-icon.swift` rebuilds the app icon and the menu bar glyph from `Resources/AppIcon-source.png`. Set `ICON_PREVIEW=/path/to/preview.png` to also write a 512-pixel preview of the icon.
+
 Each ad hoc build is a new app to macOS, so its permissions stop working after a rebuild even though System Settings still shows Beeline switched on; the fix is to remove Beeline from the list with − and add it again. To keep permissions across rebuilds, put a code-signing certificate's name or fingerprint in an untracked `.signing-identity` file in this folder (git worktrees use the main checkout's). `BEELINE_SIGNING_IDENTITY` works too, but only for builds started from a shell that sets it: **Update Beeline** never sees variables from `~/.zshrc`. The build prints a warning when it signs ad hoc.
 
 How the bee and the stop rules came about is in [docs/VOICE-MERGE.md](docs/VOICE-MERGE.md), which records how an earlier voice-control prototype was folded in.

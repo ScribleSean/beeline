@@ -239,8 +239,14 @@ enum Actions {
     }
 
     static var isScreenLocked: Bool? {
-        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else { return nil }
-        return (session["CGSSessionScreenIsLocked"] as? Bool) ?? (session["CGSSessionScreenIsLocked"] as? Int).map { $0 != 0 }
+        screenLocked(in: CGSessionCopyCurrentDictionary() as? [String: Any])
+    }
+
+    // macOS leaves the key out entirely while the screen is unlocked.
+    static func screenLocked(in session: [String: Any]?) -> Bool? {
+        guard let session else { return nil }
+        guard let value = session["CGSSessionScreenIsLocked"] else { return false }
+        return (value as? Bool) ?? (value as? Int).map { $0 != 0 } ?? false
     }
 
     private static func setWiFi(_ state: String, title: String) {
