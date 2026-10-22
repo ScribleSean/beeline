@@ -4,13 +4,13 @@ What a user can do, how they reach it, and what checks it today. Tests are in `T
 
 | Feature | How a user reaches it | Checked by |
 | --- | --- | --- |
-| Open the bar | ⌘Space (or ⌥/⌃Space), menu bar | none |
+| Open the bar | ⌘Space (or ⌥/⌃Space), menu bar | live `open` (not yet run) |
 | Hotkey conflict card | Welcome screen when Spotlight holds ⌘Space | ShortcutConflictTests, live `welcome` |
 | Search and rank apps, settings, actions | Type in the bar | RankingTests, MatcherTests, `--query` |
 | Search files | Type in the bar | none (only `--files` by hand) |
 | Switch to a window | Type its name | AutoActTests (safety only) |
-| Switch browser tabs | Type a tab's title | none (AppleScript not run in tests) |
-| Close tabs by browser or word | "close chrome tabs", "close tabs about x" | TabTests |
+| Switch browser tabs | Type a tab's title | BrowserTests (tab list, titles stay text in AppleScript), live `tab` (not yet run) |
+| Close tabs by browser or word | "close chrome tabs", "close tabs about x" | TabTests, BrowserTests (quoting), live `tab` closes one tab (not yet run) |
 | Menu commands of the front app | "show ruler" | ControlsTests (labels, same window), live `press` |
 | Press buttons in the front window | Type a button's label | ControlsTests (labels), ScreenScanTests, live `press` |
 | Confirm card for drastic items | Return twice | BarModelTests, ControlsTests, RankingTests |
@@ -26,13 +26,13 @@ What a user can do, how they reach it, and what checks it today. Tests are in `T
 | File chores: move, copy, replace | Finder selection, "move this to desktop" | FileToolsTests |
 | Compress | "compress" with a Finder selection | FileToolsTests |
 | Rename, convert, resize images | "rename to x", "convert to jpg" | TextMatchingTests (row titles only) |
-| Rewrite selected text | "make this more formal" | none (only `--rewrite` by hand) |
+| Rewrite selected text | "make this more formal" | TextMatchingTests (when it is offered), live `rewrite` (not yet run) |
 | Clipboard history | Type "clipboard" | ClipboardTests |
 | Voice: hold to talk | Hold ⌘Space | VoiceLevelTests (meter and hints only) |
 | Act on release | Let go of ⌘Space | AutoActTests, live `release` |
 | Run Shortcuts | Type a Shortcut's name | AliasAndShortcutTests |
 | Undo | "undo" | UndoTests, FileToolsTests |
-| Plan with Claude | "Ask Claude to work it out" row, then Run | PlannerTests (pipe and finding claude only), live `plan` |
+| Plan with Claude | "Ask Claude to work it out" row, then Run | PlannerTests (reading the reply: only distinct whole numbers from the list, at most 8; pipe; finding claude), live `plan` |
 | Ask Claude | "Ask Claude" row under a question | none |
 | On-device model rewrite of loose requests | Automatic | none (only `--ai` by hand) |
 | Learned picks and forgetting | Pick a result; ⇧⌘⌫ | LearningTests, StoreTests |
@@ -40,7 +40,29 @@ What a user can do, how they reach it, and what checks it today. Tests are in `T
 | Web search | Last row, Return | RankingTests (`+` kept) |
 | Settings window | Menu bar › Settings | none |
 | Welcome and permissions | First launch | live `welcome` (card only) |
-| Update Beeline | Menu bar › Update Beeline | none |
+| Update Beeline | Menu bar › Update Beeline | UpdateTests (throwaway repos: main only, checking never moves the folder, no merge of a diverged main, a failed build keeps the working app) |
+
+## Gaps, ranked
+
+Severity is how much a user loses if it breaks silently (10 = Beeline is useless). Closed in Oct 2026 unless marked open.
+
+| Severity | Feature | Status |
+| --- | --- | --- |
+| 9 | Open the bar with the shortcut | live `open` written; run it once to close |
+| 8 | Plan with Claude: reading the reply | closed: PlannerTests |
+| 7 | Switch browser tabs | unit parts closed (BrowserTests); live `tab` written, run it once |
+| 7 | Rewrite selected text | live `rewrite` written, run it once |
+| 7 | Update Beeline | closed: UpdateTests. Open: the confirm dialog and relaunch |
+| 6 | Move the front window to half or full | open: live check that tiles the TextEdit window and reads its frame |
+| 6 | Mac controls actually acting (mute, dark mode) | open: live check that toggles twice and compares |
+| 6 | Saved desktops restore | open: live check that saves, moves and restores the TextEdit window |
+| 6 | Voice end to end | open: needs a way to feed a recording (`--hear file.wav`) |
+| 5 | Search files | open: `--files` against a temp folder |
+| 5 | Currency rates download | open: unit test the parser on a saved response |
+| 5 | Reminders creation | open: manual (writes to your Reminders) |
+| 4 | Ask Claude, on-device rewrite of loose requests | open: `--ai` and `--plan` by hand |
+| 3 | Settings window | open: render the panes |
+| 3 | Restart, Shut Down, Log Out, Eject acting | open: never run for real; confirm card is tested |
 
 ## Human-owned
 
