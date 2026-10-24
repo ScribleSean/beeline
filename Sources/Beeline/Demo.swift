@@ -2,9 +2,12 @@ import AppKit
 import ApplicationServices
 import Carbon.HIToolbox
 import Network
+import AVFoundation
+import Speech
+import EventKit
 
 enum Demo {
-    static let scenarios = ["press", "plan", "escape", "click", "welcome", "release", "open", "rewrite", "tab"]
+    static let scenarios = ["press", "plan", "escape", "click", "welcome", "release", "open", "rewrite", "tab", "permissions"]
 
     static var requested: String? {
         guard let name = ProcessInfo.processInfo.environment["BEELINE_DEMO"], scenarios.contains(name) else { return nil }
@@ -58,6 +61,7 @@ enum Demo {
                 return shown && card ? (true, "the welcome window opened with the Spotlight card")
                     : (false, shown ? "the welcome window opened without the Spotlight card" : "the welcome window didn't open")
             }
+            if scenario == "permissions" { return await permissions() }
             guard Accessibility.isTrusted else { return (false, "Accessibility is off for this copy of Beeline") }
             guard await openDocument() else { return (false, "couldn't open a TextEdit document to work in") }
             switch scenario {
@@ -70,6 +74,49 @@ enum Demo {
             case "escape": return await plan(interrupt: .escape)
             default: return await plan(interrupt: .takeover)
             }
+        }
+
+        /// Checks that this signed copy can still use what Beeline relies on. Hardened runtime blocks the
+        /// microphone and Apple Events without their entitlements: the mic then reads pure silence even
+        /// though its permission says allowed, so this records two seconds and reports only the peak level.
+        private func permissions() async -> (Bool, String) {
+            let mic = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+            let speech = SFSpeechRecognizer.authorizationStatus() == .authorized
+            let remindersStatus = EKEventStore.authorizationStatus(for: .reminder)
+            let reminders = remindersStatus == .fullAccess
+            var peak: Float = 0
+            if mic {
+                let engine = AVAudioEngine()
+                let input = engine.inputNode
+                let lock = NSLock()
+                input.installTap(onBus: 0, bufferSize: 4096, format: input.outputFormat(forBus: 0)) { buffer, _ in
+                    guard let samples = buffer.floatChannelData?[0] else { return }
+                    var top: Float = 0
+                    for i in 0..<Int(buffer.frameLength) { top = max(top, abs(samples[i])) }
+                    lock.lock(); peak = max(peak, top); lock.unlock()
+                }
+                if (try? engine.start()) != nil {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    engine.stop()
+                }
+                input.removeTap(onBus: 0)
+            }
+            let finder = Browser.osascript("tell application \"Finder\" to get name of startup disk", timeout: 10) != nil
+            let systemEvents = Browser.osascript(
+                "tell application \"System Events\" to get dark mode of appearance preferences", timeout: 10) != nil
+            let details: [String: Any] = ["accessibility": Accessibility.isTrusted, "microphone": mic, "speech": speech,
+                                          "reminders": reminders, "remindersStatus": remindersStatus.rawValue, "micPeak": Double(peak), "finder": finder,
+                                          "systemEvents": systemEvents]
+            DemoLog.note("permissions", details)
+            var missing: [String] = []
+            if !Accessibility.isTrusted { missing.append("Accessibility") }
+            if !mic { missing.append("microphone permission") } else if peak == 0 { missing.append("mic audio (pure silence)") }
+            if !speech { missing.append("speech recognition") }
+            if !reminders { missing.append(remindersStatus == .notDetermined ? "Reminders (never asked on this Mac)" : "Reminders") }
+            if !finder { missing.append("Automation for Finder") }
+            if !systemEvents { missing.append("Automation for System Events") }
+            return missing.isEmpty ? (true, "Accessibility, mic audio (peak \(String(format: "%.4f", peak))), speech, Reminders, Finder and System Events all work")
+                : (false, "not working: " + missing.joined(separator: ", "))
         }
 
         private func press() async -> (Bool, String) {

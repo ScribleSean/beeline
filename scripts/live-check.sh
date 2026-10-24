@@ -1,5 +1,6 @@
 #!/bin/bash
-# Hands-free live check of the bee, the stop keys, the welcome card, the shortcut, rewriting and browser tabs.
+# Hands-free live check of the bee, the stop keys, the welcome card, the shortcut, rewriting, browser tabs
+# and the permissions a signed build needs (mic audio, speech, Reminders, Accessibility, Automation).
 #
 #   bash scripts/live-check.sh                 # every scenario
 #   bash scripts/live-check.sh press escape    # some of them
@@ -15,8 +16,8 @@ set -uo pipefail
 
 app="${BEELINE_APP:-$HOME/Applications/Beeline.app}"
 [ -d "$app" ] || { echo "No Beeline at $app (set BEELINE_APP)." >&2; exit 2; }
-known=" press plan escape click welcome release open rewrite tab "
-if [ $# -gt 0 ]; then scenarios=("$@"); else scenarios=(press plan escape click welcome release open rewrite tab); fi
+known=" press plan escape click welcome release open rewrite tab permissions "
+if [ $# -gt 0 ]; then scenarios=("$@"); else scenarios=(press plan escape click welcome release open rewrite tab permissions); fi
 for scenario in "${scenarios[@]}"; do
     case "$known" in *" $scenario "*) ;; *) echo "Unknown scenario “$scenario”. Known:$known" >&2; exit 2 ;; esac
 done

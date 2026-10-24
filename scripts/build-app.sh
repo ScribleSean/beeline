@@ -38,7 +38,9 @@ if [ "$identity" = "-" ]; then
     echo "permissions stop working after it: remove Beeline from each list and add it again, or put a" >&2
     echo "certificate name in .signing-identity (see README)." >&2
 fi
-codesign --force --sign "$identity" "$app"
+# Hardened runtime stops other code from loading into Beeline (DYLD_INSERT_LIBRARIES and the like) and
+# borrowing its permissions. The entitlements re-allow the mic, Apple Events and Reminders it uses.
+codesign --force --options runtime --entitlements Resources/Beeline.entitlements --sign "$identity" "$app"
 rm -rf "$final.previous"
 [ -d "$final" ] && mv "$final" "$final.previous"
 mv "$app" "$final"
