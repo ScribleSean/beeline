@@ -20,7 +20,7 @@ What a user can do, how they reach it, and what checks it today. Tests are in `T
 | Restart, Shut Down, Log Out, Eject | Type the action | RankingTests (confirm and ranking only) |
 | Move the front window to half or full | Type "left half" or similar | none |
 | Sums, units, currencies, time zones | Type a sum or "5 km in miles" | ConverterTests, RankingTests (dates are not sums) |
-| Currency rates download | Twice a day, automatic | none |
+| Currency rates download | Twice a day, automatic | currencyRatesParseSavedResponse, currencyRatesRejectMalformedOrPartialResponses (parser only) |
 | Reminders and goals | "remind me to …" | TextMatchingTests (date parsing and title only) |
 | Saved desktops | "save desktop as x", "open desktop x" | TextMatchingTests (name parsing only) |
 | File chores: move, copy, replace | Finder selection, "move this to desktop" | FileToolsTests |
@@ -57,8 +57,8 @@ Severity is how much a user loses if it breaks silently (10 = Beeline is useless
 | 6 | Mac controls actually acting (mute, dark mode) | open: live check that toggles twice and compares |
 | 6 | Saved desktops restore | open: live check that saves, moves and restores the TextEdit window |
 | 6 | Voice end to end | open: needs a way to feed a recording (`--hear file.wav`) |
-| 5 | Search files | open: `--files` against a temp folder |
-| 5 | Currency rates download | open: unit test the parser on a saved response |
+| 5 | Search files | open: needs a Spotlight-backed check; `--files` runs file chores (covered by FileToolsTests), not search |
+| 5 | Currency rates download | closed: currencyRatesParseSavedResponse, currencyRatesRejectMalformedOrPartialResponses |
 | 5 | Reminders creation | open: manual (writes to your Reminders) |
 | 4 | Ask Claude, on-device rewrite of loose requests | open: `--ai` and `--plan` by hand |
 | 3 | Settings window | open: render the panes |

@@ -264,6 +264,13 @@ final class Rates {
         if let data = try? Data(contentsOf: file) { saved = try? JSONDecoder().decode(Saved.self, from: data) }
     }
 
+    static func parse(_ data: Data) -> (rates: [String: Double], day: String?)? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var rates = object["rates"] as? [String: Double], !rates.isEmpty else { return nil }
+        rates["EUR"] = 1
+        return (rates, object["date"] as? String)
+    }
+
     func refreshIfStale(wait: Bool = false, done: @escaping () -> Void = {}) {
         if let saved, Date().timeIntervalSince(saved.fetched) < 12 * 3600 { return }
         guard !isFetching, let url = URL(string: "https://api.frankfurter.dev/v1/latest") else { return }
@@ -271,13 +278,11 @@ final class Rates {
         let finished = DispatchSemaphore(value: 0)
         URLSession.shared.dataTask(with: url) { data, _, _ in
             defer { finished.signal() }
-            guard let data, let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  var rates = object["rates"] as? [String: Double] else {
+            guard let data, let parsed = Self.parse(data) else {
                 DispatchQueue.main.async { self.isFetching = false }
                 return
             }
-            rates["EUR"] = 1
-            let fresh = Saved(fetched: Date(), rates: rates, day: object["date"] as? String)
+            let fresh = Saved(fetched: Date(), rates: parsed.rates, day: parsed.day)
             try? FileManager.default.createDirectory(at: self.file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? JSONEncoder().encode(fresh).write(to: self.file, options: .atomic)
             DispatchQueue.main.async {
