@@ -7,7 +7,7 @@ What a user can do, how they reach it, and what checks it today. Tests are in `T
 | Open the bar | ⌘Space (or ⌥/⌃Space), menu bar | live `open` (passed 22 Oct 2026) |
 | Hotkey conflict card | Welcome screen when Spotlight holds ⌘Space | ShortcutConflictTests, live `welcome` |
 | Search and rank apps, settings, actions | Type in the bar | RankingTests, MatcherTests, `--query` |
-| Search files | Type in the bar | none (only `--files` by hand) |
+| Search files | Type in the bar | none |
 | Switch to a window | Type its name | AutoActTests (safety only) |
 | Switch browser tabs | Type a tab's title | BrowserTests (tab list, titles stay text in AppleScript), live `tab` (passed 22 Oct 2026) |
 | Close tabs by browser or word | "close chrome tabs", "close tabs about x" | TabTests, BrowserTests (quoting), live `tab` closes one tab (passed 22 Oct 2026) |
