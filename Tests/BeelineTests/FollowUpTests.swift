@@ -45,20 +45,60 @@ private func step(_ text: String) -> PlanStep { PlanStep(text: text, icon: nil, 
     #expect(prompt.components(separatedBy: "\nRequest: ").count == 2)
 }
 
+private func settled(_ step: PlanStep) -> Bool? {
+    let until = Date().addingTimeInterval(2)
+    while Date() < until {
+        if step.succeeded?() == true { return true }
+        Thread.sleep(forTimeInterval: 0.01)
+    }
+    return step.succeeded?()
+}
+
 @Test func undoIsAPlanStepOnlyForTheEntryItWasOfferedFor() {
     let log = UndoLog()
     #expect(log.planStep() == nil)
-    var undone: [String] = []
-    log.record("Move Safari to the left half") { undone.append("first") }
+    let undone = UndoOutcome()
+    log.record("Move Safari to the left half") { undone.set(false) }
     guard let offered = log.planStep() else { Issue.record("no undo step"); return }
-    #expect(offered.text == "Undo the last thing Beeline did: \"Move Safari to the left half\"")
+    #expect(offered.text == "Undo \"Move Safari to the left half\"")
     #expect(offered.stillValid?() == true)
-    log.record("Mute") { undone.append("second") }
+    log.record("Mute") { undone.set(true) }
     #expect(offered.stillValid?() == false, "the plan stops at this step instead of carrying on")
     offered.run()
-    #expect(undone.isEmpty, "a newer action replaced the one Claude saw, so the step does nothing")
-    log.planStep()?.run()
-    #expect(undone == ["second"])
+    #expect(settled(offered) == false, "a newer action replaced the one Claude saw, so it counts as not done")
+    #expect(undone.value == nil)
+    guard let fresh = log.planStep() else { Issue.record("no undo step"); return }
+    #expect(fresh.succeeded?() == false, "not done until it has run")
+    fresh.run()
+    #expect(settled(fresh) == true)
+    #expect(undone.value == true)
+}
+
+@Test func anOldUndoIsNotOfferedAsAFollowUp() {
+    let log = UndoLog()
+    let then = Date()
+    log.record("Move Safari to the left half", now: then) {}
+    #expect(log.planStep(now: then.addingTimeInterval(LastRun.lifetime - 1)) != nil)
+    #expect(log.planStep(now: then.addingTimeInterval(LastRun.lifetime + 1)) == nil)
+    #expect(log.latest(now: then.addingTimeInterval(LastRun.lifetime + 1)) != nil, "the Undo row keeps its own, longer time")
+}
+
+@Test func theUndoRowKeepsReturnAndQuestionsStayQuestions() {
+    let undo = Item(id: "undo", kind: .action, verb: "Undo", title: "Mute", subtitle: "Undo", keywords: "", icon: nil, run: {})
+    var safari = Item(id: "/Applications/Safari.app", kind: .app, verb: "Open", title: "Safari", subtitle: "App", keywords: "", icon: nil, run: {})
+    #expect(!BarModel.claudeLeads(question: false, words: 2, top: undo, followUp: true))
+    #expect(BarModel.claudeLeads(question: false, words: 4, top: safari, followUp: true))
+    #expect(!BarModel.claudeLeads(question: false, words: 4, top: safari, followUp: false))
+    safari.isGuess = true
+    #expect(BarModel.claudeLeads(question: false, words: 5, top: safari, followUp: false))
+
+    let log = LastRun()
+    #expect(BarModel.isPlainQuestion("again?", true, last: log))
+    log.record(request: "safari left", steps: ["Move Safari to the left half"])
+    #expect(!BarModel.isPlainQuestion("again?", true, last: log), "goes to the planner, which sees the last run")
+    #expect(!BarModel.isPlainQuestion("now the other window?", true, last: log))
+    #expect(BarModel.isPlainQuestion("is it raining?", true, last: log), "a pronoun alone doesn't make it a follow-up")
+    #expect(!BarModel.isPlainQuestion("put it on the right", false, last: log))
 }
 
 @Test func followUpWordingCountsOnlyWhileTheLastRunIsFresh() {

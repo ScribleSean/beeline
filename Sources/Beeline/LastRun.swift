@@ -47,15 +47,17 @@ final class LastRun {
     }
 
     private static let leadWords: Set<String> = ["now", "also", "then", "and"]
-    private static let phrases = ["the other", "the same", "again", "instead", "it", "that", "them"]
+    private static let phrases = ["the other", "the same", "again", "instead"]
+    private static let pronouns = ["it", "that", "them"]
 
-    /// Wording that leans on what just ran, so the Claude row should come first.
-    func isFollowUp(_ query: String, now: Date = Date()) -> Bool {
+    /// Wording that leans on what just ran, so the Claude row should come first. Strong wording also
+    /// turns a question ("again?") into a request to act; a pronoun alone doesn't ("is it raining?").
+    func isFollowUp(_ query: String, strong: Bool = false, now: Date = Date()) -> Bool {
         guard latest(now: now) != nil else { return false }
         let words = Usage.normalise(query.trimmingCharacters(in: .punctuationCharacters)).split(separator: " ").map(String.init)
         guard let first = words.first else { return false }
         if Self.leadWords.contains(first) { return true }
         let joined = " " + words.joined(separator: " ") + " "
-        return Self.phrases.contains { joined.contains(" \($0) ") }
+        return (strong ? Self.phrases : Self.phrases + Self.pronouns).contains { joined.contains(" \($0) ") }
     }
 }

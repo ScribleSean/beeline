@@ -155,12 +155,22 @@ final class BarModel: ObservableObject {
         }
         let words = query.split(separator: " ").count
         guard words >= 2 || LastRun.shared.isFollowUp(query), Settings.isOn(Settings.offerClaude), items.first?.kind != .calculation else { return items }
-        let question = catalogue.isQuestion(query)
+        let question = Self.isPlainQuestion(query, catalogue.isQuestion(query))
         let row = Item(id: Self.claudeRowID, kind: .action, verb: "", title: question ? "Ask Claude" : "Ask Claude to work it out",
                        subtitle: question ? "answers here in a few seconds" : "takes a few seconds", keywords: "",
                        icon: NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil), run: {})
-        let leads = question || (words >= 5 && (items.first?.isGuess ?? true)) || LastRun.shared.isFollowUp(query)
+        let leads = Self.claudeLeads(question: question, words: words, top: items.first, followUp: LastRun.shared.isFollowUp(query))
         return leads ? [row] + items : items + [row]
+    }
+
+    /// The exact Undo row is the answer to "undo that" and keeps Return; any other follow-up goes to Claude first.
+    static func claudeLeads(question: Bool, words: Int, top: Item?, followUp: Bool) -> Bool {
+        question || (words >= 5 && (top?.isGuess ?? true)) || (followUp && top?.id != "undo")
+    }
+
+    /// "Again?" or "now the other window?" right after a run is a request to act, so it goes to the planner.
+    static func isPlainQuestion(_ query: String, _ isQuestion: Bool, last: LastRun = .shared) -> Bool {
+        isQuestion && !last.isFollowUp(query, strong: true)
     }
 
     private func askClaudeQuestion() {
@@ -196,7 +206,7 @@ final class BarModel: ObservableObject {
     }
 
     private func askClaude() {
-        if catalogue.isQuestion(query) { return askClaudeQuestion() }
+        if Self.isPlainQuestion(query, catalogue.isQuestion(query)) { return askClaudeQuestion() }
         clearPlan()
         isAskingClaude = true
         let asked = query

@@ -52,27 +52,41 @@ final class UndoLog {
         let asked = ["undo", "undo that", "undo it", "take that back", "put it back", "revert"].contains(Usage.normalise(query))
         guard asked, let entry = latest(now: now) else { return nil }
         let id = entry.id
-        return Item(id: "undo", kind: .action, verb: "Undo", title: entry.title, subtitle: "Undo", keywords: "",
-                    icon: NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: nil)) { [weak self] in
+        var item = Item(id: "undo", kind: .action, verb: "Undo", title: entry.title, subtitle: "Undo", keywords: "",
+                        icon: NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: nil)) { [weak self] in
             DispatchQueue.global(qos: .userInitiated).async { self?.undoLatest(id: id) }
         }
+        item.stillValid = { [weak self] in self?.latest()?.id == id }
+        return item
     }
 
-    /// Bound to the entry Claude was shown, so it can't take back something newer.
-    func planStep(now: Date = Date()) -> PlanStep? {
-        guard let entry = latest(now: now) else { return nil }
+    /// Bound to the entry Claude was shown, so it can't take back something newer. Offered only while
+    /// the last run is still remembered, so an old undo isn't read as "that".
+    func planStep(within age: TimeInterval = LastRun.lifetime, now: Date = Date()) -> PlanStep? {
+        guard let entry = latest(within: age, now: now) else { return nil }
         let id = entry.id
-        // Runs in line, not on a background queue like the Undo row, so the plan's next step sees it done.
-        var step = PlanStep(text: "Undo the last thing Beeline did: \(ScreenText.quote(entry.title))",
+        let outcome = UndoOutcome()
+        // Off the main thread, as the Undo row does: moving windows or files back can block.
+        var step = PlanStep(text: "Undo \(ScreenText.quote(entry.title))",
                             icon: NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: nil)) { [weak self] in
-            self?.undoLatest(id: id)
+            DispatchQueue.global(qos: .userInitiated).async { outcome.set(self?.undoLatest(id: id) != nil) }
         }
-        // Something newer replaced it, so the plan stops here instead of carrying on as if it had.
+        // The plan waits for it, and stops if something newer replaced the entry.
+        step.succeeded = { outcome.value == true }
         step.stillValid = { [weak self] in self?.latest()?.id == id }
+        step.settleTime = 1
         return step
     }
 
     func hint(now: Date = Date()) -> String? {
         latest(within: Self.offerTime, now: now).map { "“undo” takes back \($0.title)" }
     }
+}
+
+/// Whether a plan's undo has finished, and whether it took anything back.
+final class UndoOutcome {
+    private let lock = NSLock()
+    private var result: Bool?
+    var value: Bool? { lock.lock(); defer { lock.unlock() }; return result }
+    func set(_ done: Bool) { lock.lock(); result = done; lock.unlock() }
 }

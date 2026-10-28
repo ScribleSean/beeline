@@ -39,9 +39,9 @@ final class BarController: NSObject, NSWindowDelegate {
         model.onRunPlan = { [weak self] plan in
             guard let self else { return }
             let origin = self.beeOrigin
-            LastRun.shared.record(request: self.model.query, steps: plan.steps.map(\.text))
+            let asked = self.model.query
             self.hide()
-            self.execute(plan, from: origin)
+            self.execute(plan, from: origin, asked: asked)
         }
         runGuard.onStop = { [weak self] reason in self?.runStopped(reason) }
         model.onRequestAccess = { [weak self] in
@@ -149,8 +149,10 @@ final class BarController: NSObject, NSWindowDelegate {
         return true
     }
 
-    private func execute(_ plan: Plan, from origin: CGPoint?) {
+    private func execute(_ plan: Plan, from origin: CGPoint?, asked: String) {
         let run = runGuard.begin()
+        // After begin, so stopping the plan this replaces trims that plan's record, not this one.
+        LastRun.shared.record(request: asked, steps: plan.steps.map(\.text))
         let cancel = CancelToken()
         placementCancel = cancel
         runIsPlan = true
@@ -178,7 +180,7 @@ final class BarController: NSObject, NSWindowDelegate {
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
                     guard self.runGuard.isCurrent(run) else { return }
                     if !succeeded() {
-                        return self.reportStop(run, at: index, of: plan, reason: "it didn't take effect", ran: true)
+                        return self.reportStop(run, at: index, of: plan, reason: "it didn't take effect")
                     }
                 }
             }
@@ -193,7 +195,7 @@ final class BarController: NSObject, NSWindowDelegate {
 
     private func runStopped(_ reason: RunGuard.Reason) {
         // A live plan task means steps were still to come; a stop after that only cancels a slow app launch.
-        if runTask != nil, runIsPlan, reason != .replaced { LastRun.shared.stopped(before: stepsRun) }
+        if runTask != nil, runIsPlan { LastRun.shared.stopped(before: stepsRun) }
         placementCancel?.cancel()
         placementCancel = nil
         DemoLog.note("stopped", ["reason": "\(reason)"])
@@ -216,11 +218,12 @@ final class BarController: NSObject, NSWindowDelegate {
         }
     }
 
-    private func reportStop(_ run: Int, at index: Int, of plan: Plan, reason: String, ran: Bool = false) {
+    private func reportStop(_ run: Int, at index: Int, of plan: Plan, reason: String) {
         placementCancel?.cancel()
         placementCancel = nil
         Log.append("plan stopped at step \(index + 1) of \(plan.steps.count)")
-        LastRun.shared.stopped(before: ran ? index + 1 : index)
+        // A step that didn't take effect isn't one Claude should treat as done.
+        LastRun.shared.stopped(before: index)
         DemoLog.note("plan-stopped", ["step": index + 1, "reason": reason])
         runGuard.end(run)
         runTask = nil
