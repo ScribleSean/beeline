@@ -32,14 +32,16 @@ final class BarController: NSObject, NSWindowDelegate {
             guard let self else { return }
             self.voice.cancel()
             let origin = self.beeOrigin
+            let asked = self.model.query
             self.hide()
-            self.perform(item, from: origin)
+            self.perform(item, from: origin, asked: asked)
         }
         model.onRunPlan = { [weak self] plan in
             guard let self else { return }
             let origin = self.beeOrigin
+            let asked = self.model.query
             self.hide()
-            self.execute(plan, from: origin)
+            self.execute(plan, from: origin, asked: asked)
         }
         runGuard.onStop = { [weak self] reason in self?.runStopped(reason) }
         model.onRequestAccess = { [weak self] in
@@ -109,10 +111,12 @@ final class BarController: NSObject, NSWindowDelegate {
         return CGPoint(x: panel.frame.minX + 34, y: panel.frame.maxY - 41)
     }
 
-    private func perform(_ item: Item, from origin: CGPoint?) {
+    private func perform(_ item: Item, from origin: CGPoint?, asked: String) {
+        // Handled here without Claude, so it stays here: no follow-up reads it, and the plan before it is gone.
+        LastRun.shared.clear()
         guard Bee.isEnabled, let find = item.target, item.stillValid?() ?? true, let target = find() else {
             runGuard.stop(.replaced)
-            runNow(item)
+            runNow(item, asked: asked)
             return
         }
         let run = runGuard.begin()
@@ -123,7 +127,7 @@ final class BarController: NSObject, NSWindowDelegate {
             guard self.runGuard.isCurrent(run) else { return }
             self.runGuard.end(run)
             self.runTask = nil
-            if self.runNow(item) {
+            if self.runNow(item, asked: asked) {
                 if landed { self.bee.leave() }
             } else {
                 self.bee.say("It changed, so I left it")
@@ -133,7 +137,7 @@ final class BarController: NSObject, NSWindowDelegate {
     }
 
     @discardableResult
-    private func runNow(_ item: Item) -> Bool {
+    private func runNow(_ item: Item, asked: String) -> Bool {
         guard item.runIfValid() else {
             NSSound.beep()
             Log.append("skipped a \(item.kind) whose target changed")
@@ -144,8 +148,11 @@ final class BarController: NSObject, NSWindowDelegate {
         return true
     }
 
-    private func execute(_ plan: Plan, from origin: CGPoint?) {
+    private func execute(_ plan: Plan, from origin: CGPoint?, asked: String) {
         let run = runGuard.begin()
+        LastRun.shared.begin(run: run)
+        // Only an undo entry made from here on is this plan's own.
+        let began = Date()
         let cancel = CancelToken()
         placementCancel = cancel
         runIsPlan = true
@@ -166,14 +173,18 @@ final class BarController: NSObject, NSWindowDelegate {
                 step.run(cancel: cancel)
                 DemoLog.note("pressed", ["title": step.text, "step": index + 1])
                 try? await Task.sleep(nanoseconds: UInt64(step.settleTime * 1_000_000_000))
-                guard self.runGuard.isCurrent(run) else { return }
-                if let succeeded = step.succeeded, !succeeded() {
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    guard self.runGuard.isCurrent(run) else { return }
-                    if !succeeded() {
-                        return self.reportStop(run, at: index, of: plan, reason: "it didn't take effect")
-                    }
+                // Same grace after a stop, so an undo that lands late is still recorded.
+                let tookEffect = await step.tookEffect(within: 2)
+                // A stop during the wait still keeps a step that landed. Only this run may write, and a
+                // stopped one never reads as finished.
+                let current = self.runGuard.isCurrent(run)
+                if tookEffect {
+                    LastRun.shared.record(run: run, request: asked, steps: plan.steps.prefix(index + 1).map(\.text),
+                                          finished: current && index + 1 == plan.steps.count,
+                                          undoID: UndoLog.shared.latestID(since: began))
                 }
+                guard current else { return }
+                if !tookEffect { return self.reportStop(run, at: index, of: plan, reason: "it didn't take effect") }
             }
             guard let self, self.runGuard.isCurrent(run) else { return }
             self.runGuard.end(run, pending: plan.steps.contains { $0.cancellableRun != nil } ? cancel : nil)
@@ -211,6 +222,8 @@ final class BarController: NSObject, NSWindowDelegate {
         placementCancel?.cancel()
         placementCancel = nil
         Log.append("plan stopped at step \(index + 1) of \(plan.steps.count)")
+        // The record was emptied when this plan began and lists only steps that took effect, each marked
+        // unfinished until the last, so it is empty when step 1 failed and nothing older looks current.
         DemoLog.note("plan-stopped", ["step": index + 1, "reason": reason])
         runGuard.end(run)
         runTask = nil

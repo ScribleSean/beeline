@@ -52,13 +52,46 @@ final class UndoLog {
         let asked = ["undo", "undo that", "undo it", "take that back", "put it back", "revert"].contains(Usage.normalise(query))
         guard asked, let entry = latest(now: now) else { return nil }
         let id = entry.id
-        return Item(id: "undo", kind: .action, verb: "Undo", title: entry.title, subtitle: "Undo", keywords: "",
-                    icon: NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: nil)) { [weak self] in
+        var item = Item(id: "undo", kind: .action, verb: "Undo", title: entry.title, subtitle: "Undo", keywords: "",
+                        icon: NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: nil)) { [weak self] in
             DispatchQueue.global(qos: .userInitiated).async { self?.undoLatest(id: id) }
         }
+        item.stillValid = { [weak self] in self?.latest()?.id == id }
+        return item
+    }
+
+    /// Offered only when the latest undo is the one the last plan left, so "that" can't take back an
+    /// older or a local action. Bound to that entry, so it can't take back something newer either.
+    func planStep(for last: LastRun.Entry?, now: Date = Date()) -> PlanStep? {
+        guard let undoID = last?.undoID, let entry = latest(now: now), entry.id == undoID else { return nil }
+        let id = entry.id
+        let outcome = UndoOutcome()
+        // Off the main thread, as the Undo row does: moving windows or files back can block.
+        var step = PlanStep(text: "Undo \(ScreenText.quote(entry.title))",
+                            icon: NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: nil)) { [weak self] in
+            DispatchQueue.global(qos: .userInitiated).async { outcome.set(self?.undoLatest(id: id) != nil) }
+        }
+        // The plan waits for it, and stops if something newer replaced the entry.
+        step.succeeded = { outcome.value == true }
+        step.stillValid = { [weak self] in self?.latest()?.id == id }
+        step.settleTime = 1
+        return step
+    }
+
+    /// The latest entry only if it was made at or after `start`, so a plan never claims an older undo as its own.
+    func latestID(since start: Date) -> UUID? {
+        latest().flatMap { $0.at >= start ? $0.id : nil }
     }
 
     func hint(now: Date = Date()) -> String? {
         latest(within: Self.offerTime, now: now).map { "“undo” takes back \($0.title)" }
     }
+}
+
+/// Whether a plan's undo has finished, and whether it took anything back.
+final class UndoOutcome {
+    private let lock = NSLock()
+    private var result: Bool?
+    var value: Bool? { lock.lock(); defer { lock.unlock() }; return result }
+    func set(_ done: Bool) { lock.lock(); result = done; lock.unlock() }
 }

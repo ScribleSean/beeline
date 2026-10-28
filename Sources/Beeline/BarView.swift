@@ -146,13 +146,42 @@ final class BarModel: ObservableObject {
             return [row] + items.filter { $0.id != Self.claudeRowID }
         }
         let words = query.split(separator: " ").count
-        guard words >= 2, Settings.isOn(Settings.offerClaude), items.first?.kind != .calculation else { return items }
-        let question = catalogue.isQuestion(query)
+        guard Self.offersClaude(for: query), Settings.isOn(Settings.offerClaude), items.first?.kind != .calculation else { return items }
+        let question = Self.isPlainQuestion(query, catalogue.isQuestion(query))
         let row = Item(id: Self.claudeRowID, kind: .action, verb: "", title: question ? "Ask Claude" : "Ask Claude to work it out",
                        subtitle: question ? "answers here in a few seconds" : "takes a few seconds", keywords: "",
                        icon: NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil), run: {})
-        let leads = question || (words >= 5 && (items.first?.isGuess ?? true))
+        let leads = Self.claudeLeads(question: question, words: words, top: items.first, followUp: LastRun.shared.isFollowUp(query),
+                                     strong: LastRun.shared.isFollowUp(query, strong: true))
         return leads ? [row] + items : items + [row]
+    }
+
+    /// One word is still being typed ("it" on the way to iTerm), except "again" right after a plan.
+    static func offersClaude(for query: String, last: LastRun = .shared) -> Bool {
+        query.split(separator: " ").count >= 2 || (Usage.normalise(query.trimmingCharacters(in: .punctuationCharacters)) == "again" && last.isFollowUp(query))
+    }
+
+    /// The exact Undo row is the answer to "undo that" and keeps Return. Strong follow-up wording ("now",
+    /// "the other") puts Claude first; a pronoun alone does only when nothing on the list clearly matched.
+    static func claudeLeads(question: Bool, words: Int, top: Item?, followUp: Bool, strong: Bool = false) -> Bool {
+        question || (words >= 5 && (top?.isGuess ?? true))
+            || (followUp && words >= 2 && top?.id != "undo" && (strong || (top?.isGuess ?? true)))
+    }
+
+    /// "Again?", "now the other window?" or "put it on the right?" right after a plan asks to act, so it goes
+    /// to the planner. Anything that opens like a question ("what was that song again?") stays one.
+    static func isPlainQuestion(_ query: String, _ isQuestion: Bool, last: LastRun = .shared) -> Bool {
+        guard isQuestion else { return false }
+        let asked = query.trimmingCharacters(in: CharacterSet(charactersIn: "?"))
+        let words = Usage.normalise(asked).split(separator: " ")
+        // "Do the same in Mail" is an order; "do I need a coat again?" is a question. So is a polite ask
+        // ("can you do that again?", "what about the other window?") that leans on what just ran.
+        let opener = words.prefix(2).joined(separator: " ")
+        let polite = ["can you", "could you", "would you", "will you", "what about", "how about"].contains(opener)
+        let orders = (words.first == "do" && !["i", "you", "we", "they"].contains(words.dropFirst().first ?? ""))
+            || (polite && last.isFollowUp(query, strong: true))
+        if Matcher.isQuestion(asked), !orders { return true }
+        return !last.isFollowUp(query)
     }
 
     private func askClaudeQuestion() {
@@ -188,13 +217,14 @@ final class BarModel: ObservableObject {
     }
 
     private func askClaude() {
-        if catalogue.isQuestion(query) { return askClaudeQuestion() }
+        if Self.isPlainQuestion(query, catalogue.isQuestion(query)) { return askClaudeQuestion() }
         clearPlan()
         isAskingClaude = true
         let asked = query
-        let options = catalogue.planOptions(for: asked)
+        let previous = LastRun.shared.latest()
+        let options = catalogue.planOptions(for: asked, previous: previous)
         planning = Task { @MainActor [weak self] in
-            let result = await Planner.plan(for: asked, options: options)
+            let result = await Planner.plan(for: asked, options: options, previous: previous)
             guard let self, !Task.isCancelled, asked == self.query else { return }
             self.isAskingClaude = false
             switch result {
