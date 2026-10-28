@@ -46,7 +46,7 @@ final class BarModel: ObservableObject {
     private var modelPicks: [Item] = []
 
     func refresh() {
-        defer { if !holdingSpeech { speakSelection() } }
+        defer { speakSelectionSoon() }
         let typed = query
         catalogue.refreshFiles(for: typed) { [weak self] in
             if let self, self.query == typed { self.refreshInBackground() }
@@ -88,7 +88,7 @@ final class BarModel: ObservableObject {
                 let selectedID = self.results.indices.contains(self.selected) ? self.results[self.selected].id : nil
                 self.results = self.decorated(self.merged(picks, self.results))
                 self.selected = selectedID.flatMap { id in self.results.firstIndex { $0.id == id } } ?? 0
-                self.speakSelection()
+                self.speakSelectionSoon()
             }
         }
     }
@@ -100,23 +100,45 @@ final class BarModel: ObservableObject {
             return
         }
         let selectedID = results.indices.contains(selected) ? results[selected].id : nil
-        holdingSpeech = true
         refresh()
-        holdingSpeech = false
         if let selectedID, let index = results.firstIndex(where: { $0.id == selectedID }) { selected = index }
-        speakSelection()
+        speakSelectionSoon()
     }
 
-    private var holdingSpeech = false
+    /// Set by the bar controller; nothing is spoken for a bar that is not on screen.
+    var isOpen = true {
+        didSet { spokenRow = nil }
+    }
     private var spokenRow: String?
+    private var pendingSpeech: Timer?
+
+    private func say(_ text: String) {
+        if isOpen { Announce.say(text, priority: .high) }
+    }
+
+    /// Typing refreshes on every key, so the top hit is spoken once the typing pauses.
+    private func speakSelectionSoon() {
+        pendingSpeech?.invalidate()
+        pendingSpeech = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: false) { [weak self] _ in self?.speakSelection() }
+    }
 
     /// Speaks the selected row only when it changes, so a refresh with the same top hit stays quiet.
-    private func speakSelection() {
-        guard !isShowingPlan, armedID == nil, results.indices.contains(selected) else {
-            if results.isEmpty { spokenRow = nil }
+    func speakSelection() {
+        pendingSpeech?.invalidate()
+        pendingSpeech = nil
+        guard isOpen else { return }
+        let text: String
+        if isShowingPlan || armedID != nil {
+            spokenRow = nil
+            return
+        } else if results.indices.contains(selected) {
+            text = Announce.spoken(results[selected])
+        } else if !query.isEmpty {
+            text = "No results"
+        } else {
+            spokenRow = nil
             return
         }
-        let text = Announce.row(results[selected])
         guard text != spokenRow else { return }
         spokenRow = text
         Announce.say(text)
@@ -131,23 +153,23 @@ final class BarModel: ObservableObject {
     static let rewriteRowID = "rewrite-selection"
 
     @Published var plan: Plan? {
-        didSet { if let plan { Announce.say(Announce.plan(plan)) } }
+        didSet { if let plan { say(Announce.plan(plan)) } }
     }
     @Published var isAskingClaude = false {
-        didSet { if isAskingClaude, !oldValue { Announce.say("Asking Claude") } }
+        didSet { if isAskingClaude, !oldValue { say("Asking Claude") } }
     }
     @Published var planProblem: String? {
-        didSet { if let planProblem { Announce.say(planProblem) } }
+        didSet { if let planProblem { say(planProblem) } }
     }
     var onRunPlan: (Plan) -> Void = { _ in }
     private var planning: Task<Void, Never>?
 
     @Published var claudeAnswer: String? {
-        didSet { if let claudeAnswer { Announce.say(claudeAnswer) } }
+        didSet { if let claudeAnswer { say(claudeAnswer) } }
     }
 
     @Published var rewritten: String? {
-        didSet { if let rewritten { Announce.say(rewritten) } }
+        didSet { if let rewritten { say(rewritten) } }
     }
     private var rewriteTarget: Rewrite.Selection?
 
@@ -252,14 +274,16 @@ final class BarModel: ObservableObject {
         planProblem = nil
         claudeAnswer = nil
         rewritten = nil
+        speakSelectionSoon()
     }
 
     @Published var armedID: String? {
         didSet {
+            if armedID == nil, oldValue != nil { speakSelectionSoon() }
             guard let armedID, armedID != oldValue else { return }
             armedAt = Date()
             spokenRow = nil
-            if let armed = results.first(where: { $0.id == armedID }) { Announce.say(Announce.confirm(armed)) }
+            if let armed = results.first(where: { $0.id == armedID }) { say(Announce.confirm(armed)) }
         }
     }
     private(set) var armedAt = Date.distantPast
@@ -618,10 +642,11 @@ private struct Glass: NSViewRepresentable {
     func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
-private struct ResultRow: View {
+struct ResultRow: View {
     let item: Item
     let isSelected: Bool
     let isArmed: Bool
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         HStack(spacing: 12) {
@@ -664,7 +689,8 @@ private struct ResultRow: View {
                     .fill(Theme.raised)
                     .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
                     .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .strokeBorder(isArmed ? Color.red : Theme.yellow, lineWidth: 1.5))
+                        .strokeBorder(isArmed ? Color.red : contrast == .increased ? Theme.accent : Theme.yellow,
+                                      lineWidth: contrast == .increased ? 2 : 1.5))
             }
         }
         .accessibilityElement(children: .ignore)
@@ -837,12 +863,12 @@ private struct AnswerCard: View {
         .background(Theme.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.yellow, lineWidth: 1.5))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel([item.subtitle, item.title, item.keywords].filter { !$0.isEmpty }.joined(separator: ", "))
+        .accessibilityLabel([item.title, item.subtitle, item.keywords].filter { !$0.isEmpty }.joined(separator: ", "))
         .accessibilityAddTraits(.isButton)
     }
 }
 
-private struct ConfirmCard: View {
+struct ConfirmCard: View {
     let item: Item
     let confirm: () -> Void
     let cancel: () -> Void

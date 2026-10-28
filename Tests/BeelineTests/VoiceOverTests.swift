@@ -14,7 +14,7 @@ private func row(_ id: String, verb: String = "Open", subtitle: String = "Apps",
 @MainActor private func spoken(_ body: () -> Void) -> [String] {
     var heard: [String] = []
     let real = Announce.post
-    Announce.post = { heard.append($0) }
+    Announce.post = { text, _ in heard.append(text) }
     defer { Announce.post = real }
     body()
     return heard
@@ -50,7 +50,7 @@ private func row(_ id: String, verb: String = "Open", subtitle: String = "Apps",
         model.runSelected()
     }
     model.armedID = nil
-    #expect(heard.last == "Close Tabs? 3 tabs will close. Return to confirm, Escape to cancel.")
+    #expect(heard.last == "Close Tabs? 3 tabs will close.")
 }
 
 @Test @MainActor func aReadyPlanIsSpoken() {
@@ -59,7 +59,7 @@ private func row(_ id: String, verb: String = "Open", subtitle: String = "Apps",
                             PlanStep(text: "Open \\\"Notes\\\"", icon: nil, run: {})], note: "")
     let heard = spoken { model.plan = plan }
     model.clearPlan()
-    #expect(heard.last == "2 steps: Turn Wi-Fi Off. Open \"Notes\". Return to run.")
+    #expect(heard.last == "2 steps: Turn Wi-Fi Off. Open \"Notes\".")
 }
 
 @Test @MainActor func claudesAnswerAndProblemsAreSpoken() {
@@ -75,10 +75,12 @@ private func row(_ id: String, verb: String = "Open", subtitle: String = "Apps",
 @Test @MainActor func theBeeSaysWhatItIsDoing() {
     let bee = BeeModel()
     let heard = spoken {
-        bee.label = "Click Send"
-        bee.label = "Click Send"
+        bee.show("Close Flights to Lisbon – Goo…", speaking: "Close Flights to Lisbon – Google Flights")
+        bee.show("Stopped")
+        bee.show("Stopped")
     }
-    #expect(heard == ["Click Send", "Click Send"])
+    #expect(bee.label == "Stopped")
+    #expect(heard == ["Close Flights to Lisbon – Google Flights", "Stopped", "Stopped"])
 }
 
 @Test func barIsSolidWithIncreaseContrastOrReduceTransparency() {
@@ -95,11 +97,17 @@ private func row(_ id: String, verb: String = "Open", subtitle: String = "Apps",
     let host = NSHostingView(rootView: view)
     host.frame = NSRect(x: 0, y: 0, width: 720, height: 460)
     let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+    let title = UUID().uuidString
+    window.title = title
     window.contentView = host
     window.orderFrontRegardless()
     defer { window.orderOut(nil) }
+    // Let SwiftUI draw the window before asking for its tree.
+    host.layoutSubtreeIfNeeded()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.15))
     let box = Box()
     Thread.detachNewThread {
+        var found: [String] = []
         func value(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
             var value: CFTypeRef?
             AXUIElementCopyAttributeValue(element, name as CFString, &value)
@@ -107,38 +115,102 @@ private func row(_ id: String, verb: String = "Open", subtitle: String = "Apps",
         }
         func walk(_ element: AXUIElement, depth: Int) {
             guard depth < 30 else { return }
-            if let label = value(element, kAXDescriptionAttribute) as? String, !label.isEmpty { box.found.append(label) }
+            AXUIElementSetMessagingTimeout(element, 2)
+            if let label = value(element, kAXDescriptionAttribute) as? String, !label.isEmpty { found.append(label) }
             for child in (value(element, kAXChildrenAttribute) as? [AXUIElement]) ?? [] { walk(child, depth: depth + 1) }
         }
         let app = AXUIElementCreateApplication(getpid())
         AXUIElementSetMessagingTimeout(app, 2)
-        for window in (value(app, kAXChildrenAttribute) as? [AXUIElement]) ?? [] { walk(window, depth: 0) }
-        box.done = true
+        for window in (value(app, kAXChildrenAttribute) as? [AXUIElement]) ?? []
+        where value(window, kAXTitleAttribute) as? String == title { walk(window, depth: 0) }
+        box.finish(found)
     }
     let end = Date().addingTimeInterval(8)
-    while !box.done, Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
-    return box.found
+    while box.result == nil, Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+    return box.result ?? []
 }
 
+/// Handed over once, under a lock, when the reading thread is done.
 private final class Box: @unchecked Sendable {
-    var found: [String] = []
-    var done = false
+    private let lock = NSLock()
+    private var found: [String]?
+    func finish(_ labels: [String]) { lock.withLock { found = labels } }
+    var result: [String]? { lock.withLock { found } }
 }
 
 // Reading the tree needs this process to be trusted for Accessibility, as Beeline itself is.
 @Test(.enabled(if: AXIsProcessTrusted())) @MainActor func hostedRowsAndConfirmCardCarryLabels() {
-    let model = BarModel()
-    model.query = "sa"
-    model.results = [row("Safari"), row("Notes")]
-    model.selected = 0
-    #expect(labels(in: BarView(model: model)).contains("Open Safari, Apps"))
+    var alias = row("Safari")
+    alias.source = .alias
+    let rows = labels(in: VStack {
+        ResultRow(item: alias, isSelected: true, isArmed: false)
+        ResultRow(item: row("Notes"), isSelected: false, isArmed: false)
+    })
+    #expect(rows == ["Open Safari, Apps, your alias", "Open Notes, Apps"])
 
     var close = row("Close Tabs", verb: "", subtitle: "Action", confirm: true)
     close.confirmNote = "3 tabs will close."
+    let card = labels(in: ConfirmCard(item: close, confirm: {}, cancel: {}))
+    #expect(card == ["Cancel", "Close Tabs"])
+}
+
+@Test @MainActor func aClosedBarStaysQuiet() {
+    let model = sharedModel
+    model.armedID = nil
+    model.results = [row("Mail"), row("Maps")]
+    model.selected = 0
+    model.isOpen = false
+    let heard = spoken {
+        model.move(1)
+        model.planProblem = "Stopped."
+    }
+    model.isOpen = true
+    model.clearPlan()
+    #expect(heard.isEmpty)
+}
+
+@Test @MainActor func typingSpeaksTheTopHitOnceItPauses() {
+    let model = BarModel()
+    model.catalogue.includeFiles = false
+    sharedModel.isOpen = false
+    defer { sharedModel.isOpen = true }
+    var heard: [String] = []
+    let real = Announce.post
+    Announce.post = { text, _ in heard.append(text) }
+    defer { Announce.post = real }
+    model.query = "s"
+    model.query = "sa"
+    model.query = "saf"
+    #expect(heard.isEmpty)
+    RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+    #expect(heard == model.results.prefix(1).map(Announce.spoken))
+    model.isOpen = false
+}
+
+@Test func copiedAndSelectedTextIsNotReadOutUnasked() {
+    let clip = Item(id: "clip:0:1", kind: .clipboard, verb: "Paste", title: "hunter2", subtitle: "Passwords · now",
+                    keywords: "", icon: nil, run: {})
+    #expect(Announce.spoken(clip) == "Paste clipboard item, Passwords · now")
+    #expect(Announce.row(clip).contains("hunter2"))
+    let rewrite = Item(id: BarModel.rewriteRowID, kind: .action, verb: "", title: "Rewrite the selected text",
+                       subtitle: "“my private note”", keywords: "", icon: nil, run: {})
+    #expect(Announce.spoken(rewrite) == "Rewrite the selected text")
+}
+
+@Test @MainActor func cancellingTheConfirmCardSpeaksTheRowAgain() {
+    let model = sharedModel
+    var close = row("Close Tabs", verb: "", subtitle: "Action", confirm: true)
+    close.confirmNote = "3 tabs will close."
+    var heard: [String] = []
+    let real = Announce.post
+    Announce.post = { text, _ in heard.append(text) }
+    defer { Announce.post = real }
+    model.isOpen = true
     model.results = [close]
-    model.armedID = close.id
-    let card = labels(in: BarView(model: model))
-    #expect(card.contains("Cancel"))
-    #expect(card.contains("Close Tabs"))
-    #expect(!card.contains(where: { $0.contains("esc") || $0.contains("↩") }))
+    model.selected = 0
+    model.speakSelection()
+    model.runSelected()
+    model.armedID = nil
+    RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+    #expect(heard == ["Close Tabs, Action", "Close Tabs? 3 tabs will close.", "Close Tabs, Action"])
 }

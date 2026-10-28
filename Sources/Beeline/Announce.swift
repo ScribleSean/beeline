@@ -3,14 +3,24 @@ import AppKit
 /// What VoiceOver hears. Focus stays in the search field and the bee's panel ignores the mouse,
 /// so changes are spoken as they happen rather than waiting to be found.
 enum Announce {
-    static var post: (String) -> Void = { text in
+    static var post: (String, NSAccessibilityPriorityLevel) -> Void = { text, priority in
         NSAccessibility.post(element: NSApplication.shared, notification: .announcementRequested,
-                             userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+                             userInfo: [.announcement: text, .priority: priority.rawValue])
     }
 
-    static func say(_ text: String) {
+    /// High is for what needs an answer (a confirm question, a plan, a problem); rows and bee steps use medium.
+    static func say(_ text: String, priority: NSAccessibilityPriorityLevel = .medium) {
         guard !text.isEmpty else { return }
-        post(text)
+        post(text, priority)
+    }
+
+    /// Spoken without being asked, so it never reads out copied or selected text; the row's own label still does.
+    static func spoken(_ item: Item) -> String {
+        if item.kind == .clipboard {
+            return ["Paste clipboard item", item.subtitle].filter { !$0.isEmpty }.joined(separator: ", ")
+        }
+        if item.id == BarModel.rewriteRowID { return item.title }
+        return row(item)
     }
 
     static func row(_ item: Item) -> String {
@@ -27,7 +37,7 @@ enum Announce {
     }
 
     static func confirm(_ item: Item) -> String {
-        "\(item.confirmQuestion) \(item.confirmSummary) Return to confirm, Escape to cancel."
+        "\(item.confirmQuestion) \(item.confirmSummary)"
     }
 
     static func plan(_ plan: Plan) -> String {
@@ -36,7 +46,7 @@ enum Announce {
             let text = step.displayText
             return text.hasSuffix(".") ? text : text + "."
         }
-        return "\(count): \(steps.joined(separator: " ")) Return to run."
+        return "\(count): \(steps.joined(separator: " "))"
     }
 }
 

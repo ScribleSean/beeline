@@ -12,7 +12,8 @@ final class Bee {
     static var pace: Double = 1
 
     @MainActor
-    func fly(to axTarget: CGRect, saying text: String, from origin: CGPoint?) async -> Bool {
+    /// `text` is the short label beside the bee; VoiceOver hears `speaking`, the untruncated action, when given.
+    func fly(to axTarget: CGRect, saying text: String, speaking: String? = nil, from origin: CGPoint?) async -> Bool {
         hideWork?.cancel()
         let frames = NSScreen.screens.map(\.frame)
         guard let primary = NSScreen.screens.first?.frame,
@@ -32,7 +33,7 @@ final class Bee {
         let panel = overlay(on: screen)
         model.screen = screen
         model.ring = nil
-        model.label = text
+        model.show(text, speaking: speaking)
         model.flight = BeeFlight.Path(from: still ? perch : start, to: perch)
         model.flightStart = Date()
         model.duration = duration
@@ -55,7 +56,7 @@ final class Bee {
     @discardableResult
     func say(_ text: String) -> Bool {
         guard model.isShown else { return false }
-        model.label = text
+        model.show(text)
         model.ring = nil
         return true
     }
@@ -105,12 +106,15 @@ final class BeeModel: ObservableObject {
     @Published var duration: TimeInterval = 0
     @Published var ring: CGRect?
     @Published var ringStart = Date()
-    /// Spoken every time it is set: the bee's panel ignores the mouse, so VoiceOver never lands on it.
-    @Published var label: String? {
-        didSet { if let label { Announce.say(label) } }
-    }
+    @Published var label: String?
     @Published var isShown = false
     @Published var faceLeftWhenLanded = false
+
+    /// Spoken every time: the bee's panel ignores the mouse, so VoiceOver never lands on it.
+    func show(_ label: String, speaking: String? = nil) {
+        self.label = label
+        Announce.say(speaking ?? label)  // medium: a step label shouldn't cut off what the target app says
+    }
 
     /// AppKit screen coordinates start at the bottom left; the SwiftUI overlay's start at the top left.
     func local(_ point: CGPoint) -> CGPoint {
@@ -173,9 +177,8 @@ private struct BeeOverlay: View {
         .animation(.easeOut(duration: 0.2), value: model.isShown)
         .animation(.easeOut(duration: 0.15), value: model.label)
         .allowsHitTesting(false)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(model.label.map { "Bee, \($0)" } ?? "Bee")
-        .accessibilityHidden(!model.isShown)
+        // Kept out of the tree so hit tests at a target never land on this full-screen panel; the bee speaks instead.
+        .accessibilityHidden(true)
     }
 
     private var labelBackground: AnyShapeStyle {
