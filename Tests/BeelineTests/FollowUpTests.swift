@@ -188,6 +188,19 @@ private func ran(leaving undo: UndoLog.Entry?) -> LastRun.Entry {
     #expect(log.planStep(for: ran(leaving: nil)) == nil)
 }
 
+@Test func politeFollowUpsPlanAndRealQuestionsDont() {
+    let log = LastRun()
+    log.begin(run: 1)
+    log.record(run: 1, request: "safari left", steps: ["Move Safari to the left half"])
+    for query in ["can you do the same for Mail?", "could you do that again?", "can you put it on the right again?",
+                  "what about the other window?", "would you make it fill the screen instead?"] {
+        #expect(!BarModel.isPlainQuestion(query, true, last: log), "\(query)")
+    }
+    for query in ["what was that song again?", "how do I do the same in Mail?", "can you tell me a joke?", "what about lunch?"] {
+        #expect(BarModel.isPlainQuestion(query, true, last: log), "\(query)")
+    }
+}
+
 @MainActor @Test func aCheckedStepGetsItsGraceEvenAfterAStop() async {
     let outcome = UndoOutcome()
     var undo = PlanStep(text: "Undo", icon: nil, run: {})

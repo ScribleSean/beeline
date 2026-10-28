@@ -174,8 +174,12 @@ final class BarModel: ObservableObject {
         guard isQuestion else { return false }
         let asked = query.trimmingCharacters(in: CharacterSet(charactersIn: "?"))
         let words = Usage.normalise(asked).split(separator: " ")
-        // "Do the same in Mail" is an order; "do I need a coat again?" is a question.
-        let orders = words.first == "do" && !["i", "you", "we", "they"].contains(words.dropFirst().first ?? "")
+        // "Do the same in Mail" is an order; "do I need a coat again?" is a question. So is a polite ask
+        // ("can you do that again?", "what about the other window?") that leans on what just ran.
+        let opener = words.prefix(2).joined(separator: " ")
+        let polite = ["can you", "could you", "would you", "will you", "what about", "how about"].contains(opener)
+        let orders = (words.first == "do" && !["i", "you", "we", "they"].contains(words.dropFirst().first ?? ""))
+            || (polite && last.isFollowUp(query, strong: true))
         if Matcher.isQuestion(asked), !orders { return true }
         return !last.isFollowUp(query)
     }
