@@ -151,6 +151,8 @@ final class BarController: NSObject, NSWindowDelegate {
     private func execute(_ plan: Plan, from origin: CGPoint?, asked: String) {
         let run = runGuard.begin()
         LastRun.shared.begin(run: run)
+        // An undo entry that exists now belongs to something before this plan.
+        let undoBefore = UndoLog.shared.latest()?.id
         let cancel = CancelToken()
         placementCancel = cancel
         runIsPlan = true
@@ -180,8 +182,10 @@ final class BarController: NSObject, NSWindowDelegate {
                 // stopped one never reads as finished.
                 let current = self.runGuard.isCurrent(run)
                 if tookEffect {
+                    let undo = UndoLog.shared.latest()?.id
                     LastRun.shared.record(run: run, request: asked, steps: plan.steps.prefix(index + 1).map(\.text),
-                                          finished: current && index + 1 == plan.steps.count)
+                                          finished: current && index + 1 == plan.steps.count,
+                                          undoID: undo == undoBefore ? nil : undo)
                 }
                 guard current else { return }
                 if !tookEffect { return self.reportStop(run, at: index, of: plan, reason: "it didn't take effect") }

@@ -8,6 +8,8 @@ final class LastRun {
         let steps: [String]
         let finished: Bool
         let at: Date
+        /// The undo entry this plan left, the only one a follow-up's "undo that" may take back.
+        var undoID: UUID? = nil
     }
 
     static let shared = LastRun()
@@ -27,11 +29,11 @@ final class LastRun {
     }
 
     /// A plan records again after each step that took effect, so the record never lists one still to come.
-    func record(run: Int, request: String, steps: [String], finished: Bool = true, now: Date = Date()) {
+    func record(run: Int, request: String, steps: [String], finished: Bool = true, undoID: UUID? = nil, now: Date = Date()) {
         let request = request.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !request.isEmpty, !steps.isEmpty else { return }
         lock.lock()
-        if owner == run { entry = Entry(request: request, steps: steps, finished: finished, at: now) }
+        if owner == run { entry = Entry(request: request, steps: steps, finished: finished, at: now, undoID: undoID) }
         lock.unlock()
     }
 

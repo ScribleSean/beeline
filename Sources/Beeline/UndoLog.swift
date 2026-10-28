@@ -60,10 +60,10 @@ final class UndoLog {
         return item
     }
 
-    /// Bound to the entry Claude was shown, so it can't take back something newer. Offered only while
-    /// the last run is still remembered, so an old undo isn't read as "that".
-    func planStep(within age: TimeInterval = LastRun.lifetime, now: Date = Date()) -> PlanStep? {
-        guard let entry = latest(within: age, now: now) else { return nil }
+    /// Offered only when the latest undo is the one the last plan left, so "that" can't take back an
+    /// older or a local action. Bound to that entry, so it can't take back something newer either.
+    func planStep(for last: LastRun.Entry?, now: Date = Date()) -> PlanStep? {
+        guard let undoID = last?.undoID, let entry = latest(now: now), entry.id == undoID else { return nil }
         let id = entry.id
         let outcome = UndoOutcome()
         // Off the main thread, as the Undo row does: moving windows or files back can block.

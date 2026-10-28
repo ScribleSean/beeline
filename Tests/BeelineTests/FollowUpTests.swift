@@ -57,12 +57,17 @@ private func settled(_ step: PlanStep) -> Bool? {
     return step.succeeded?()
 }
 
+/// A last run whose plan left the given undo entry.
+private func ran(leaving undo: UndoLog.Entry?) -> LastRun.Entry {
+    LastRun.Entry(request: "safari left", steps: ["Move Safari to the left half"], finished: true, at: Date(), undoID: undo?.id)
+}
+
 @Test func undoIsAPlanStepOnlyForTheEntryItWasOfferedFor() {
     let log = UndoLog()
-    #expect(log.planStep() == nil)
+    #expect(log.planStep(for: ran(leaving: nil)) == nil)
     let undone = UndoOutcome()
     log.record("Move Safari to the left half") { undone.set(false) }
-    guard let offered = log.planStep() else { Issue.record("no undo step"); return }
+    guard let offered = log.planStep(for: ran(leaving: log.latest())) else { Issue.record("no undo step"); return }
     #expect(offered.text == "Undo \"Move Safari to the left half\"")
     #expect(offered.stillValid?() == true)
     log.record("Mute") { undone.set(true) }
@@ -70,20 +75,22 @@ private func settled(_ step: PlanStep) -> Bool? {
     offered.run()
     #expect(settled(offered) == false, "a newer action replaced the one Claude saw, so it counts as not done")
     #expect(undone.value == nil)
-    guard let fresh = log.planStep() else { Issue.record("no undo step"); return }
+    guard let fresh = log.planStep(for: ran(leaving: log.latest())) else { Issue.record("no undo step"); return }
     #expect(fresh.succeeded?() == false, "not done until it has run")
     fresh.run()
     #expect(settled(fresh) == true)
     #expect(undone.value == true)
 }
 
-@Test func anOldUndoIsNotOfferedAsAFollowUp() {
+@Test func undoIsOfferedOnlyForWhatTheLastPlanDid() {
     let log = UndoLog()
-    let then = Date()
-    log.record("Move Safari to the left half", now: then) {}
-    #expect(log.planStep(now: then.addingTimeInterval(LastRun.lifetime - 1)) != nil)
-    #expect(log.planStep(now: then.addingTimeInterval(LastRun.lifetime + 1)) == nil)
-    #expect(log.latest(now: then.addingTimeInterval(LastRun.lifetime + 1)) != nil, "the Undo row keeps its own, longer time")
+    log.record("Move Safari to the left half") {}
+    #expect(log.planStep(for: nil) == nil, "with no recent request nothing changes")
+    #expect(log.planStep(for: ran(leaving: nil)) == nil, "the last plan left no undo, so this one isn't \"that\"")
+    let plan = ran(leaving: log.latest())
+    #expect(log.planStep(for: plan) != nil)
+    log.record("Mute") {}
+    #expect(log.planStep(for: plan) == nil, "something newer, maybe local, is the latest undo")
 }
 
 @Test func theUndoRowKeepsReturnAndQuestionsStayQuestions() {
