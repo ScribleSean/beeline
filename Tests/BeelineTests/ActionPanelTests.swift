@@ -135,3 +135,20 @@ private func tab() -> Item {
     #expect(model.toggleActions())
     model.closeActions(refreshing: false)
 }
+
+@Test @MainActor func aFileThatVanishesDoesNotShiftTheHighlightedAction() throws {
+    let file = TestEnvironment.scratch.appendingPathComponent("vanish-\(UUID().uuidString).txt")
+    try "x".write(to: file, atomically: true, encoding: .utf8)
+    let row = Item(id: file.path, kind: .file, verb: "Open", title: file.lastPathComponent, subtitle: "", keywords: "", icon: nil, run: {})
+    var ran: [String] = []
+    let model = ready("vfx", [row])
+    model.onRun = { ran.append($0.id) }
+    defer { model.catalogue.aliases.remove("vfx") }
+    #expect(model.toggleActions())
+    let reveal = try #require(model.panelActions.firstIndex { $0.id == .reveal })
+    model.actionSelected = reveal
+    try FileManager.default.removeItem(at: file)
+    model.performSelectedAction()
+    #expect(ran.isEmpty)
+    #expect(!model.catalogue.aliases.matches("vfx", row))
+}

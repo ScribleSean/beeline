@@ -334,6 +334,8 @@ final class BarModel: ObservableObject {
     /// The result the ⌘K panel was opened on. It stays put while the list underneath refreshes.
     @Published private(set) var actionTarget: Item?
     @Published var actionSelected = 0
+    /// The panel's rows as they were when it opened, so a row that stops applying can't shift the others.
+    @Published private(set) var panelActions: [BarAction] = []
     var showsActions: Bool { actionTarget != nil && !isShowingPlan && armedID == nil }
     var pasteboard = NSPasteboard.general
     var revealInFinder: (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
@@ -385,6 +387,7 @@ final class BarModel: ObservableObject {
         }
         guard let item = focusedItem, !actions(for: item).isEmpty else { return false }
         actionSelected = 0
+        panelActions = actions(for: item)
         actionTarget = item
         return true
     }
@@ -396,15 +399,15 @@ final class BarModel: ObservableObject {
     }
 
     func moveAction(_ delta: Int) {
-        let count = focusedActions.count
+        let count = panelActions.count
         guard count > 0 else { return }
         actionSelected = (actionSelected + delta + count) % count
     }
 
+    /// The highlighted row runs only if it still applies (a file can vanish while the panel is open).
     func performSelectedAction() {
-        let list = focusedActions
-        guard list.indices.contains(actionSelected) else { return }
-        perform(list[actionSelected].id)
+        guard showsActions, panelActions.indices.contains(actionSelected) else { return }
+        perform(panelActions[actionSelected].id)
     }
 
     /// Runs one action on the focused row, from the panel or straight from its shortcut. False when that
@@ -520,7 +523,7 @@ struct BarView: View {
                 ConfirmCard(item: armed, confirm: { model.confirmByClick() }, cancel: { model.armedID = nil })
                     .padding(.top, 8)
             } else if model.showsActions, let target = model.actionTarget {
-                ActionPanel(item: target, actions: model.actions(for: target), selected: model.actionSelected,
+                ActionPanel(item: target, actions: model.panelActions, selected: model.actionSelected,
                             hover: { model.actionSelected = $0 }, choose: { model.perform($0) })
                     .padding(.top, 8)
             } else if model.results.count == 1, let answer = model.results.first, answer.kind == .calculation {
