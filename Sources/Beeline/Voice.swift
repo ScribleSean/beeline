@@ -13,69 +13,69 @@ final class Voice {
     var onState: (State) -> Void = { _ in }
     var onLevel: (Double) -> Void = { _ in }
 
-    private let engine = AVAudioEngine()
-    private let recognizer: SFSpeechRecognizer? = {
-        if let own = SFSpeechRecognizer(locale: .current), own.supportsOnDeviceRecognition { return own }
-        return SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
-    }()
+    struct IO {
+        var authorise: (@escaping (String?) -> Void) -> Void
+        var begin: ([String], @escaping (String?, Bool, Bool) -> Void, @escaping (Double) -> Void) -> String?
+        var stop: () -> Void
+        var cancel: () -> Void
+    }
+
+    private let io: IO
     var vocabulary: [String] = []
-    private var request: SFSpeechAudioBufferRecognitionRequest?
-    private var task: SFSpeechRecognitionTask?
+    private var active = false
     private var cancelledBeforeStart = false
     private var generation = 0
 
-    init() {
-        // AVAudioEngine stops itself when the audio hardware changes (AirPods connecting, a mic unplugged)
-        // and leaves its tap behind; a second tap on the same bus crashes the app.
-        NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+    convenience init() {
+        let speech = SpeechSession()
+        self.init(io: speech.io)
+        NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange,
+                                               object: speech.engine, queue: .main) { [weak self] _ in
             self?.stop()
         }
     }
 
+    init(io: IO) { self.io = io }
+
     func start() {
+        guard !active else { return }
         cancelledBeforeStart = false
         generation += 1
         let session = generation
-        authorise { [weak self] problem in
-            guard let self, session == self.generation else { return }
+        io.authorise { [weak self] problem in
+            guard let self, session == self.generation, !self.cancelledBeforeStart else { return }
             if let problem { return self.onState(.unavailable(problem)) }
-            guard !self.cancelledBeforeStart else { return }
-            self.begin(session)
+            self.active = true
+            let problem = self.io.begin(Self.contextualStrings(self.vocabulary), { [weak self] text, final, finished in
+                guard let self, session == self.generation else { return }
+                if let text { self.onText(text) }
+                if final, let text { self.onFinal(text) }
+                if finished, session == self.generation { self.stop() }
+            }, { [weak self] level in
+                guard let self, session == self.generation else { return }
+                self.onLevel(level)
+            })
+            if let problem {
+                self.stop()
+                self.onState(.unavailable(problem))
+            } else if self.active {
+                self.onState(.listening)
+            }
         }
     }
 
     func stop() {
         cancelledBeforeStart = true
-        if engine.isRunning { engine.stop() }
-        // Removing a tap that is not there is harmless; one left behind after the engine stopped itself
-        // crashes the next installTap.
-        engine.inputNode.removeTap(onBus: 0)
-        guard let request else { return }
-        request.endAudio()
-        self.request = nil
+        io.stop()
+        guard active else { return }
+        active = false
         onState(.stopped)
     }
 
     func cancel() {
         generation += 1
-        task?.cancel()
-        task = nil
+        io.cancel()
         stop()
-    }
-
-    private func authorise(_ done: @escaping (String?) -> Void) {
-        if SFSpeechRecognizer.authorizationStatus() == .authorized,
-           AVCaptureDevice.authorizationStatus(for: .audio) == .authorized {
-            return done(nil)
-        }
-        SFSpeechRecognizer.requestAuthorization { status in
-            guard status == .authorized else {
-                return DispatchQueue.main.async { done("Allow Speech Recognition for Beeline in Privacy & Security.") }
-            }
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                DispatchQueue.main.async { done(granted ? nil : "Allow the Microphone for Beeline in Privacy & Security.") }
-            }
-        }
     }
 
     static func contextualStrings(_ words: [String]) -> [String] {
@@ -98,55 +98,76 @@ final class Voice {
         return min(1, max(0, (20 * log10(rms) + 50) / 50))
     }
 
-    private func begin(_ session: Int) {
-        guard let recognizer, recognizer.isAvailable else {
-            return onState(.unavailable("Speech recognition isn't available right now."))
+}
+
+/// Owns the real microphone and recognition task; tests inject a session without hardware.
+private final class SpeechSession {
+    let engine = AVAudioEngine()
+    private let recognizer: SFSpeechRecognizer? = {
+        if let own = SFSpeechRecognizer(locale: .current), own.supportsOnDeviceRecognition { return own }
+        return SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+    }()
+    private var request: SFSpeechAudioBufferRecognitionRequest?
+    private var task: SFSpeechRecognitionTask?
+    private var generation = 0
+
+    var io: Voice.IO {
+        Voice.IO(authorise: authorise, begin: begin, stop: stop, cancel: { self.generation += 1; self.task?.cancel(); self.task = nil })
+    }
+
+    private func authorise(_ done: @escaping (String?) -> Void) {
+        if SFSpeechRecognizer.authorizationStatus() == .authorized,
+           AVCaptureDevice.authorizationStatus(for: .audio) == .authorized { return done(nil) }
+        SFSpeechRecognizer.requestAuthorization { status in
+            guard status == .authorized else {
+                return DispatchQueue.main.async { done("Allow Speech Recognition for Beeline in Privacy & Security.") }
+            }
+            AVCaptureDevice.requestAccess(for: .audio) { granted in
+                DispatchQueue.main.async { done(granted ? nil : "Allow the Microphone for Beeline in Privacy & Security.") }
+            }
         }
-        guard recognizer.supportsOnDeviceRecognition else {
-            return onState(.unavailable("On-device speech recognition isn't available for English on this Mac."))
-        }
-        guard !engine.isRunning else { return }
+    }
+
+    private func stop() {
+        if engine.isRunning { engine.stop() }
+        engine.inputNode.removeTap(onBus: 0)
+        request?.endAudio()
+        request = nil
+    }
+
+    private func begin(_ vocabulary: [String], update: @escaping (String?, Bool, Bool) -> Void,
+                       level: @escaping (Double) -> Void) -> String? {
+        guard let recognizer, recognizer.isAvailable else { return "Speech recognition isn't available right now." }
+        guard recognizer.supportsOnDeviceRecognition else { return "On-device speech recognition isn't available for English on this Mac." }
+        generation += 1
+        let session = generation
         task?.cancel()
         let input = engine.inputNode
         input.removeTap(onBus: 0)
-        // A Mac with no microphone reports a format of 0 Hz and no channels, and installing a tap on it stops the app.
         let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-            return onState(.unavailable("No microphone found."))
-        }
+        guard format.sampleRate > 0, format.channelCount > 0 else { return "No microphone found." }
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.requiresOnDeviceRecognition = true
-        request.contextualStrings = Self.contextualStrings(vocabulary)
+        request.contextualStrings = vocabulary
         self.request = request
-
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
             request.append(buffer)
-            let level = Self.level(of: buffer)
-            DispatchQueue.main.async {
-                guard let self, session == self.generation else { return }
-                self.onLevel(level)
-            }
+            let value = Voice.level(of: buffer)
+            DispatchQueue.main.async { level(value) }
         }
         engine.prepare()
-        do {
-            try engine.start()
-        } catch {
-            input.removeTap(onBus: 0)
-            return onState(.unavailable("The microphone couldn't start."))
-        }
-        onState(.listening)
-
+        do { try engine.start() } catch { return "The microphone couldn't start." }
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             let text = result?.bestTranscription.formattedString
-            let isFinal = result?.isFinal == true
-            let finished = isFinal || error != nil
+            let final = result?.isFinal == true
+            let finished = final || error != nil
             DispatchQueue.main.async {
                 guard let self, session == self.generation else { return }
-                if let text { self.onText(text) }
-                if isFinal, let text { self.onFinal(text) }
-                if finished { self.task = nil; self.request = nil }
+                if finished { self.task = nil }
+                update(text, final, finished)
             }
         }
+        return nil
     }
 }

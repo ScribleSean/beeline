@@ -253,45 +253,73 @@ final class Rates {
     }
 
     private var saved: Saved?
-    private let file = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("Beeline/rates.json")
+    private let file: URL
+    private let download: (URL, @escaping (Data?, URLResponse?, Error?) -> Void) -> Void
+    private let write: (Data, URL) -> Void
+    private let lock = NSLock()
     private var isFetching = false
+    private var completions: [() -> Void] = []
 
-    var current: [String: Double]? { saved?.rates }
-    var day: String? { saved?.day }
+    var current: [String: Double]? { lock.lock(); defer { lock.unlock() }; return saved?.rates }
+    var day: String? { lock.lock(); defer { lock.unlock() }; return saved?.day }
 
-    private init() {
-        if let data = try? Data(contentsOf: file) { saved = try? JSONDecoder().decode(Saved.self, from: data) }
+    init(file: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Beeline/rates.json"),
+         download: @escaping (URL, @escaping (Data?, URLResponse?, Error?) -> Void) -> Void = { url, done in
+             URLSession.shared.dataTask(with: url, completionHandler: done).resume()
+         },
+         read: (URL) -> Data? = { try? Data(contentsOf: $0) },
+         write: @escaping (Data, URL) -> Void = { data, file in
+             try? JSONStore.createPrivateDirectory(file.deletingLastPathComponent())
+             try? data.write(to: file, options: .atomic)
+         }) {
+        self.file = file
+        self.download = download
+        self.write = write
+        if let data = read(file), let decoded = try? JSONDecoder().decode(Saved.self, from: data),
+           Self.valid(decoded.rates) { saved = decoded }
+    }
+
+    private static func valid(_ rates: [String: Double]) -> Bool {
+        !rates.isEmpty && rates.values.allSatisfy { $0.isFinite && $0 > 0 }
     }
 
     static func parse(_ data: Data) -> (rates: [String: Double], day: String?)? {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              var rates = object["rates"] as? [String: Double], !rates.isEmpty else { return nil }
+              var rates = object["rates"] as? [String: Double], valid(rates) else { return nil }
         rates["EUR"] = 1
         return (rates, object["date"] as? String)
     }
 
     func refreshIfStale(wait: Bool = false, done: @escaping () -> Void = {}) {
-        if let saved, Date().timeIntervalSince(saved.fetched) < 12 * 3600 { return }
-        guard !isFetching, let url = URL(string: "https://api.frankfurter.dev/v1/latest") else { return }
-        isFetching = true
         let finished = DispatchSemaphore(value: 0)
-        URLSession.shared.dataTask(with: url) { data, _, _ in
-            defer { finished.signal() }
-            guard let data, let parsed = Self.parse(data) else {
-                DispatchQueue.main.async { self.isFetching = false }
-                return
-            }
-            let fresh = Saved(fetched: Date(), rates: parsed.rates, day: parsed.day)
-            try? FileManager.default.createDirectory(at: self.file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? JSONEncoder().encode(fresh).write(to: self.file, options: .atomic)
-            DispatchQueue.main.async {
-                self.saved = fresh
+        lock.lock()
+        if let saved, Date().timeIntervalSince(saved.fetched) < 12 * 3600 {
+            lock.unlock()
+            done()
+            return
+        }
+        completions.append { finished.signal(); DispatchQueue.main.async(execute: done) }
+        let start = !isFetching
+        isFetching = true
+        lock.unlock()
+        if start {
+            download(URL(string: "https://api.frankfurter.dev/v1/latest")!) { data, response, error in
+                var fresh: Saved?
+                if error == nil, (response as? HTTPURLResponse)?.statusCode == 200,
+                   let data, let parsed = Self.parse(data) {
+                    fresh = Saved(fetched: Date(), rates: parsed.rates, day: parsed.day)
+                    if let encoded = try? JSONEncoder().encode(fresh) { self.write(encoded, self.file) }
+                }
+                self.lock.lock()
+                if let fresh { self.saved = fresh }
                 self.isFetching = false
-                done()
+                let callbacks = self.completions
+                self.completions = []
+                self.lock.unlock()
+                callbacks.forEach { $0() }
             }
-            if wait { self.saved = fresh }
-        }.resume()
+        }
         if wait { finished.wait() }
     }
 }

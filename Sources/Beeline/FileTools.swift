@@ -553,9 +553,12 @@ enum FileTools {
         finish(made, "video export")
     }
 
+    /// Enabled only by main when --files explicitly requests a test run.
+    static var exitWhenDone = false
+
     private static func finish(_ made: [URL], _ what: String) {
         Log.append("file tools: \(what) made \(made.count)")
-        if ProcessInfo.processInfo.environment["BEELINE_FILES_TEST"] != nil {
+        if exitWhenDone {
             print("made: " + made.map(\.lastPathComponent).joined(separator: ", "))
             exit(0)
         }

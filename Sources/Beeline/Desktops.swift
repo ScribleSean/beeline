@@ -41,7 +41,7 @@ enum Desktops {
 
     private static func store(_ desktops: [Desktop]) {
         cache = desktops
-        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? JSONStore.createPrivateDirectory(file.deletingLastPathComponent())
         try? JSONEncoder().encode(desktops).write(to: file, options: .atomic)
     }
 

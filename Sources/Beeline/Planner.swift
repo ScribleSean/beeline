@@ -6,7 +6,13 @@ struct PlanStep: Identifiable {
     var displayText: String { ScreenText.display(text) }
     let icon: NSImage?
     let run: () -> Void
+    var cancellableRun: ((CancelToken) -> Void)?
     var settleTime = 0.35
+
+    func run(cancel: CancelToken) {
+        guard !cancel.isCancelled else { return }
+        if let cancellableRun { cancellableRun(cancel) } else { run() }
+    }
     var stillValid: (() -> Bool)?
     var succeeded: (() -> Bool)?
     var target: (() -> CGRect?)?
@@ -53,10 +59,15 @@ enum Planner {
     }
 
     private static func ask(_ prompt: String, system: String) async -> Result<String, Failure> {
-        let result: Result<String, Failure> = await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(returning: askClaude(prompt, system: system))
+        let requestID = processes.reserve()
+        let result: Result<String, Failure> = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    continuation.resume(returning: askClaude(prompt, system: system, requestID: requestID))
+                }
             }
+        } onCancel: {
+            cancel(requestID)
         }
         switch result {
         case .success(let reply):
@@ -111,16 +122,9 @@ enum Planner {
 
     static let maxSteps = 8
 
-    private static var running: Process?
-    private static let runningLock = NSLock()
+    private static let processes = PlannerProcesses()
 
-    static func cancel() {
-        runningLock.lock()
-        let process = running
-        running = nil
-        runningLock.unlock()
-        if let process, process.isRunning { process.terminate() }
-    }
+    static func cancel(_ requestID: UUID) { processes.cancel(requestID) }
 
     /// A write into a pipe whose reader has gone raises SIGPIPE, which kills the app by default.
     static func ignoreBrokenPipes() {
@@ -181,7 +185,8 @@ enum Planner {
 
     static let notFoundMessage = "Claude Code isn't installed, or isn't in ~/.local/bin, Homebrew or /usr/local/bin."
 
-    private static func askClaude(_ prompt: String, system: String) -> Result<String, Failure> {
+    private static func askClaude(_ prompt: String, system: String, requestID: UUID) -> Result<String, Failure> {
+        defer { processes.finish(requestID) }
         guard let claude = claudePath() else { return .failure(.message(notFoundMessage)) }
         let process = Process()
         process.executableURL = claude
@@ -205,11 +210,11 @@ enum Planner {
         process.standardInput = input
         process.standardOutput = output
         process.standardError = errors
-        do { try process.run() } catch { return .failure(.message("Couldn't start Claude Code (\((error as NSError).code)).")) }
-        cancel()
-        runningLock.lock()
-        running = process
-        runningLock.unlock()
+        // Register before run, and serialize launch with cancellation.
+        guard processes.register(process, for: requestID) else { return .failure(.message("Cancelled.")) }
+        do {
+            guard try processes.start(requestID) else { return .failure(.message("Cancelled.")) }
+        } catch { return .failure(.message("Couldn't start Claude Code (\((error as NSError).code)).")) }
 
         var timedOut = false
         DispatchQueue.global().asyncAfter(deadline: .now() + 40) {
@@ -231,13 +236,10 @@ enum Planner {
         process.waitUntilExit()
         errorsRead.wait()
         fed.sync {}
-        runningLock.lock()
-        let wasCancelled = running !== process
-        if running === process { running = nil }
-        runningLock.unlock()
+        let wasCancelled = processes.isCancelled(requestID)
+        if wasCancelled { return .failure(.message("Cancelled.")) }
 
         guard process.terminationStatus == 0 else {
-            if wasCancelled { return .failure(.message("Cancelled.")) }
             if timedOut { return .failure(.message("Claude didn't answer within 40 seconds.")) }
             let lowered = errorText.lowercased()
             let firstLine = errorText.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
@@ -248,5 +250,56 @@ enum Planner {
             return .failure(.message(firstLine.isEmpty ? "Claude Code stopped with an error." : "Claude Code said: \(firstLine.prefix(120))"))
         }
         return .success(String(data: data, encoding: .utf8) ?? "")
+    }
+}
+
+protocol PlannerProcess: AnyObject {
+    var isRunning: Bool { get }
+    func run() throws
+    func terminate()
+}
+
+extension Process: PlannerProcess {}
+
+/// A reservation exists even while the executable is being resolved, so an early cancel is retained.
+final class PlannerProcesses {
+    private struct Request { var process: PlannerProcess? }
+    private var requests: [UUID: Request] = [:]
+    private let lock = NSLock()
+
+    func reserve() -> UUID {
+        lock.lock(); defer { lock.unlock() }
+        let id = UUID()
+        requests[id] = Request()
+        return id
+    }
+
+    func register(_ process: PlannerProcess, for id: UUID) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard requests[id] != nil else { return false }
+        requests[id]?.process = process
+        return true
+    }
+
+    func start(_ id: UUID) throws -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard let process = requests[id]?.process else { return false }
+        try process.run()
+        return true
+    }
+
+    func cancel(_ id: UUID) {
+        lock.lock(); defer { lock.unlock() }
+        if let process = requests.removeValue(forKey: id)?.process, process.isRunning { process.terminate() }
+    }
+
+    func isCancelled(_ id: UUID) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return requests[id] == nil
+    }
+
+    func finish(_ id: UUID) {
+        lock.lock(); defer { lock.unlock() }
+        requests[id] = nil
     }
 }
