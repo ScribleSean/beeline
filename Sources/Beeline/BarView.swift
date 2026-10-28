@@ -131,16 +131,22 @@ final class BarModel: ObservableObject {
         if isShowingPlan || armedID != nil {
             spokenRow = nil
             return
-        } else if results.indices.contains(selected) {
-            text = Announce.spoken(results[selected])
+        }
+        let key: String
+        if results.indices.contains(selected) {
+            let item = results[selected]
+            let number = results[...selected].filter { $0.kind == .clipboard }.count
+            text = Announce.spoken(item, number: number)
+            key = item.id + "\n" + text
         } else if !query.isEmpty {
             text = "No results"
+            key = text
         } else {
             spokenRow = nil
             return
         }
-        guard text != spokenRow else { return }
-        spokenRow = text
+        guard key != spokenRow else { return }
+        spokenRow = key
         Announce.say(text)
     }
 

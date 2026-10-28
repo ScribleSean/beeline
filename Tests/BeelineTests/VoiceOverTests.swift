@@ -183,14 +183,14 @@ private final class Box: @unchecked Sendable {
     model.query = "saf"
     #expect(heard.isEmpty)
     RunLoop.main.run(until: Date().addingTimeInterval(0.6))
-    #expect(heard == model.results.prefix(1).map(Announce.spoken))
+    #expect(heard == model.results.prefix(1).map { Announce.spoken($0) })
     model.isOpen = false
 }
 
 @Test func copiedAndSelectedTextIsNotReadOutUnasked() {
     let clip = Item(id: "clip:0:1", kind: .clipboard, verb: "Paste", title: "hunter2", subtitle: "Passwords · now",
                     keywords: "", icon: nil, run: {})
-    #expect(Announce.spoken(clip) == "Paste clipboard item, Passwords · now")
+    #expect(Announce.spoken(clip) == "Paste clipboard item 1, Passwords · now")
     #expect(Announce.row(clip).contains("hunter2"))
     let rewrite = Item(id: BarModel.rewriteRowID, kind: .action, verb: "", title: "Rewrite the selected text",
                        subtitle: "“my private note”", keywords: "", icon: nil, run: {})
@@ -213,4 +213,20 @@ private final class Box: @unchecked Sendable {
     model.armedID = nil
     RunLoop.main.run(until: Date().addingTimeInterval(0.6))
     #expect(heard == ["Close Tabs, Action", "Close Tabs? 3 tabs will close.", "Close Tabs, Action"])
+}
+
+@Test @MainActor func twoClipboardRowsFromOneAppSoundDifferent() {
+    let model = sharedModel
+    let clip = { (id: String, text: String) in
+        Item(id: id, kind: .clipboard, verb: "Paste", title: text, subtitle: "Notes · now", keywords: "", icon: nil, run: {})
+    }
+    let heard = spoken {
+        model.isOpen = true
+        model.armedID = nil
+        model.results = [clip("clip:0", "first secret"), clip("clip:1", "second secret")]
+        model.selected = 0
+        model.speakSelection()
+        model.move(1)
+    }
+    #expect(heard == ["Paste clipboard item 1, Notes · now", "Paste clipboard item 2, Notes · now"])
 }

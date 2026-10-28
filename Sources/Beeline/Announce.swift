@@ -15,9 +15,9 @@ enum Announce {
     }
 
     /// Spoken without being asked, so it never reads out copied or selected text; the row's own label still does.
-    static func spoken(_ item: Item) -> String {
+    static func spoken(_ item: Item, number: Int = 1) -> String {
         if item.kind == .clipboard {
-            return ["Paste clipboard item", item.subtitle].filter { !$0.isEmpty }.joined(separator: ", ")
+            return ["Paste clipboard item \(number)", item.subtitle].filter { !$0.isEmpty }.joined(separator: ", ")
         }
         if item.id == BarModel.rewriteRowID { return item.title }
         return row(item)
