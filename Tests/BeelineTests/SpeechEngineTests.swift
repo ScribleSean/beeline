@@ -73,6 +73,15 @@ private func voice(_ router: SpeechRouter) -> Voice {
     #expect(new.begins == 1 && old.begins == 2) // A failed analyzer isn't tried again.
 }
 
+@Test func emptyGuessDoesNotCountAsWords() {
+    let new = FakeBackend(), old = FakeBackend()
+    let router = SpeechRouter(analyzer: new, recognizer: old, preference: { nil })
+    voice(router).start()
+    new.update?(" ", false, false)
+    new.failed?()
+    #expect(old.begins == 1)
+}
+
 @Test func analyzerFailingAfterWordsEndsThePressWithoutSwitching() {
     let new = FakeBackend(), old = FakeBackend()
     let router = SpeechRouter(analyzer: new, recognizer: old, preference: { nil })
@@ -87,6 +96,19 @@ private func voice(_ router: SpeechRouter) -> Voice {
     #expect(old.begins == 0)
     #expect(texts == ["open"])
     #expect(states == ["listening", "stopped"])
+}
+
+@Test func analyzerFailingAfterReleaseDoesNotReopenTheMicrophone() {
+    let new = FakeBackend(), old = FakeBackend()
+    let router = SpeechRouter(analyzer: new, recognizer: old, preference: { nil })
+    let voice = voice(router)
+    voice.start()
+    voice.stop()
+    new.failed?()
+    #expect(old.begins == 0)
+    #expect(router.analyzerFailed) // The next press still skips the broken analyzer.
+    voice.start()
+    #expect(old.begins == 1 && new.begins == 1)
 }
 
 @Test func lateFailureFromACancelledPressIsIgnored() {
@@ -137,7 +159,7 @@ func analyzerTranscribesARecordedRequest() async throws {
     defer { try? FileManager.default.removeItem(at: url) }
     let say = Process()
     say.executableURL = URL(fileURLWithPath: "/usr/bin/say")
-    say.arguments = ["-o", url.path, "open Xcode and move the window to the left"]
+    say.arguments = ["-o", url.path, "open Xcode [[slnc 1500]] and move the window to the left"] // The pause must not drop the first phrase.
     try say.run()
     say.waitUntilExit()
     let file = try AVAudioFile(forReading: url)

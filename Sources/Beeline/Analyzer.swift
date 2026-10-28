@@ -33,6 +33,7 @@ final class SpeechRouter {
     private(set) var analyzerFailed = false
     private var current: SpeechBackend?
     private var generation = 0
+    private var released = false
 
     init(analyzer: SpeechBackend? = nil, recognizer: SpeechBackend,
          preference: @escaping () -> String? = { UserDefaults.standard.string(forKey: SpeechEngine.preferenceKey) }) {
@@ -48,6 +49,7 @@ final class SpeechRouter {
     func begin(_ words: [String], update: @escaping (String?, Bool, Bool) -> Void,
                level: @escaping (Double) -> Void) -> String? {
         generation += 1
+        released = false
         let session = generation
         guard engine == .analyzer, let analyzer else {
             current = recognizer
@@ -56,20 +58,24 @@ final class SpeechRouter {
         current = analyzer
         var heardWords = false
         return analyzer.begin(words, update: { text, final, finished in
-            if text != nil { heardWords = true }
+            if let text, !text.trimmingCharacters(in: .whitespaces).isEmpty { heardWords = true }
             update(text, final, finished)
         }, level: level, failed: { [weak self] in
             guard let self, session == self.generation else { return }
             self.analyzerFailed = true
             DemoLog.note("voice-engine-failed", ["heard": heardWords])
-            guard !heardWords, self.recognizer.begin(words, update: update, level: level, failed: {}) == nil else {
+            // After release the press is over: never reopen the microphone for it.
+            guard !heardWords, !self.released, self.recognizer.begin(words, update: update, level: level, failed: {}) == nil else {
                 return update(nil, false, true)
             }
             self.current = self.recognizer
         })
     }
 
-    func stop() { current?.stop() }
+    func stop() {
+        released = true
+        current?.stop()
+    }
 
     func cancel() {
         generation += 1
@@ -139,7 +145,7 @@ final class AnalyzerSession: SpeechBackend {
         }
         engine.prepare()
         do { try engine.start() } catch {
-            mic.removeTap(onBus: 0)
+            finishAudio()
             return "The microphone couldn't start."
         }
         let pipeline = Self.Pipeline(locale: locale, words: words)
@@ -173,11 +179,14 @@ final class AnalyzerSession: SpeechBackend {
         analyzer = nil
     }
 
+    /// Releases the engine only while this session still holds it: after `stop`, a late completion must
+    /// not tear down a tap the recognizer installed for a newer press.
     private func finishAudio() {
+        guard let input else { return }
         if engine.isRunning { engine.stop() }
         engine.inputNode.removeTap(onBus: 0)
-        input?.finish()
-        input = nil
+        input.finish()
+        self.input = nil
     }
 
     /// Everything after the microphone: conversion, custom words, analysis and the running transcript.
@@ -208,14 +217,14 @@ final class AnalyzerSession: SpeechBackend {
                 try await analyzer.setContext(context)
             }
             try await analyzer.prepareToAnalyze(in: target)
-            let converter = Converter(from: format, to: target)
+            guard let converter = Converter(from: format, to: target) else { throw CocoaError(.featureUnsupported) }
             let inputs = audio.compactMap { converter.convert($0) }.map { AnalyzerInput(buffer: $0) }
             let transcriber = transcriber, analyzer = analyzer
             let reading = Task { @MainActor in
                 var transcript = Transcript()
                 for try await result in transcriber.results {
                     transcript.add(String(result.text.characters), isFinal: result.isFinal)
-                    partial(transcript.text)
+                    if !transcript.text.isEmpty { partial(transcript.text) }
                 }
                 return transcript.text
             }
@@ -240,10 +249,16 @@ final class AnalyzerSession: SpeechBackend {
         private let target: AVAudioFormat
         private let converter: AVAudioConverter?
 
-        init(from source: AVAudioFormat, to target: AVAudioFormat) {
+        /// Nil when the formats differ and no converter can be made between them.
+        init?(from source: AVAudioFormat, to target: AVAudioFormat) {
             self.target = target
-            converter = source == target ? nil : AVAudioConverter(from: source, to: target)
-            converter?.primeMethod = .none
+            if source == target {
+                converter = nil
+            } else {
+                guard let converter = AVAudioConverter(from: source, to: target) else { return nil }
+                converter.primeMethod = .none
+                self.converter = converter
+            }
         }
 
         func convert(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
