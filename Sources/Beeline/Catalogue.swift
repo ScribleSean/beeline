@@ -88,6 +88,15 @@ final class Catalogue {
         refreshAppsIfChanged()
     }
 
+    /// Construct a catalogue from a supplied snapshot without scanning other apps.
+    init(apps: [Item], windows: [Item], quits: [Item], controls: [Item]) {
+        self.aliases = .shared
+        self.apps = apps
+        self.windows = windows
+        self.quits = quits
+        self.controls = controls
+    }
+
     func prepareMeaningNow() {
         semantic.prepare(actions + apps + settings, permanent: true)
     }
@@ -556,7 +565,7 @@ final class Catalogue {
             options += [left, right]
         }
         for item in controls.prefix(60) where !item.needsConfirm {
-            var step = PlanStep(text: "In the current window only, \(ScreenText.sanitize(item.verb.lowercased())) the \(ScreenText.sanitize(item.subtitle)) \(clean(item.title))",
+            var step = PlanStep(text: "In the current window only, \(ScreenText.sanitize(item.verb.lowercased())) the \(clean(item.subtitle)) \(clean(item.title))",
                                 icon: item.icon, run: item.run)
             step.stillValid = item.stillValid
             step.target = item.target

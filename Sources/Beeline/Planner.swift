@@ -3,6 +3,7 @@ import AppKit
 struct PlanStep: Identifiable {
     let id = UUID()
     let text: String
+    var displayText: String { ScreenText.display(text) }
     let icon: NSImage?
     let run: () -> Void
     var settleTime = 0.35
