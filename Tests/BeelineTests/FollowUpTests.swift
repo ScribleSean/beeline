@@ -174,3 +174,16 @@ private func ran(leaving undo: UndoLog.Entry?) -> LastRun.Entry {
     for query in ["again", "again?", "Again!", "mute it"] { #expect(BarModel.offersClaude(for: query, last: log), "\(query)") }
     #expect(!BarModel.offersClaude(for: "it", last: log), "\"it\" on the way to iTerm")
 }
+
+@Test func aPlanOnlyOwnsAnUndoItMade() {
+    let log = UndoLog()
+    let began = Date()
+    log.record("Mute", now: began.addingTimeInterval(-30)) {}
+    #expect(log.latestID(since: began) == nil, "a local undo from before the plan isn't the plan's")
+    log.record("Move Safari to the left half", now: began.addingTimeInterval(1)) {}
+    let made = log.latestID(since: began)
+    #expect(made == log.latest()?.id)
+    log.undoLatest(id: made)
+    #expect(log.latestID(since: began) == nil, "after the plan's own Undo, it owns nothing")
+    #expect(log.planStep(for: ran(leaving: nil)) == nil)
+}

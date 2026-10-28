@@ -78,6 +78,11 @@ final class UndoLog {
         return step
     }
 
+    /// The latest entry only if it was made at or after `start`, so a plan never claims an older undo as its own.
+    func latestID(since start: Date) -> UUID? {
+        latest().flatMap { $0.at >= start ? $0.id : nil }
+    }
+
     func hint(now: Date = Date()) -> String? {
         latest(within: Self.offerTime, now: now).map { "“undo” takes back \($0.title)" }
     }
