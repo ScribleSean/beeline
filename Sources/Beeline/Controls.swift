@@ -132,12 +132,17 @@ extension Accessibility {
                 item.confirmNote = "In “\(windowTitle)” (\(appName)). This can't be undone."
             }
             let expected = control.label, role = control.role
-            let context = ControlContext(label: expected, windowTitle: windowTitle, dialogMessage: dialogMessage)
+            // Only a confirm card quotes the window title or dialog text, so only those
+            // controls re-check them; titles like "Inbox (3)" change on their own.
+            let confirms = item.needsConfirm
+            let context = ControlContext(label: expected, windowTitle: confirms ? windowTitle : "",
+                                         dialogMessage: confirms ? dialogMessage : nil)
             item.stillValid = controlValidator(expected: context) {
-                guard isFrontWindow(window, of: pid),
-                      let enabled: Bool = attribute(node, kAXEnabledAttribute), enabled,
-                      let currentLabel = label(of: node, role: role),
-                      let currentTitle: String = attribute(window, kAXTitleAttribute) else { return nil }
+                guard isFrontWindow(window, of: pid) else { return nil }
+                let enabled: Bool = attribute(node, kAXEnabledAttribute) ?? true
+                guard enabled, let currentLabel = label(of: node, role: role) else { return nil }
+                guard confirms else { return ControlContext(label: currentLabel, windowTitle: "", dialogMessage: nil) }
+                let currentTitle: String = attribute(window, kAXTitleAttribute) ?? ""
                 return ControlContext(label: currentLabel, windowTitle: currentTitle,
                                       dialogMessage: self.dialogMessage(in: window))
             }

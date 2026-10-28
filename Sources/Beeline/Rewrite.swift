@@ -10,7 +10,7 @@ enum Rewrite {
         var range: NSRange? = nil
 
         func matches(_ current: Selection?) -> Bool {
-            guard let current, let element, let window, let range,
+            guard let current, let element, let window,
                   let currentElement = current.element, let currentWindow = current.window else { return false }
             return app == current.app && text == current.text && range == current.range
                 && CFEqual(element, currentElement) && CFEqual(window, currentWindow)
@@ -64,13 +64,15 @@ enum Rewrite {
         AXUIElementSetMessagingTimeout(app, 0.25)
         guard let focused: AXUIElement = Accessibility.attribute(app, kAXFocusedUIElementAttribute),
               let window: AXUIElement = Accessibility.attribute(app, kAXFocusedWindowAttribute),
-              let text: String = Accessibility.attribute(focused, kAXSelectedTextAttribute),
-              let value: AXValue = Accessibility.attribute(focused, kAXSelectedTextRangeAttribute),
-              AXValueGetType(value) == .cfRange else { return nil }
-        var range = CFRange()
-        guard AXValueGetValue(value, .cfRange, &range) else { return nil }
-        return Selection(text: text, app: pid, element: focused, window: window,
-                         range: NSRange(location: range.location, length: range.length))
+              let text: String = Accessibility.attribute(focused, kAXSelectedTextAttribute) else { return nil }
+        // Some apps don't report a range; then field, window and text still have to match.
+        var range: NSRange?
+        var raw = CFRange()
+        if let value: AXValue = Accessibility.attribute(focused, kAXSelectedTextRangeAttribute),
+           AXValueGetType(value) == .cfRange, AXValueGetValue(value, .cfRange, &raw) {
+            range = NSRange(location: raw.location, length: raw.length)
+        }
+        return Selection(text: text, app: pid, element: focused, window: window, range: range)
     }
 
     struct PasteIO {
