@@ -46,7 +46,7 @@ private func tab() -> Item {
 
 @Test @MainActor func learnedAndAliasRowsOfferToUndoThatInsteadOfAnAlias() {
     let model = ready("calc", [])
-    #expect(model.actions(for: app(source: .learned(2))).last?.title == "Forget pick")
+    #expect(model.actions(for: app(source: .learned(2))).map(\.title).suffix(2) == ["Forget pick", "Make “calc” its alias"])
     #expect(model.actions(for: app(source: .alias)).last?.title == "Remove alias")
     #expect(!model.actions(for: app(source: .alias)).contains { $0.id == .alias })
 }

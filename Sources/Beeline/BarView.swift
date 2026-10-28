@@ -353,10 +353,11 @@ final class BarModel: ObservableObject {
         if Self.path(of: item) != nil { list.append(BarAction(id: .reveal, title: "Show in Finder", symbol: "folder")) }
         if item.isAlias {
             list.append(BarAction(id: .forget, title: "Remove alias", symbol: "minus.circle"))
-        } else if item.isLearned {
-            list.append(BarAction(id: .forget, title: "Forget pick", symbol: "arrow.uturn.backward"))
-        } else if let alias = Aliases.normalise(query), alias.count <= 12, Catalogue.canHaveAlias(item) {
-            list.append(BarAction(id: .alias, title: "Make “\(alias)” its alias", symbol: "character.cursor.ibeam"))
+        } else {
+            if item.isLearned { list.append(BarAction(id: .forget, title: "Forget pick", symbol: "arrow.uturn.backward")) }
+            if let alias = Aliases.normalise(query), alias.count <= 12, Catalogue.canHaveAlias(item) {
+                list.append(BarAction(id: .alias, title: "Make “\(alias)” its alias", symbol: "character.cursor.ibeam"))
+            }
         }
         return list.count > 1 ? list : []
     }
@@ -411,17 +412,21 @@ final class BarModel: ObservableObject {
     @discardableResult
     func perform(_ action: BarAction.ID) -> Bool {
         guard let item = focusedItem, actions(for: item).contains(where: { $0.id == action }) else { return false }
+        // Read once, before the panel closes, so a check can't fail halfway.
+        let text = Self.copyable(item)?.text, path = Self.path(of: item)
+        if action == .copy, text == nil { return false }
+        if action == .reveal, path == nil { return false }
         actionTarget = nil
         switch action {
         case .open:
             run(item)
         case .copy:
-            guard let text = Self.copyable(item)?.text else { return false }
+            guard let text else { return false }
             pasteboard.clearContents()
             pasteboard.setString(text, forType: .string)
             onRun(Item(id: "copied", kind: .calculation, verb: "", title: "", subtitle: "", keywords: "", icon: nil, run: {}))
         case .reveal:
-            guard let path = Self.path(of: item) else { return false }
+            guard let path else { return false }
             let reveal = revealInFinder
             onRun(Item(id: "revealed", kind: .calculation, verb: "", title: "", subtitle: "", keywords: "", icon: nil) {
                 reveal(URL(fileURLWithPath: path))
@@ -561,9 +566,8 @@ struct BarView: View {
                 .padding(.top, 6)
             }
 
-            if showDetails, !model.isShowingPlan, model.results.indices.contains(model.selected),
-               model.results[model.selected].id != BarModel.claudeRowID {
-                DetailStrip(item: model.results[model.selected], searchMilliseconds: model.searchMilliseconds,
+            if showDetails, let item = model.focusedItem, item.id != BarModel.claudeRowID {
+                DetailStrip(item: item, searchMilliseconds: model.searchMilliseconds,
                             modelMilliseconds: model.modelMilliseconds)
             }
 
