@@ -133,6 +133,20 @@ private func voice(_ router: SpeechRouter) -> Voice {
     voice.start()
     new.failed?()
     #expect(states == ["listening", "stopped"])
+    #expect(old.stops >= 1 && new.stops == 0) // The recognizer's half-started tap is torn down.
+}
+
+@Test func aPressAfterANormalAnalyzerPressCanStillFallBack() {
+    let new = FakeBackend(), old = FakeBackend()
+    let router = SpeechRouter(analyzer: new, recognizer: old, preference: { nil })
+    let voice = voice(router)
+    voice.start()
+    voice.stop()
+    new.update?("open safari", true, true)
+    voice.start()
+    #expect(new.begins == 2)
+    new.failed?()
+    #expect(old.begins == 1)
 }
 
 @Test func transcriptKeepsFinishedSegmentsAndTheLatestGuess() {

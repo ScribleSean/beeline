@@ -65,10 +65,10 @@ final class SpeechRouter {
             self.analyzerFailed = true
             DemoLog.note("voice-engine-failed", ["heard": heardWords])
             // After release the press is over: never reopen the microphone for it.
-            guard !heardWords, !self.released, self.recognizer.begin(words, update: update, level: level, failed: {}) == nil else {
-                return update(nil, false, true)
-            }
+            guard !heardWords, !self.released else { return update(nil, false, true) }
+            // The recognizer owns the press before it starts, so a failed start is still cleaned up by stop.
             self.current = self.recognizer
+            if self.recognizer.begin(words, update: update, level: level, failed: {}) != nil { update(nil, false, true) }
         })
     }
 
@@ -218,7 +218,7 @@ final class AnalyzerSession: SpeechBackend {
             }
             try await analyzer.prepareToAnalyze(in: target)
             guard let converter = Converter(from: format, to: target) else { throw CocoaError(.featureUnsupported) }
-            let inputs = audio.compactMap { converter.convert($0) }.map { AnalyzerInput(buffer: $0) }
+            let inputs = audio.map { try converter.convert($0) }.compactMap { $0 }.map { AnalyzerInput(buffer: $0) }
             let transcriber = transcriber, analyzer = analyzer
             let reading = Task { @MainActor in
                 var transcript = Transcript()
@@ -261,11 +261,14 @@ final class AnalyzerSession: SpeechBackend {
             }
         }
 
-        func convert(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        /// Nil when a buffer yields no frames yet; throws when conversion fails, so the press can fall back.
+        func convert(_ buffer: AVAudioPCMBuffer) throws -> AVAudioPCMBuffer? {
             guard let converter else { return buffer }
             let ratio = target.sampleRate / buffer.format.sampleRate
             let capacity = AVAudioFrameCount((Double(buffer.frameLength) * ratio).rounded(.up)) + 1
-            guard let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return nil }
+            guard let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else {
+                throw CocoaError(.featureUnsupported)
+            }
             var given = false
             var error: NSError?
             let status = converter.convert(to: output, error: &error) { _, outStatus in
@@ -277,7 +280,8 @@ final class AnalyzerSession: SpeechBackend {
                 outStatus.pointee = .haveData
                 return buffer
             }
-            return status == .error || output.frameLength == 0 ? nil : output
+            if status == .error { throw error ?? CocoaError(.featureUnsupported) }
+            return output.frameLength == 0 ? nil : output
         }
     }
 }
