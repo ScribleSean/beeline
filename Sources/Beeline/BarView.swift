@@ -116,7 +116,8 @@ final class BarModel: ObservableObject {
     private var spokenRow: String?
     private var pendingSpeech: Timer?
 
-    private func say(_ text: String) {
+    /// Spoken at once and at high priority, but only while the bar is on screen.
+    func say(_ text: String) {
         if isOpen { Announce.say(text, priority: .high) }
     }
 
@@ -132,7 +133,7 @@ final class BarModel: ObservableObject {
     func speakSelection() {
         pendingSpeech?.invalidate()
         pendingSpeech = nil
-        guard isOpen else { return }
+        guard isOpen, voiceLevel == nil else { return }
         let text: String
         if isShowingPlan || armedID != nil || query.isEmpty {
             spokenRow = nil
@@ -187,14 +188,12 @@ final class BarModel: ObservableObject {
 
     var isShowingPlan: Bool { plan != nil || isAskingClaude || planProblem != nil || claudeAnswer != nil || rewritten != nil }
 
-    /// "Listening" notes stay silent so VoiceOver isn't recorded; a pending voice action is spoken with its way out.
-    @Published var voiceNote: String? {
-        didSet {
-            guard let voiceNote, voiceNote != oldValue, !voiceNote.hasPrefix("Listening") else { return }
-            say(voiceNote.replacingOccurrences(of: " · esc to cancel", with: ". Escape to cancel."))
-        }
+    /// Not spoken on its own: "Listening" must stay silent so the mic doesn't hear VoiceOver; callers announce the rest.
+    @Published var voiceNote: String?
+    /// Set while the microphone listens; rows wait until it stops so the mic never hears VoiceOver.
+    @Published var voiceLevel: Double? {
+        didSet { if voiceLevel == nil, oldValue != nil { speakSelectionSoon() } }
     }
-    @Published var voiceLevel: Double?
 
     @Published var tip = BarModel.tips[0]
     static let tips = [

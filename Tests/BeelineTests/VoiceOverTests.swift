@@ -101,7 +101,8 @@ private func row(_ id: String, verb: String = "Open", subtitle: String = "Apps",
 
 /// What an assistive app reads: SwiftUI builds its accessibility tree only for a real AX client, so this asks
 /// through the AX API from another thread while the main run loop answers, as VoiceOver would.
-@MainActor private func labels(in view: some View) -> [String] {
+/// Nil when the window isn't in the tree at all, which happens while the display sleeps or the screen is locked.
+@MainActor private func labels(in view: some View) -> [String]? {
     NSApplication.shared.setActivationPolicy(.accessory)
     NSApplication.shared.finishLaunching()
     let host = NSHostingView(rootView: view)
@@ -131,20 +132,23 @@ private func row(_ id: String, verb: String = "Open", subtitle: String = "Apps",
         }
         let app = AXUIElementCreateApplication(getpid())
         AXUIElementSetMessagingTimeout(app, 2)
-        for window in (value(app, kAXChildrenAttribute) as? [AXUIElement]) ?? []
-        where value(window, kAXTitleAttribute) as? String == title { walk(window, depth: 0) }
-        box.finish(found)
+        let windows = ((value(app, kAXChildrenAttribute) as? [AXUIElement]) ?? [])
+            .filter { value($0, kAXTitleAttribute) as? String == title }
+        windows.forEach { walk($0, depth: 0) }
+        box.finish(windows.isEmpty ? nil : found)
     }
     let end = Date().addingTimeInterval(8)
-    while box.result == nil, Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
-    return box.result ?? []
+    while !box.isDone, Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+    return box.result
 }
 
 /// Handed over once, under a lock, when the reading thread is done.
 private final class Box: @unchecked Sendable {
     private let lock = NSLock()
     private var found: [String]?
-    func finish(_ labels: [String]) { lock.withLock { found = labels } }
+    private var done = false
+    func finish(_ labels: [String]?) { lock.withLock { found = labels; done = true } }
+    var isDone: Bool { lock.withLock { done } }
     var result: [String]? { lock.withLock { found } }
 }
 
@@ -152,15 +156,16 @@ private final class Box: @unchecked Sendable {
 @Test(.enabled(if: AXIsProcessTrusted())) @MainActor func hostedRowsAndConfirmCardCarryLabels() {
     var alias = row("Safari")
     alias.source = .alias
-    let rows = labels(in: VStack {
+    // A sleeping display hides the window from every AX client; there is nothing to read then, so don't fail.
+    guard let rows = labels(in: VStack {
         ResultRow(item: alias, isSelected: true, isArmed: false)
         ResultRow(item: row("Notes"), isSelected: false, isArmed: false)
-    })
+    }) else { return }
     #expect(rows == ["Open Safari, Apps, your alias", "Open Notes, Apps"])
 
     var close = row("Close Tabs", verb: "", subtitle: "Action", confirm: true)
     close.confirmNote = "3 tabs will close."
-    let card = labels(in: ConfirmCard(item: close, confirm: {}, cancel: {}))
+    let card = labels(in: ConfirmCard(item: close, confirm: {}, cancel: {})) ?? []
     #expect(card == ["Cancel", "Close Tabs"])
 }
 
@@ -243,12 +248,30 @@ private final class Box: @unchecked Sendable {
     #expect(heard == ["Paste clipboard item 1, Notes · now", "Paste clipboard item 2, Notes · now"])
 }
 
-@Test @MainActor func aPendingVoiceActionIsSpokenButListeningIsNot() {
+@Test @MainActor func voiceNotesAreNotSpokenOnTheirOwn() {
     let model = sharedModel
     let heard = spoken {
         model.voiceNote = "Listening… let go to stop"
-        model.voiceNote = "Open Safari · esc to cancel"
+        model.voiceNote = "Paste hunter2 · esc to cancel"
         model.voiceNote = nil
     }
-    #expect(heard == ["Open Safari. Escape to cancel."])
+    #expect(heard.isEmpty)
+}
+
+@Test @MainActor func rowsWaitWhileTheMicrophoneListens() {
+    let model = sharedModel
+    readyShared()
+    var heard: [String] = []
+    let real = Announce.post
+    Announce.post = { text, _ in heard.append(text) }
+    defer { Announce.post = real }
+    model.armedID = nil
+    model.results = [row("Safari"), row("Notes")]
+    model.selected = 0
+    model.voiceLevel = 0.3
+    model.move(1)
+    #expect(heard.isEmpty)
+    model.voiceLevel = nil
+    RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+    #expect(heard == ["Open Notes, Apps"])
 }

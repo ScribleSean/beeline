@@ -298,6 +298,7 @@ final class BarController: NSObject, NSWindowDelegate {
                 self.isListening = false
                 self.model.voiceLevel = nil
                 self.model.voiceNote = reason
+                self.model.say(reason)
             }
         }
         voice.start()
@@ -313,6 +314,7 @@ final class BarController: NSObject, NSWindowDelegate {
         model.selected = model.results.firstIndex { $0.id == item.id } ?? 0
         let verb = item.verb.isEmpty ? "Running" : item.verb == "Open" ? "Opening" : item.verb
         model.voiceNote = "\(verb) \(item.title) · esc to cancel"
+        model.say("\(Announce.action(item)). Escape to cancel.")
         DemoLog.note("auto-act", ["title": item.title])
         let timer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: false) { [weak self] _ in
             guard let self, let pending = self.pendingAct, pending.item.id == item.id else { return }
