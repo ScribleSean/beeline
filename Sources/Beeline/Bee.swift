@@ -105,7 +105,10 @@ final class BeeModel: ObservableObject {
     @Published var duration: TimeInterval = 0
     @Published var ring: CGRect?
     @Published var ringStart = Date()
-    @Published var label: String?
+    /// Spoken every time it is set: the bee's panel ignores the mouse, so VoiceOver never lands on it.
+    @Published var label: String? {
+        didSet { if let label { Announce.say(label) } }
+    }
     @Published var isShown = false
     @Published var faceLeftWhenLanded = false
 
@@ -121,6 +124,8 @@ final class BeeModel: ObservableObject {
 
 private struct BeeOverlay: View {
     @ObservedObject var model: BeeModel
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
         TimelineView(.animation(minimumInterval: nil, paused: !model.isShown)) { context in
@@ -152,7 +157,7 @@ private struct BeeOverlay: View {
                         .truncationMode(.tail)
                         .padding(.horizontal, 10)
                         .frame(height: 24)
-                        .background(.regularMaterial, in: Capsule())
+                        .background(labelBackground, in: Capsule())
                         .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
                         .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
                         .frame(maxWidth: 260, alignment: onRight ? .leading : .trailing)
@@ -168,6 +173,14 @@ private struct BeeOverlay: View {
         .animation(.easeOut(duration: 0.2), value: model.isShown)
         .animation(.easeOut(duration: 0.15), value: model.label)
         .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(model.label.map { "Bee, \($0)" } ?? "Bee")
+        .accessibilityHidden(!model.isShown)
+    }
+
+    private var labelBackground: AnyShapeStyle {
+        BarSurface.isSolid(increaseContrast: contrast == .increased, reduceTransparency: reduceTransparency)
+            ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor)) : AnyShapeStyle(.regularMaterial)
     }
 }
 

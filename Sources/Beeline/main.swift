@@ -89,7 +89,7 @@ if let flag = CommandLine.arguments.firstIndex(of: "--preview"), CommandLine.arg
     let backdrop = NSView(frame: NSRect(origin: .zero, size: size))
     backdrop.wantsLayer = true
     backdrop.layer?.backgroundColor = (dark ? NSColor(white: 0.18, alpha: 1) : NSColor(red: 0.86, green: 0.85, blue: 0.82, alpha: 1)).cgColor
-    let host = NSHostingView(rootView: BarView(model: model))
+    let host = NSHostingView(rootView: BarView(model: model, solidOverride: CommandLine.arguments.contains("solid") ? true : nil))
     host.frame = backdrop.bounds
     backdrop.addSubview(host)
     let window = NSWindow(contentRect: backdrop.frame, styleMask: .borderless, backing: .buffered, defer: false)
