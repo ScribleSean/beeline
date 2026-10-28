@@ -13,6 +13,9 @@ final class Usage {
         var queryLast: [String: [String: Date]]?
     }
 
+    /// Set by main for explicit demo/CLI modes, never from the normal launch environment.
+    static var fileOverride: URL?
+
     static let pickLifetime: TimeInterval = 28 * 86_400
 
     private var store = Store()
@@ -31,14 +34,11 @@ final class Usage {
     convenience init() {
         let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Beeline", isDirectory: true)
-        self.init(file: Self.historyFile(in: folder, environment: ProcessInfo.processInfo.environment))
+        self.init(file: Self.historyFile(in: folder))
     }
 
-    static func historyFile(in folder: URL, environment: [String: String]) -> URL {
-        #if DEBUG
-        if let path = environment["BEELINE_USAGE_FILE"] { return URL(fileURLWithPath: path) }
-        #endif
-        return folder.appendingPathComponent("usage.json")
+    static func historyFile(in folder: URL, override: URL? = fileOverride) -> URL {
+        override ?? folder.appendingPathComponent("usage.json")
     }
 
     init(file: URL, io: IO? = nil,

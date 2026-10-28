@@ -12,6 +12,7 @@ final class RunGuard {
 
     private var token = 0
     private var running = false
+    private var pendingCancel: CancelToken?
     private var monitor: Any?
     private var sleepObserver: NSObjectProtocol?
     private let watches: Bool
@@ -21,7 +22,7 @@ final class RunGuard {
     }
 
     func begin() -> Int {
-        if running { stop(.replaced) }
+        if isRunning { stop(.replaced) }
         token += 1
         running = true
         install()
@@ -32,16 +33,20 @@ final class RunGuard {
         running && run == token
     }
 
-    var isRunning: Bool { running }
+    var isRunning: Bool { running || pendingCancel != nil }
 
-    func end(_ run: Int) {
+    func end(_ run: Int, pending cancel: CancelToken? = nil) {
         guard isCurrent(run) else { return }
         running = false
-        uninstall()
+        pendingCancel = cancel
+        // Slow app launches may still be waiting for their first window. Keep Escape/takeover active.
+        if cancel == nil { uninstall() }
     }
 
     func stop(_ reason: Reason) {
-        guard running else { return }
+        guard isRunning else { return }
+        pendingCancel?.cancel()
+        pendingCancel = nil
         token += 1
         running = false
         uninstall()

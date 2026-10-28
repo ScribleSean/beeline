@@ -176,9 +176,8 @@ final class BarController: NSObject, NSWindowDelegate {
                 }
             }
             guard let self, self.runGuard.isCurrent(run) else { return }
-            cancel.cancel()
-            self.placementCancel = nil
-            self.runGuard.end(run)
+            self.runGuard.end(run, pending: plan.steps.contains { $0.cancellableRun != nil } ? cancel : nil)
+            self.runIsPlan = false
             self.runTask = nil
             self.bee.leave()
             DemoLog.note("plan-finished", ["steps": plan.steps.count])
@@ -268,6 +267,8 @@ final class BarController: NSObject, NSWindowDelegate {
     private func startListening() {
         cancelPendingAct()
         isListening = true
+        // A completed recognition session still counts as a hold when the shortcut is released.
+        openedByPress = true
         model.query = ""
         model.voiceNote = "Listening…"
         var lastTranscript = ""

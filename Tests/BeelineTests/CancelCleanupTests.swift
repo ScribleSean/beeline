@@ -159,17 +159,56 @@ private final class FakeClaudeProcess: PlannerProcess {
     #expect(second.terminations == 1)
 }
 
-@Test func environmentOverridesAreLimitedToDebugBuilds() {
+@Test func usageOverrideWorksInEveryBuildConfiguration() {
     let folder = URL(fileURLWithPath: "/fake/Beeline")
-    let environment = ["BEELINE_USAGE_FILE": "/fake/override.json", "BEELINE_FILES_TEST": "1"]
-    #if DEBUG
-    #expect(Usage.historyFile(in: folder, environment: environment).path == "/fake/override.json")
-    #expect(FileTools.testMode(environment: environment))
-    #else
-    #expect(Usage.historyFile(in: folder, environment: environment) == folder.appendingPathComponent("usage.json"))
-    #expect(!FileTools.testMode(environment: environment))
-    #endif
-    #expect(!FileTools.testMode(environment: [:]))
+    let temporary = URL(fileURLWithPath: "/fake/temporary-usage.json")
+    #expect(Usage.historyFile(in: folder, override: nil) == folder.appendingPathComponent("usage.json"))
+    #expect(Usage.historyFile(in: folder, override: temporary) == temporary)
+    #expect(!FileTools.exitWhenDone)
+}
+
+@Test func completedPlanStillPlacesLateWindowUnlessStopped() {
+    for reason in [RunGuard.Reason.escape, .takeover, .replaced] {
+        let guarder = RunGuard(watches: false)
+        let cancel = CancelToken()
+        let run = guarder.begin()
+        guarder.end(run, pending: cancel)
+        #expect(!guarder.isCurrent(run))
+        var polls = 0
+        var placed = false
+        Accessibility.waitToPlace(cancel: cancel, find: { () -> Int? in
+            polls += 1
+            return polls == 3 ? 42 : nil
+        }, place: { _ in placed = true }, deliver: { $0() }, pause: {})
+        #expect(placed, "a window appearing after normal plan completion must still be placed")
+        guarder.stop(reason)
+        placed = false
+        Accessibility.waitToPlace(cancel: cancel, find: { 42 }, place: { _ in placed = true },
+                                  deliver: { $0() }, pause: {})
+        #expect(!placed)
+    }
+}
+
+@Test func newRequestCancelsPlacementFromCompletedPlan() {
+    let guarder = RunGuard(watches: false)
+    let cancel = CancelToken()
+    let run = guarder.begin()
+    guarder.end(run, pending: cancel)
+    _ = guarder.begin()
+    #expect(cancel.isCancelled)
+}
+
+@Test func existingUsageDirectoryGetsPrivatePermissions() throws {
+    let scratch = try Scratch()
+    defer { scratch.remove() }
+    let folder = scratch.url.appendingPathComponent("Beeline")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+    let usage = Usage(file: folder.appendingPathComponent("usage.json"))
+    usage.record(cleanupItem, query: "cleanup")
+    usage.flush()
+    let attributes = try FileManager.default.attributesOfItem(atPath: folder.path)
+    #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o700)
 }
 
 @Test func usageDirectoryIsCreatedWithPrivatePermissions() throws {

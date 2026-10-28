@@ -545,11 +545,11 @@ final class Catalogue {
             }
             var left = PlanStep(text: "Open the app \(ScreenText.quote(item.title)) and put it on the left half of the screen", icon: item.icon, run: {})
             left.cancellableRun = { Accessibility.openAndPlace(url, .left, cancel: $0) }
-            left.settleTime = 5
+            left.settleTime = 3
             left.succeeded = launched
             var right = PlanStep(text: "Open the app \(ScreenText.quote(item.title)) and put it on the right half of the screen", icon: item.icon, run: {})
             right.cancellableRun = { Accessibility.openAndPlace(url, .right, cancel: $0) }
-            right.settleTime = 5
+            right.settleTime = 3
             right.succeeded = launched
             options += [left, right]
         }

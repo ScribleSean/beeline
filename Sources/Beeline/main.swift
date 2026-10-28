@@ -4,9 +4,12 @@ import SwiftUI
 Settings.registerDefaults()
 Planner.ignoreBrokenPipes()
 
-if Demo.requested != nil, ProcessInfo.processInfo.environment["BEELINE_USAGE_FILE"] == nil {
-    setenv("BEELINE_USAGE_FILE", FileManager.default.temporaryDirectory.appendingPathComponent("beeline-live-check-usage.json").path, 1)
-    setenv("BEELINE_ALIASES_FILE", FileManager.default.temporaryDirectory.appendingPathComponent("beeline-live-check-aliases.json").path, 1)
+if Demo.requested != nil {
+    Usage.fileOverride = ProcessInfo.processInfo.environment["BEELINE_USAGE_FILE"].map { URL(fileURLWithPath: $0) }
+        ?? FileManager.default.temporaryDirectory.appendingPathComponent("beeline-live-check-usage.json")
+    if ProcessInfo.processInfo.environment["BEELINE_USAGE_FILE"] == nil {
+        setenv("BEELINE_ALIASES_FILE", FileManager.default.temporaryDirectory.appendingPathComponent("beeline-live-check-aliases.json").path, 1)
+    }
 }
 
 let knownFlags: [String: Int] = ["--query": 1, "--rewrite": 2, "--controls": 1, "--preview": 2, "--preview-welcome": 1,
@@ -15,8 +18,9 @@ let knownFlags: [String: Int] = ["--query": 1, "--rewrite": 2, "--controls": 1, 
 if let flag = CommandLine.arguments.dropFirst().first(where: { $0.hasPrefix("--") }) {
     let position = CommandLine.arguments.firstIndex(of: flag)!
     if let needed = knownFlags[flag], CommandLine.arguments.count > position + needed {
-        if ProcessInfo.processInfo.environment["BEELINE_USAGE_FILE"] == nil {
-            setenv("BEELINE_USAGE_FILE", FileManager.default.temporaryDirectory.appendingPathComponent("beeline-cli-usage.json").path, 1)
+        if Usage.fileOverride == nil {
+            Usage.fileOverride = ProcessInfo.processInfo.environment["BEELINE_USAGE_FILE"].map { URL(fileURLWithPath: $0) }
+                ?? FileManager.default.temporaryDirectory.appendingPathComponent("beeline-cli-usage.json")
         }
     } else {
         print("Unknown or incomplete flag \(flag). Flags: " + knownFlags.keys.sorted().joined(separator: ", "))
@@ -124,6 +128,7 @@ if let flag = CommandLine.arguments.firstIndex(of: "--files"), CommandLine.argum
             print("not run: this chore needs confirming in the bar")
             exit(0)
         }
+        FileTools.exitWhenDone = true
         first.run()
         RunLoop.main.run(until: Date().addingTimeInterval(600))
         print("gave up waiting")
