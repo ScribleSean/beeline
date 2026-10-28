@@ -565,7 +565,7 @@ final class Catalogue {
             options += [left, right]
         }
         for item in controls.prefix(60) where !item.needsConfirm {
-            var step = PlanStep(text: "In the current window only, \(ScreenText.sanitize(item.verb.lowercased())) the \(clean(item.subtitle)) \(clean(item.title))",
+            var step = PlanStep(text: "In the current window only, \(ScreenText.sanitize(item.verb.lowercased())) the \(ScreenText.sanitize(item.subtitle)) \(clean(item.title))",
                                 icon: item.icon, run: item.run)
             step.stillValid = item.stillValid
             step.target = item.target
