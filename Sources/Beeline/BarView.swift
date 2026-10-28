@@ -119,7 +119,7 @@ final class BarModel: ObservableObject {
     @Published var claudeAnswer: String?
 
     @Published var rewritten: String?
-    private var rewriteTarget: pid_t = 0
+    private var rewriteTarget: Rewrite.Selection?
 
     var isShowingPlan: Bool { plan != nil || isAskingClaude || planProblem != nil || claudeAnswer != nil || rewritten != nil }
 
@@ -175,7 +175,7 @@ final class BarModel: ObservableObject {
         clearPlan()
         isAskingClaude = true
         let asked = query
-        rewriteTarget = selection.app
+        rewriteTarget = selection
         planning = Task { @MainActor [weak self] in
             let result = await Rewrite.ask(asked, text: selection.text)
             guard let self, !Task.isCancelled, asked == self.query else { return }
@@ -302,8 +302,7 @@ final class BarModel: ObservableObject {
             onRunPlan(plan)
             return
         }
-        if let rewritten {
-            let target = rewriteTarget
+        if let rewritten, let target = rewriteTarget {
             onRun(Item(id: "rewrite", kind: .calculation, verb: "", title: "", subtitle: "", keywords: "", icon: nil) {
                 Rewrite.replace(with: rewritten, in: target)
             })

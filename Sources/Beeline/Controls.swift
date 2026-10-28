@@ -64,8 +64,6 @@ extension Accessibility {
         let windowSubrole: String = attribute(window, kAXSubroleAttribute) ?? ""
         let windowIsDialog = windowSubrole == "AXDialog" || windowSubrole == "AXSystemDialog"
 
-        var dialogMessage: String?
-
         func walk(_ node: AXUIElement, depth: Int, inDialog: Bool) {
             guard visited < 4000, depth < 40, Date() < deadline else { return }
             visited += 1
@@ -73,10 +71,6 @@ extension Accessibility {
             // A closed menu hides thousands of zero-sized items.
             if role == kAXMenuRole || role == kAXMenuBarRole { return }
             let inDialog = inDialog || role == "AXSheet"
-            if inDialog, dialogMessage == nil, role == kAXStaticTextRole,
-               let text: String = attribute(node, kAXValueAttribute) {
-                dialogMessage = dialogSummary(text)
-            }
             let box = frame(of: node)
             // Containers often report an empty frame while their children are real.
             if let box, box.width > 0, box.height > 0, !box.intersects(windowFrame) { return }
@@ -107,6 +101,7 @@ extension Accessibility {
             walk(window, depth: 0, inDialog: windowIsDialog)
         }
 
+        let dialogMessage = dialogMessage(in: window)
         var counts: [String: Int] = [:]
         for control in found { counts[control.role + control.label, default: 0] += 1 }
         var seen = Set<String>()
@@ -131,16 +126,20 @@ extension Accessibility {
                 }
             }
             item.needsConfirm = !isField && (isIrreversible(control.label) || (control.inDialog && needsConfirmInDialog(control.label)))
-            if item.needsConfirm, control.inDialog, let message = dialogMessage {
+            if item.needsConfirm, control.inDialog, let text = dialogMessage, let message = dialogSummary(text) {
                 item.confirmNote = "“\(message)” (\(appName)). This can't be undone."
             } else if item.needsConfirm, !windowTitle.isEmpty {
                 item.confirmNote = "In “\(windowTitle)” (\(appName)). This can't be undone."
             }
             let expected = control.label, role = control.role
-            item.stillValid = {
-                guard isFrontWindow(window, of: pid) else { return false }
-                let enabled: Bool = attribute(node, kAXEnabledAttribute) ?? true
-                return enabled && label(of: node, role: role) == expected
+            let context = ControlContext(label: expected, windowTitle: windowTitle, dialogMessage: dialogMessage)
+            item.stillValid = controlValidator(expected: context) {
+                guard isFrontWindow(window, of: pid),
+                      let enabled: Bool = attribute(node, kAXEnabledAttribute), enabled,
+                      let currentLabel = label(of: node, role: role),
+                      let currentTitle: String = attribute(window, kAXTitleAttribute) else { return nil }
+                return ControlContext(label: currentLabel, windowTitle: currentTitle,
+                                      dialogMessage: self.dialogMessage(in: window))
             }
             item.target = { frame(of: node) }
             return item
@@ -148,6 +147,39 @@ extension Accessibility {
         Log.append(String(format: "controls: %d in %@ from %d nodes in %.0f ms", items.count, appName, visited,
                           Date().timeIntervalSince(started) * 1000))
         return items
+    }
+
+    struct ControlContext: Equatable {
+        let label: String
+        let windowTitle: String
+        let dialogMessage: String?
+    }
+
+    static func controlValidator(expected: ControlContext, read: @escaping () -> ControlContext?) -> () -> Bool {
+        { read() == expected }
+    }
+
+    /// Keep the full text for validation even when the card only shows a shortened summary.
+    private static func dialogMessage(in window: AXUIElement) -> String? {
+        let subrole: String = attribute(window, kAXSubroleAttribute) ?? ""
+        let deadline = Date().addingTimeInterval(0.6)
+        var visited = 0
+        func walk(_ node: AXUIElement, depth: Int, inDialog: Bool) -> String? {
+            guard visited < 4000, depth < 40, Date() < deadline else { return nil }
+            visited += 1
+            let role: String = attribute(node, kAXRoleAttribute) ?? ""
+            if role == kAXMenuRole || role == kAXMenuBarRole { return nil }
+            let inDialog = inDialog || role == "AXSheet"
+            if inDialog, role == kAXStaticTextRole, let text: String = attribute(node, kAXValueAttribute),
+               dialogSummary(text) != nil { return text }
+            if roles[role] != nil { return nil }
+            let children: [AXUIElement] = attribute(node, kAXChildrenAttribute) ?? []
+            for child in children {
+                if let text = walk(child, depth: depth + 1, inDialog: inDialog) { return text }
+            }
+            return nil
+        }
+        return walk(window, depth: 0, inDialog: subrole == "AXDialog" || subrole == "AXSystemDialog")
     }
 
     private static func label(of node: AXUIElement, role: String) -> String? {

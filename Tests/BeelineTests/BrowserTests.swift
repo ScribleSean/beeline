@@ -25,3 +25,40 @@ import Testing
     }
     #expect(!FileManager.default.fileExists(atPath: "/tmp/beeline-pwned"))
 }
+
+@Test func safariResolutionRefusesDuplicateExactAndFallbackMatches() throws {
+    // Run the production AppleScript resolver against fake tab lists, without opening Safari.
+    let cases = [("{1, 2}", "{1, 2}", "ambiguous"), ("{}", "{1, 2}", "ambiguous"),
+                 ("{2}", "{1, 2}", "ok, 2"), ("{}", "{3}", "ok, 3"), ("{}", "{}", "missing")]
+    for (exact, addresses, expected) in cases {
+        let script = Browser.safariMatchHandler + "\nreturn safariResolver's uniqueSafariMatch(\(exact), \(addresses))"
+        let result = try #require(Browser.osascript(script))
+        #expect(result.trimmingCharacters(in: .whitespacesAndNewlines) == expected)
+    }
+}
+
+@Test(.timeLimit(.minutes(1))) func ambiguousSafariCloseAndSwitchAskForASpecificTab() async {
+    // Both row actions must execute the guarded script and surface the refusal.
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        let lock = NSLock()
+        var reports = 0
+        let safari = Browser(name: "Safari", bundleID: "com.apple.Safari", isSafari: true, execute: { script in
+            #expect(script.contains(Browser.safariMatchHandler))
+            let guardPosition = script.range(of: "if item 1 of choice is not")!.lowerBound
+            let actionPosition = script.range(of: script.contains("close (item 2") ? "close (item 2" : "set current tab to")!.lowerBound
+            #expect(guardPosition < actionPosition)
+            #expect(!script.contains("first tab"))
+            return "ambiguous\n"
+        }, report: { message in
+            #expect(message.contains("Several Safari tabs"))
+            lock.lock()
+            reports += 1
+            let finished = reports == 2
+            lock.unlock()
+            if finished { continuation.resume() }
+        })
+        let rows = safari.items(from: "7\t0\tWeather\thttps://weather.com/\n7\t0\tWeather\thttps://weather.com/\n", icon: nil)
+        rows[1].run()
+        rows[0].close?()
+    }
+}

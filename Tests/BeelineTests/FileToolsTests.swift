@@ -219,6 +219,67 @@ private func entries(of archive: URL) -> [String] {
     #expect(try FileManager.default.contentsOfDirectory(atPath: bin.path).isEmpty)
 }
 
+    @Test(arguments: [true, false]) func replaceRechecksAfterStaging(copying: Bool) throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let bin = try useScratchTrash(scratch)
+        let source = try scratch.file("notes.txt", "new", in: "source")
+        let target = try scratch.file("notes.txt", "old", in: "destination")
+        let destination = target.deletingLastPathComponent()
+        let shown = FileTools.replacements(["notes.txt"], in: destination)
+        var stagedURL: URL?
+        func changeTarget() throws {
+            // Keep the old inode alive so identity reuse cannot hide the replacement.
+            try FileManager.default.moveItem(at: target, to: scratch.url.appendingPathComponent("retired"))
+            try "someone else's".write(to: target, atomically: true, encoding: .utf8)
+        }
+        var io = FileTools.TransferIO()
+        io.copy = { from, to in
+            try FileManager.default.copyItem(at: from, to: to)
+            stagedURL = to
+            try changeTarget()
+        }
+        io.move = { from, to in
+            try FileManager.default.moveItem(at: from, to: to)
+            if from == source {
+                stagedURL = to
+                try changeTarget()
+            }
+        }
+        #expect(FileTools.transfer([source], to: destination, copying: copying, replacing: shown, io: io).isEmpty)
+        #expect(try String(contentsOf: target, encoding: .utf8) == "someone else's")
+        #expect(try String(contentsOf: source, encoding: .utf8) == "new")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: bin.path).isEmpty)
+        let staged = try #require(stagedURL)
+        #expect(!FileManager.default.fileExists(atPath: staged.path))
+        #expect(!FileManager.default.fileExists(atPath: staged.deletingLastPathComponent().path))
+    }
+
+    @Test(arguments: [true, false]) func failedFinalMoveRestoresTheOldItem(copying: Bool) throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let bin = try useScratchTrash(scratch)
+        let source = try scratch.file("notes.txt", "new", in: "source")
+        let target = try scratch.file("notes.txt", "old", in: "destination")
+        let destination = target.deletingLastPathComponent()
+        let shown = FileTools.replacements(["notes.txt"], in: destination)
+        var stagedURL: URL?
+        var io = FileTools.TransferIO()
+        io.move = { from, to in
+            if to == target && from.deletingLastPathComponent() != bin {
+                stagedURL = from
+                throw CocoaError(.fileWriteUnknown)
+            }
+            try FileManager.default.moveItem(at: from, to: to)
+        }
+        #expect(FileTools.transfer([source], to: destination, copying: copying, replacing: shown, io: io).isEmpty)
+        #expect(try String(contentsOf: target, encoding: .utf8) == "old")
+        #expect(try String(contentsOf: source, encoding: .utf8) == "new")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: bin.path).isEmpty)
+        let staged = try #require(stagedURL)
+        #expect(!FileManager.default.fileExists(atPath: staged.deletingLastPathComponent().path))
+    }
+
     @Test func namesThatDifferOnlyInCaseAreOneName() throws {
     let scratch = try Scratch()
     defer { scratch.remove() }
