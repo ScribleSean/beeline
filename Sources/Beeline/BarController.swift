@@ -245,8 +245,11 @@ final class BarController: NSObject, NSWindowDelegate {
     /// ⌘K and the panel's own keys. A key the focused row doesn't offer goes on as usual (⌘↩ then opens).
     private func handleActionShortcut(_ event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
-        // Letters by what they type, like handleEditShortcut, so ⌘K is K on any layout.
-        let letter = event.charactersIgnoringModifiers?.lowercased()
+        // Letters by what they type, like handleEditShortcut, so ⌘K is K on Dvorak; a layout that types no
+        // Latin letter (Russian, Greek) falls back to the key's QWERTY position.
+        let typed = event.charactersIgnoringModifiers?.lowercased()
+        let letter = typed.map { $0.allSatisfy(\.isASCII) } == true ? typed
+            : [kVK_ANSI_K: "k", kVK_ANSI_C: "c", kVK_ANSI_A: "a"][Int(event.keyCode)]
         let isReturn = [kVK_Return, kVK_ANSI_KeypadEnter].contains(Int(event.keyCode))
         // A held key acts once: a repeat of ⇧⌘⌫ would forget the next pick too. A key the row doesn't
         // offer goes on to the text field.
