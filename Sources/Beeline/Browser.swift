@@ -69,6 +69,7 @@ struct Browser {
                             title: title.isEmpty ? host : title, subtitle: shortName, keywords: host, icon: icon) {
                 activate(window: window, tabID: tabID, address: address, title: title)
             }
+            item.link = URL(string: address)
             item.close = {
                 let script: String
                 if isSafari {

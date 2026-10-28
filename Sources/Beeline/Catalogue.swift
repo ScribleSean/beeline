@@ -27,6 +27,7 @@ struct Item: Identifiable {
     var close: (() -> Void)?
     var stillValid: (() -> Bool)?
     var target: (() -> CGRect?)?
+    var link: URL?
 
     var isLearned: Bool {
         if case .learned = source { return true }

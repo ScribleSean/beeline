@@ -101,6 +101,9 @@ Clipboard history stays in memory and ends when Beeline quits. Anything a passwo
 | esc | Back, then close |
 | esc, in any app | Stop what the bee is doing |
 | esc, while holding ⌘Space | Throw away what you said |
+| ⌘K | Actions for the selected result |
+| ⇧⌘C | Copy its path, link or name |
+| ⌘↩ | Show an app or file in Finder |
 | ⇧⌘A | Make what you typed an alias for the selected result |
 | ⇧⌘⌫ | Forget a learned pick or remove an alias |
 
