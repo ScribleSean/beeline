@@ -185,6 +185,8 @@ final class BarController: NSObject, NSWindowDelegate {
     }
 
     private func runStopped(_ reason: RunGuard.Reason) {
+        // A live task means steps were still to come; a stop after that only cancels a slow app launch.
+        if runTask != nil, reason != .replaced { LastRun.shared.stopped(before: runIsPlan ? nil : 0) }
         placementCancel?.cancel()
         placementCancel = nil
         DemoLog.note("stopped", ["reason": "\(reason)"])
@@ -211,6 +213,7 @@ final class BarController: NSObject, NSWindowDelegate {
         placementCancel?.cancel()
         placementCancel = nil
         Log.append("plan stopped at step \(index + 1) of \(plan.steps.count)")
+        LastRun.shared.stopped(before: index)
         DemoLog.note("plan-stopped", ["step": index + 1, "reason": reason])
         runGuard.end(run)
         runTask = nil

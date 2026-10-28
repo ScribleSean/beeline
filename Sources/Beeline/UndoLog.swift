@@ -58,6 +58,16 @@ final class UndoLog {
         }
     }
 
+    /// Bound to the entry Claude was shown, so it can't take back something newer.
+    func planStep(now: Date = Date()) -> PlanStep? {
+        guard let entry = latest(now: now) else { return nil }
+        let id = entry.id
+        return PlanStep(text: "Undo the last thing Beeline did: \(ScreenText.quote(entry.title))",
+                        icon: NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: nil)) { [weak self] in
+            self?.undoLatest(id: id)
+        }
+    }
+
     func hint(now: Date = Date()) -> String? {
         latest(within: Self.offerTime, now: now).map { "“undo” takes back \($0.title)" }
     }

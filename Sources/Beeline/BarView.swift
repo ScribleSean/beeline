@@ -107,6 +107,13 @@ final class BarModel: ObservableObject {
         return Array((picks + found.filter { !picked.contains($0.id) && $0.id != Self.claudeRowID && $0.id != Self.rewriteRowID }).prefix(6))
     }
 
+    /// How a single result reads to Claude in the next request's context; its names are screen text.
+    static func stepText(_ item: Item) -> String {
+        let name = ScreenText.quote(String(item.title.prefix(120)))
+        let what = item.verb.isEmpty ? name : "\(ScreenText.sanitize(item.verb)) \(name)"
+        return item.subtitle.isEmpty ? what : "\(what) (\(ScreenText.quote(String(item.subtitle.prefix(120)))))"
+    }
+
     static let claudeRowID = "ask-claude"
     static let rewriteRowID = "rewrite-selection"
 
@@ -151,7 +158,7 @@ final class BarModel: ObservableObject {
         let row = Item(id: Self.claudeRowID, kind: .action, verb: "", title: question ? "Ask Claude" : "Ask Claude to work it out",
                        subtitle: question ? "answers here in a few seconds" : "takes a few seconds", keywords: "",
                        icon: NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil), run: {})
-        let leads = question || (words >= 5 && (items.first?.isGuess ?? true))
+        let leads = question || (words >= 5 && (items.first?.isGuess ?? true)) || LastRun.shared.isFollowUp(query)
         return leads ? [row] + items : items + [row]
     }
 
@@ -194,7 +201,7 @@ final class BarModel: ObservableObject {
         let asked = query
         let options = catalogue.planOptions(for: asked)
         planning = Task { @MainActor [weak self] in
-            let result = await Planner.plan(for: asked, options: options)
+            let result = await Planner.plan(for: asked, options: options, previous: LastRun.shared.latest())
             guard let self, !Task.isCancelled, asked == self.query else { return }
             self.isAskingClaude = false
             switch result {
@@ -244,6 +251,7 @@ final class BarModel: ObservableObject {
         }
         armedID = nil
         catalogue.recordUse(of: item, query: query)
+        if !item.title.isEmpty { LastRun.shared.record(request: query, steps: [Self.stepText(item)]) }
         onRun(item)
     }
 
@@ -298,6 +306,7 @@ final class BarModel: ObservableObject {
 
     func runSelected() {
         if let plan {
+            LastRun.shared.record(request: query, steps: plan.steps.map(\.text))
             onRunPlan(plan)
             return
         }

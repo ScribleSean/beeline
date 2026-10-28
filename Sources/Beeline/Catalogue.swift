@@ -531,6 +531,7 @@ final class Catalogue {
             let nameWords = Matcher.parse(String(quit.title.dropFirst(5))).tokens
             return nameWords.contains { word in requestWords.contains { $0.hasPrefix(word) || word.hasPrefix($0) } }
         }
+        if let undo = UndoLog.shared.planStep() { options.append(undo) }
         for item in actions where !item.needsConfirm {
             options.append(PlanStep(text: item.title, icon: item.icon, run: item.run))
         }
