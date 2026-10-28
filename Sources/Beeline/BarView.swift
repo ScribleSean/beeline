@@ -146,8 +146,7 @@ final class BarModel: ObservableObject {
             return [row] + items.filter { $0.id != Self.claudeRowID }
         }
         let words = query.split(separator: " ").count
-        // One word is still being typed ("it" on the way to iTerm), except "again".
-        guard words >= 2 || (Usage.normalise(query) == "again" && LastRun.shared.isFollowUp(query)), Settings.isOn(Settings.offerClaude), items.first?.kind != .calculation else { return items }
+        guard Self.offersClaude(for: query), Settings.isOn(Settings.offerClaude), items.first?.kind != .calculation else { return items }
         let question = Self.isPlainQuestion(query, catalogue.isQuestion(query))
         let row = Item(id: Self.claudeRowID, kind: .action, verb: "", title: question ? "Ask Claude" : "Ask Claude to work it out",
                        subtitle: question ? "answers here in a few seconds" : "takes a few seconds", keywords: "",
@@ -157,6 +156,11 @@ final class BarModel: ObservableObject {
         return leads ? [row] + items : items + [row]
     }
 
+    /// One word is still being typed ("it" on the way to iTerm), except "again" right after a plan.
+    static func offersClaude(for query: String, last: LastRun = .shared) -> Bool {
+        query.split(separator: " ").count >= 2 || (Usage.normalise(query.trimmingCharacters(in: .punctuationCharacters)) == "again" && last.isFollowUp(query))
+    }
+
     /// The exact Undo row is the answer to "undo that" and keeps Return. Strong follow-up wording ("now",
     /// "the other") puts Claude first; a pronoun alone does only when nothing on the list clearly matched.
     static func claudeLeads(question: Bool, words: Int, top: Item?, followUp: Bool, strong: Bool = false) -> Bool {
@@ -164,12 +168,16 @@ final class BarModel: ObservableObject {
             || (followUp && words >= 2 && top?.id != "undo" && (strong || (top?.isGuess ?? true)))
     }
 
-    /// "Again?", "now the other window?" or "put it on the right?" right after a run asks to act, so it goes
-    /// to the planner; "is it raining?" still opens like a question.
+    /// "Again?", "now the other window?" or "put it on the right?" right after a plan asks to act, so it goes
+    /// to the planner. Anything that opens like a question ("what was that song again?") stays one.
     static func isPlainQuestion(_ query: String, _ isQuestion: Bool, last: LastRun = .shared) -> Bool {
-        guard isQuestion, !last.isFollowUp(query, strong: true) else { return false }
-        let opensLikeAQuestion = Matcher.isQuestion(query.trimmingCharacters(in: CharacterSet(charactersIn: "?")))
-        return opensLikeAQuestion || !last.isFollowUp(query)
+        guard isQuestion else { return false }
+        let asked = query.trimmingCharacters(in: CharacterSet(charactersIn: "?"))
+        let words = Usage.normalise(asked).split(separator: " ")
+        // "Do the same in Mail" is an order; "do I need a coat again?" is a question.
+        let orders = words.first == "do" && !["i", "you", "we", "they"].contains(words.dropFirst().first ?? "")
+        if Matcher.isQuestion(asked), !orders { return true }
+        return !last.isFollowUp(query)
     }
 
     private func askClaudeQuestion() {

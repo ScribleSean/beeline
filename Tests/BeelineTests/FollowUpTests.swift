@@ -154,3 +154,23 @@ private func ran(leaving undo: UndoLog.Entry?) -> LastRun.Entry {
     #expect(log.latest()?.request == "mail right")
     #expect(log.latest()?.finished == false, "a step that landed before a stop is kept, marked unfinished")
 }
+
+@Test func realQuestionsStayQuestionsRightAfterAPlan() {
+    let log = LastRun()
+    log.begin(run: 1)
+    log.record(run: 1, request: "safari left", steps: ["Move Safari to the left half"])
+    #expect(BarModel.isPlainQuestion("what was that song again?", true, last: log))
+    #expect(BarModel.isPlainQuestion("how do I do the same in Mail?", true, last: log))
+    #expect(!BarModel.isPlainQuestion("do the same in Mail?", true, last: log), "still a request to act")
+    #expect(!BarModel.isPlainQuestion("do the same for Mail", true, last: log))
+    #expect(BarModel.isPlainQuestion("do I need a coat again?", true, last: log))
+}
+
+@Test func aLoneAgainGetsTheClaudeRow() {
+    let log = LastRun()
+    #expect(!BarModel.offersClaude(for: "again?", last: log), "nothing ran, so it's still being typed")
+    log.begin(run: 1)
+    log.record(run: 1, request: "safari left", steps: ["Move Safari to the left half"])
+    for query in ["again", "again?", "Again!", "mute it"] { #expect(BarModel.offersClaude(for: query, last: log), "\(query)") }
+    #expect(!BarModel.offersClaude(for: "it", last: log), "\"it\" on the way to iTerm")
+}
