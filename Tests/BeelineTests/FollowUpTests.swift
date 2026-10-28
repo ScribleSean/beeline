@@ -187,3 +187,19 @@ private func ran(leaving undo: UndoLog.Entry?) -> LastRun.Entry {
     #expect(log.latestID(since: began) == nil, "after the plan's own Undo, it owns nothing")
     #expect(log.planStep(for: ran(leaving: nil)) == nil)
 }
+
+@MainActor @Test func aCheckedStepGetsItsGraceEvenAfterAStop() async {
+    let outcome = UndoOutcome()
+    var undo = PlanStep(text: "Undo", icon: nil, run: {})
+    undo.succeeded = { outcome.value == true }
+    DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { outcome.set(true) }
+    let stopped = Task { @MainActor in
+        withUnsafeCurrentTask { $0?.cancel() }
+        return await undo.tookEffect(within: 2)
+    }
+    #expect(await stopped.value, "the undo landed after the stop, so it is recorded")
+    var never = PlanStep(text: "Open Mail", icon: nil, run: {})
+    never.succeeded = { false }
+    #expect(await !never.tookEffect(within: 0.2))
+    #expect(await PlanStep(text: "Lock", icon: nil, run: {}).tookEffect(within: 0), "no check means it ran")
+}

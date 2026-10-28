@@ -16,6 +16,18 @@ struct PlanStep: Identifiable {
     var stillValid: (() -> Bool)?
     var succeeded: (() -> Bool)?
     var target: (() -> CGRect?)?
+
+    /// Whether it took effect, waiting up to `grace` for its check. A stopped plan's task is cancelled, which
+    /// would end Task.sleep at once, so this waits on the main queue instead and a late landing still counts.
+    @MainActor func tookEffect(within grace: TimeInterval) async -> Bool {
+        guard let succeeded else { return true }
+        let until = Date().addingTimeInterval(grace)
+        while !succeeded() {
+            guard Date() < until else { return false }
+            await withCheckedContinuation { done in DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { done.resume() } }
+        }
+        return true
+    }
 }
 
 struct Plan {

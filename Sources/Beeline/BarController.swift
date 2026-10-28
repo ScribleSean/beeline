@@ -173,11 +173,8 @@ final class BarController: NSObject, NSWindowDelegate {
                 step.run(cancel: cancel)
                 DemoLog.note("pressed", ["title": step.text, "step": index + 1])
                 try? await Task.sleep(nanoseconds: UInt64(step.settleTime * 1_000_000_000))
-                var tookEffect = true
-                if let succeeded = step.succeeded, !succeeded() {
-                    if self.runGuard.isCurrent(run) { try? await Task.sleep(nanoseconds: 2_000_000_000) }
-                    tookEffect = succeeded()
-                }
+                // Same grace after a stop, so an undo that lands late is still recorded.
+                let tookEffect = await step.tookEffect(within: 2)
                 // A stop during the wait still keeps a step that landed. Only this run may write, and a
                 // stopped one never reads as finished.
                 let current = self.runGuard.isCurrent(run)
