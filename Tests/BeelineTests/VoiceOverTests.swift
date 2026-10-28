@@ -11,7 +11,17 @@ private func row(_ id: String, verb: String = "Open", subtitle: String = "Apps",
 }
 
 /// Swaps the announcer for a recorder while `body` runs.
+/// The bar speaks rows only for a typed query and only while open; this also drops a timer or remembered row
+/// left by an earlier test.
+@MainActor private func readyShared() {
+    sharedModel.catalogue.includeFiles = false
+    if sharedModel.query.isEmpty { sharedModel.query = "zq" }
+    sharedModel.isOpen = false
+    sharedModel.isOpen = true
+}
+
 @MainActor private func spoken(_ body: () -> Void) -> [String] {
+    readyShared()
     var heard: [String] = []
     let real = Announce.post
     Announce.post = { text, _ in heard.append(text) }
@@ -159,8 +169,8 @@ private final class Box: @unchecked Sendable {
     model.armedID = nil
     model.results = [row("Mail"), row("Maps")]
     model.selected = 0
-    model.isOpen = false
     let heard = spoken {
+        model.isOpen = false
         model.move(1)
         model.planProblem = "Stopped."
     }
@@ -192,6 +202,8 @@ private final class Box: @unchecked Sendable {
                     keywords: "", icon: nil, run: {})
     #expect(Announce.spoken(clip) == "Paste clipboard item 1, Passwords · now")
     #expect(Announce.row(clip).contains("hunter2"))
+    #expect(Announce.action(clip) == "Paste clipboard item")
+    #expect(Announce.action(row("Safari")) == "Open Safari")
     let rewrite = Item(id: BarModel.rewriteRowID, kind: .action, verb: "", title: "Rewrite the selected text",
                        subtitle: "“my private note”", keywords: "", icon: nil, run: {})
     #expect(Announce.spoken(rewrite) == "Rewrite the selected text")
@@ -201,11 +213,11 @@ private final class Box: @unchecked Sendable {
     let model = sharedModel
     var close = row("Close Tabs", verb: "", subtitle: "Action", confirm: true)
     close.confirmNote = "3 tabs will close."
+    readyShared()
     var heard: [String] = []
     let real = Announce.post
     Announce.post = { text, _ in heard.append(text) }
     defer { Announce.post = real }
-    model.isOpen = true
     model.results = [close]
     model.selected = 0
     model.speakSelection()
@@ -229,4 +241,14 @@ private final class Box: @unchecked Sendable {
         model.move(1)
     }
     #expect(heard == ["Paste clipboard item 1, Notes · now", "Paste clipboard item 2, Notes · now"])
+}
+
+@Test @MainActor func aPendingVoiceActionIsSpokenButListeningIsNot() {
+    let model = sharedModel
+    let heard = spoken {
+        model.voiceNote = "Listening… let go to stop"
+        model.voiceNote = "Open Safari · esc to cancel"
+        model.voiceNote = nil
+    }
+    #expect(heard == ["Open Safari. Escape to cancel."])
 }

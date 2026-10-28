@@ -36,6 +36,12 @@ enum Announce {
         return parts.joined(separator: ", ")
     }
 
+    /// What the bee says as it acts: the full action, but never copied text.
+    static func action(_ item: Item) -> String {
+        if item.kind == .clipboard { return "Paste clipboard item" }
+        return item.verb.isEmpty ? item.title : "\(item.verb) \(item.title)"
+    }
+
     static func confirm(_ item: Item) -> String {
         "\(item.confirmQuestion) \(item.confirmSummary)"
     }

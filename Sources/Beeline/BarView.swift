@@ -107,7 +107,11 @@ final class BarModel: ObservableObject {
 
     /// Set by the bar controller; nothing is spoken for a bar that is not on screen.
     var isOpen = true {
-        didSet { spokenRow = nil }
+        didSet {
+            spokenRow = nil
+            pendingSpeech?.invalidate()
+            pendingSpeech = nil
+        }
     }
     private var spokenRow: String?
     private var pendingSpeech: Timer?
@@ -119,7 +123,9 @@ final class BarModel: ObservableObject {
     /// Typing refreshes on every key, so the top hit is spoken once the typing pauses.
     private func speakSelectionSoon() {
         pendingSpeech?.invalidate()
-        pendingSpeech = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: false) { [weak self] _ in self?.speakSelection() }
+        let timer = Timer(timeInterval: 0.4, repeats: false) { [weak self] _ in self?.speakSelection() }
+        RunLoop.main.add(timer, forMode: .common)
+        pendingSpeech = timer
     }
 
     /// Speaks the selected row only when it changes, so a refresh with the same top hit stays quiet.
@@ -128,7 +134,7 @@ final class BarModel: ObservableObject {
         pendingSpeech = nil
         guard isOpen else { return }
         let text: String
-        if isShowingPlan || armedID != nil {
+        if isShowingPlan || armedID != nil || query.isEmpty {
             spokenRow = nil
             return
         }
@@ -181,7 +187,13 @@ final class BarModel: ObservableObject {
 
     var isShowingPlan: Bool { plan != nil || isAskingClaude || planProblem != nil || claudeAnswer != nil || rewritten != nil }
 
-    @Published var voiceNote: String?
+    /// "Listening" notes stay silent so VoiceOver isn't recorded; a pending voice action is spoken with its way out.
+    @Published var voiceNote: String? {
+        didSet {
+            guard let voiceNote, voiceNote != oldValue, !voiceNote.hasPrefix("Listening") else { return }
+            say(voiceNote.replacingOccurrences(of: " · esc to cancel", with: ". Escape to cancel."))
+        }
+    }
     @Published var voiceLevel: Double?
 
     @Published var tip = BarModel.tips[0]

@@ -120,7 +120,7 @@ final class BarController: NSObject, NSWindowDelegate {
         runTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let landed = await self.bee.fly(to: target, saying: BeeLabel.text(for: item),
-                                               speaking: item.verb.isEmpty ? item.title : "\(item.verb) \(item.title)", from: origin)
+                                               speaking: Announce.action(item), from: origin)
             guard self.runGuard.isCurrent(run) else { return }
             self.runGuard.end(run)
             self.runTask = nil
