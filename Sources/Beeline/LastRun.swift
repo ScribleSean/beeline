@@ -16,21 +16,21 @@ final class LastRun {
     private let lock = NSLock()
     private var entry: Entry?
 
-    func record(request: String, steps: [String], now: Date = Date()) {
+    /// A plan records again after each step that took effect, so the record never lists one still to come.
+    func record(request: String, steps: [String], finished: Bool = true, now: Date = Date()) {
         let request = request.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !request.isEmpty, !steps.isEmpty else { return }
         lock.lock()
-        entry = Entry(request: request, steps: steps, finished: true, at: now)
+        entry = Entry(request: request, steps: steps, finished: finished, at: now)
         lock.unlock()
     }
 
-    /// A plan that stopped keeps only the steps that ran.
-    func stopped(before index: Int) {
+    /// A plan that stopped after some of its steps ran.
+    func markUnfinished() {
         lock.lock()
         defer { lock.unlock() }
         guard let old = entry else { return }
-        let steps = Array(old.steps.prefix(index))
-        entry = steps.isEmpty ? nil : Entry(request: old.request, steps: steps, finished: false, at: old.at)
+        entry = Entry(request: old.request, steps: old.steps, finished: false, at: old.at)
     }
 
     func latest(now: Date = Date()) -> Entry? {

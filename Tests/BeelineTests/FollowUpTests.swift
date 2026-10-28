@@ -14,13 +14,16 @@ private func step(_ text: String) -> PlanStep { PlanStep(text: text, icon: nil, 
 
 @Test func aStoppedPlanKeepsOnlyTheStepsThatRan() {
     let log = LastRun()
-    log.record(request: "tidy up", steps: ["one", "two", "three"])
-    log.stopped(before: 1)
+    // As the controller does: record again after each step that took effect.
+    log.record(request: "tidy up", steps: ["one"], finished: false)
+    #expect(log.latest()?.steps == ["one"], "while it runs, steps still to come aren't listed")
+    log.markUnfinished()
     #expect(log.latest()?.steps == ["one"])
     #expect(log.latest()?.finished == false)
-    log.record(request: "open safari", steps: ["Open \"Safari\""])
-    log.stopped(before: 0)
-    #expect(log.latest() == nil, "stopped before anything ran, so there is nothing to follow up on")
+    log.record(request: "tidy up", steps: ["one", "two"], finished: true)
+    #expect(log.latest()?.finished == true)
+    log.record(request: "", steps: ["x"])
+    #expect(log.latest()?.request == "tidy up", "an empty request records nothing")
 }
 
 @Test func thePromptCarriesTheLastRunSoAFollowUpMakesSense() {
@@ -87,10 +90,13 @@ private func settled(_ step: PlanStep) -> Bool? {
     let undo = Item(id: "undo", kind: .action, verb: "Undo", title: "Mute", subtitle: "Undo", keywords: "", icon: nil, run: {})
     var safari = Item(id: "/Applications/Safari.app", kind: .app, verb: "Open", title: "Safari", subtitle: "App", keywords: "", icon: nil, run: {})
     #expect(!BarModel.claudeLeads(question: false, words: 2, top: undo, followUp: true))
-    #expect(BarModel.claudeLeads(question: false, words: 4, top: safari, followUp: true))
+    #expect(BarModel.claudeLeads(question: false, words: 4, top: safari, followUp: true, strong: true))
+    #expect(!BarModel.claudeLeads(question: false, words: 4, top: safari, followUp: true), "a pronoun alone doesn't beat a clear match")
+    #expect(!BarModel.claudeLeads(question: false, words: 1, top: safari, followUp: true, strong: true), "\"it\" on the way to iTerm")
     #expect(!BarModel.claudeLeads(question: false, words: 4, top: safari, followUp: false))
     safari.isGuess = true
     #expect(BarModel.claudeLeads(question: false, words: 5, top: safari, followUp: false))
+    #expect(BarModel.claudeLeads(question: false, words: 4, top: safari, followUp: true))
 
     let log = LastRun()
     #expect(BarModel.isPlainQuestion("again?", true, last: log))
@@ -99,6 +105,9 @@ private func settled(_ step: PlanStep) -> Bool? {
     #expect(!BarModel.isPlainQuestion("now the other window?", true, last: log))
     #expect(BarModel.isPlainQuestion("is it raining?", true, last: log), "a pronoun alone doesn't make it a follow-up")
     #expect(!BarModel.isPlainQuestion("put it on the right", false, last: log))
+    #expect(!BarModel.isPlainQuestion("put it on the right?", true, last: log))
+    #expect(!BarModel.isPlainQuestion("undo that and put it on the right?", true, last: log))
+    #expect(BarModel.isPlainQuestion("what is that?", true, last: log))
 }
 
 @Test func followUpWordingCountsOnlyWhileTheLastRunIsFresh() {
@@ -121,4 +130,7 @@ private func settled(_ step: PlanStep) -> Bool? {
     #expect(BarModel.stepText(tile) == "Move window \"Docs\" (\"Safari\") to the left half of the screen")
     let app = Item(id: "/Applications/Safari.app", kind: .app, verb: "Open", title: "Safari", subtitle: "App", keywords: "", icon: nil, run: {})
     #expect(BarModel.stepText(app) == #"Open "Safari" ("App")"#)
+    let clip = Item(id: "clip:0:1", kind: .clipboard, verb: "Paste", title: "hunter2 my password", subtitle: "Notes · now",
+                    keywords: "", icon: nil, run: {})
+    #expect(BarModel.stepText(clip) == "Paste a clipboard item", "copied text never reaches Claude this way")
 }

@@ -110,6 +110,8 @@ final class BarModel: ObservableObject {
     /// How a single result reads to Claude in the next request's context; its names are screen text.
     static func stepText(_ item: Item) -> String {
         if let history = item.historyText { return history }
+        // What was copied stays off the network: a follow-up only learns that something was pasted.
+        if item.kind == .clipboard { return "Paste a clipboard item" }
         let name = ScreenText.quote(String(item.title.prefix(120)))
         let what = item.verb.isEmpty ? name : "\(ScreenText.sanitize(item.verb)) \(name)"
         return item.subtitle.isEmpty ? what : "\(what) (\(ScreenText.quote(String(item.subtitle.prefix(120)))))"
@@ -154,23 +156,30 @@ final class BarModel: ObservableObject {
             return [row] + items.filter { $0.id != Self.claudeRowID }
         }
         let words = query.split(separator: " ").count
-        guard words >= 2 || LastRun.shared.isFollowUp(query), Settings.isOn(Settings.offerClaude), items.first?.kind != .calculation else { return items }
+        // One word is still being typed ("it" on the way to iTerm), except "again".
+        guard words >= 2 || (Usage.normalise(query) == "again" && LastRun.shared.isFollowUp(query)), Settings.isOn(Settings.offerClaude), items.first?.kind != .calculation else { return items }
         let question = Self.isPlainQuestion(query, catalogue.isQuestion(query))
         let row = Item(id: Self.claudeRowID, kind: .action, verb: "", title: question ? "Ask Claude" : "Ask Claude to work it out",
                        subtitle: question ? "answers here in a few seconds" : "takes a few seconds", keywords: "",
                        icon: NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil), run: {})
-        let leads = Self.claudeLeads(question: question, words: words, top: items.first, followUp: LastRun.shared.isFollowUp(query))
+        let leads = Self.claudeLeads(question: question, words: words, top: items.first, followUp: LastRun.shared.isFollowUp(query),
+                                     strong: LastRun.shared.isFollowUp(query, strong: true))
         return leads ? [row] + items : items + [row]
     }
 
-    /// The exact Undo row is the answer to "undo that" and keeps Return; any other follow-up goes to Claude first.
-    static func claudeLeads(question: Bool, words: Int, top: Item?, followUp: Bool) -> Bool {
-        question || (words >= 5 && (top?.isGuess ?? true)) || (followUp && top?.id != "undo")
+    /// The exact Undo row is the answer to "undo that" and keeps Return. Strong follow-up wording ("now",
+    /// "the other") puts Claude first; a pronoun alone does only when nothing on the list clearly matched.
+    static func claudeLeads(question: Bool, words: Int, top: Item?, followUp: Bool, strong: Bool = false) -> Bool {
+        question || (words >= 5 && (top?.isGuess ?? true))
+            || (followUp && words >= 2 && top?.id != "undo" && (strong || (top?.isGuess ?? true)))
     }
 
-    /// "Again?" or "now the other window?" right after a run is a request to act, so it goes to the planner.
+    /// "Again?", "now the other window?" or "put it on the right?" right after a run asks to act, so it goes
+    /// to the planner; "is it raining?" still opens like a question.
     static func isPlainQuestion(_ query: String, _ isQuestion: Bool, last: LastRun = .shared) -> Bool {
-        isQuestion && !last.isFollowUp(query, strong: true)
+        guard isQuestion, !last.isFollowUp(query, strong: true) else { return false }
+        let opensLikeAQuestion = Matcher.isQuestion(query.trimmingCharacters(in: CharacterSet(charactersIn: "?")))
+        return opensLikeAQuestion || !last.isFollowUp(query)
     }
 
     private func askClaudeQuestion() {
