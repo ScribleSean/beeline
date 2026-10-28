@@ -694,7 +694,7 @@ private struct PlanSection: View {
                             if let icon = step.icon {
                                 Image(nsImage: icon).resizable().frame(width: 22, height: 22)
                             }
-                            Text(step.text).font(.system(size: 14)).lineLimit(3).truncationMode(.middle)
+                            Text(step.displayText).font(.system(size: 14)).lineLimit(3).truncationMode(.middle)
                                 .fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 0)
                         }

@@ -88,6 +88,15 @@ final class Catalogue {
         refreshAppsIfChanged()
     }
 
+    /// Construct a catalogue from a supplied snapshot without scanning other apps.
+    init(apps: [Item], windows: [Item], quits: [Item], controls: [Item]) {
+        self.aliases = .shared
+        self.apps = apps
+        self.windows = windows
+        self.quits = quits
+        self.controls = controls
+    }
+
     func prepareMeaningNow() {
         semantic.prepare(actions + apps + settings, permanent: true)
     }
