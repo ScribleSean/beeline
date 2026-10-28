@@ -151,4 +151,5 @@ private func tab() -> Item {
     model.performSelectedAction()
     #expect(ran.isEmpty)
     #expect(!model.catalogue.aliases.matches("vfx", row))
+    #expect(BarModel.copyable(row)?.text == file.path)
 }

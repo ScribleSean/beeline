@@ -373,7 +373,8 @@ final class BarModel: ObservableObject {
     }
 
     static func copyable(_ item: Item) -> (title: String, text: String)? {
-        if let path = path(of: item) { return ("Copy path", path) }
+        // A path is still worth copying after the file moves, so only Show in Finder checks it exists.
+        if [.app, .file].contains(item.kind), item.id.hasPrefix("/") { return ("Copy path", item.id) }
         if let link = item.link { return ("Copy link", link.absoluteString) }
         guard item.kind != .clipboard, !item.title.isEmpty else { return nil }
         return ("Copy name", item.title)
