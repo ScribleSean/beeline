@@ -543,15 +543,13 @@ final class Catalogue {
                     (bundleID != nil && $0.bundleIdentifier == bundleID) || $0.bundleURL?.standardizedFileURL == url.standardizedFileURL
                 }
             }
-            var left = PlanStep(text: "Open the app \(ScreenText.quote(item.title)) and put it on the left half of the screen", icon: item.icon) {
-                Accessibility.openAndPlace(url, .left)
-            }
-            left.settleTime = 3
+            var left = PlanStep(text: "Open the app \(ScreenText.quote(item.title)) and put it on the left half of the screen", icon: item.icon, run: {})
+            left.cancellableRun = { Accessibility.openAndPlace(url, .left, cancel: $0) }
+            left.settleTime = 5
             left.succeeded = launched
-            var right = PlanStep(text: "Open the app \(ScreenText.quote(item.title)) and put it on the right half of the screen", icon: item.icon) {
-                Accessibility.openAndPlace(url, .right)
-            }
-            right.settleTime = 3
+            var right = PlanStep(text: "Open the app \(ScreenText.quote(item.title)) and put it on the right half of the screen", icon: item.icon, run: {})
+            right.cancellableRun = { Accessibility.openAndPlace(url, .right, cancel: $0) }
+            right.settleTime = 5
             right.succeeded = launched
             options += [left, right]
         }

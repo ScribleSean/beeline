@@ -553,9 +553,17 @@ enum FileTools {
         finish(made, "video export")
     }
 
+    static func testMode(environment: [String: String]) -> Bool {
+        #if DEBUG
+        return environment["BEELINE_FILES_TEST"] != nil
+        #else
+        return false
+        #endif
+    }
+
     private static func finish(_ made: [URL], _ what: String) {
         Log.append("file tools: \(what) made \(made.count)")
-        if ProcessInfo.processInfo.environment["BEELINE_FILES_TEST"] != nil {
+        if testMode(environment: ProcessInfo.processInfo.environment) {
             print("made: " + made.map(\.lastPathComponent).joined(separator: ", "))
             exit(0)
         }

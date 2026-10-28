@@ -70,7 +70,7 @@ final class Aliases {
     private func save() {
         let snapshot = entries
         saveQueue.async { [file] in
-            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? JSONStore.createPrivateDirectory(file.deletingLastPathComponent())
             if let data = try? JSONEncoder().encode(snapshot) { try? data.write(to: file, options: .atomic) }
         }
         NotificationCenter.default.post(name: Self.changed, object: nil)

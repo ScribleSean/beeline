@@ -102,6 +102,7 @@ final class BarController: NSObject, NSWindowDelegate {
     let runGuard = RunGuard()
     private var runTask: Task<Void, Never>?
     private var runIsPlan = false
+    private var placementCancel: CancelToken?
 
     private var beeOrigin: CGPoint? {
         guard isShown else { return nil }
@@ -145,6 +146,8 @@ final class BarController: NSObject, NSWindowDelegate {
 
     private func execute(_ plan: Plan, from origin: CGPoint?) {
         let run = runGuard.begin()
+        let cancel = CancelToken()
+        placementCancel = cancel
         runIsPlan = true
         runTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 150_000_000)
@@ -160,7 +163,7 @@ final class BarController: NSObject, NSWindowDelegate {
                         return self.reportStop(run, at: index, of: plan, reason: "it changed while I got there")
                     }
                 }
-                step.run()
+                step.run(cancel: cancel)
                 DemoLog.note("pressed", ["title": step.text, "step": index + 1])
                 try? await Task.sleep(nanoseconds: UInt64(step.settleTime * 1_000_000_000))
                 guard self.runGuard.isCurrent(run) else { return }
@@ -173,6 +176,8 @@ final class BarController: NSObject, NSWindowDelegate {
                 }
             }
             guard let self, self.runGuard.isCurrent(run) else { return }
+            cancel.cancel()
+            self.placementCancel = nil
             self.runGuard.end(run)
             self.runTask = nil
             self.bee.leave()
@@ -181,6 +186,8 @@ final class BarController: NSObject, NSWindowDelegate {
     }
 
     private func runStopped(_ reason: RunGuard.Reason) {
+        placementCancel?.cancel()
+        placementCancel = nil
         DemoLog.note("stopped", ["reason": "\(reason)"])
         runTask?.cancel()
         runTask = nil
@@ -202,6 +209,8 @@ final class BarController: NSObject, NSWindowDelegate {
     }
 
     private func reportStop(_ run: Int, at index: Int, of plan: Plan, reason: String) {
+        placementCancel?.cancel()
+        placementCancel = nil
         Log.append("plan stopped at step \(index + 1) of \(plan.steps.count)")
         DemoLog.note("plan-stopped", ["step": index + 1, "reason": reason])
         runGuard.end(run)
@@ -279,7 +288,10 @@ final class BarController: NSObject, NSWindowDelegate {
             guard let self else { return }
             switch state {
             case .listening: self.model.voiceNote = "Listening… let go to stop"
-            case .stopped: self.model.voiceNote = nil
+            case .stopped:
+                self.isListening = false
+                self.model.voiceLevel = nil
+                self.model.voiceNote = nil
             case .unavailable(let reason):
                 self.isListening = false
                 self.model.voiceLevel = nil

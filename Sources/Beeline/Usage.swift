@@ -1,12 +1,12 @@
 import Foundation
 
 final class Usage {
-    private struct Entry: Codable {
+    private struct Entry: Codable, Equatable {
         var count: Int
         var last: Date
     }
 
-    private struct Store: Codable {
+    private struct Store: Codable, Equatable {
         var items: [String: Entry] = [:]
         var queries: [String: [String: Int]] = [:]
         /// Optional, so history saved before it existed still loads.
@@ -17,19 +17,58 @@ final class Usage {
 
     private var store = Store()
     private let file: URL
-    private let saveQueue = DispatchQueue(label: "beeline.usage", qos: .userInitiated)
+    private let saveQueue: DispatchQueue
+    struct IO {
+        var read: (URL) -> Data? = { try? Data(contentsOf: $0) }
+        var write: (Data, URL) -> Void = { data, file in
+            try? JSONStore.createPrivateDirectory(file.deletingLastPathComponent())
+            try? data.write(to: file, options: .atomic)
+        }
+        var remove: (URL) -> Void = { try? FileManager.default.removeItem(at: $0) }
+    }
+    private let io: IO
 
     convenience init() {
         let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Beeline", isDirectory: true)
-        self.init(file: ProcessInfo.processInfo.environment["BEELINE_USAGE_FILE"].map { URL(fileURLWithPath: $0) }
-            ?? folder.appendingPathComponent("usage.json"))
+        self.init(file: Self.historyFile(in: folder, environment: ProcessInfo.processInfo.environment))
     }
 
-    init(file: URL) {
+    static func historyFile(in folder: URL, environment: [String: String]) -> URL {
+        #if DEBUG
+        if let path = environment["BEELINE_USAGE_FILE"] { return URL(fileURLWithPath: path) }
+        #endif
+        return folder.appendingPathComponent("usage.json")
+    }
+
+    init(file: URL, io: IO? = nil,
+         saveQueue: DispatchQueue = DispatchQueue(label: "beeline.usage", qos: .userInitiated)) {
         self.file = file
-        if let saved = JSONStore.read(Store.self, from: file, name: "usage") {
+        self.io = io ?? IO()
+        self.saveQueue = saveQueue
+        if let io {
+            if let data = io.read(file), let saved = try? JSONDecoder().decode(Store.self, from: data) { store = saved }
+        } else if let saved = JSONStore.read(Store.self, from: file, name: "usage") {
             store = saved
+        }
+        let loaded = store
+        prune()
+        if loaded != store { save() }
+    }
+
+    private func prune(now: Date = Date()) {
+        let cutoff = now.addingTimeInterval(-90 * 86_400)
+        store.items = store.items.filter { $0.value.last > cutoff }
+        for (query, picks) in store.queries {
+            let kept = picks.filter { key, _ in
+                guard store.items[key] != nil else { return false }
+                return store.queryLast?[query]?[key].map { $0 > cutoff } ?? true
+            }
+            store.queries[query] = kept.isEmpty ? nil : kept
+        }
+        for (query, dates) in store.queryLast ?? [:] {
+            let kept = dates.filter { store.queries[query]?[$0.key] != nil }
+            store.queryLast?[query] = kept.isEmpty ? nil : kept
         }
     }
 
@@ -62,15 +101,6 @@ final class Usage {
             dates[typed, default: [:]][key] = Date()
             store.queryLast = dates
         }
-        if store.queries.count > 1000 || store.items.count > 3000 {
-            let cutoff = Date().addingTimeInterval(-90 * 86_400)
-            store.items = store.items.filter { $0.value.last > cutoff }
-            store.queries = store.queries.compactMapValues { picks in
-                let kept = picks.filter { store.items[$0.key] != nil }
-                return kept.isEmpty ? nil : kept
-            }
-            store.queryLast = store.queryLast?.filter { store.queries[$0.key] != nil }
-        }
         save()
     }
 
@@ -84,12 +114,10 @@ final class Usage {
     }
 
     private func save() {
+        prune()
         let snapshot = store
-        saveQueue.async { [file] in
-            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if let data = try? JSONEncoder().encode(snapshot) {
-                try? data.write(to: file, options: .atomic)
-            }
+        saveQueue.async { [file, io] in
+            if let data = try? JSONEncoder().encode(snapshot) { io.write(data, file) }
         }
     }
 
@@ -99,7 +127,7 @@ final class Usage {
 
     func forgetEverything() {
         store = Store()
-        try? FileManager.default.removeItem(at: file)
+        saveQueue.async { [file, io] in io.remove(file) }
     }
 
     func timesPicked(_ item: Item, for query: String, now: Date = Date()) -> Int {

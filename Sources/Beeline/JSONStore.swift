@@ -1,6 +1,11 @@
 import Foundation
 
 enum JSONStore {
+    static func createPrivateDirectory(_ folder: URL) throws {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+    }
+
     static func read<T: Decodable>(_ type: T.Type, from file: URL, name: String) -> T? {
         guard let data = try? Data(contentsOf: file) else { return nil }
         do {

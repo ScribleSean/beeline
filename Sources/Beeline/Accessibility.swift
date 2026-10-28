@@ -44,23 +44,39 @@ enum Accessibility {
         return items
     }
 
-    static func openAndPlace(_ url: URL, _ side: Side) {
-        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration()) { app, _ in
-            guard let app else { return }
+    static func openAndPlace(_ url: URL, _ side: Side, cancel: CancelToken) {
+        guard !cancel.isCancelled else { return }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        NSWorkspace.shared.openApplication(at: url, configuration: configuration) { app, _ in
+            guard let app, !cancel.isCancelled else { return }
             DispatchQueue.global(qos: .userInitiated).async {
                 let element = applicationElement(app)
-                for _ in 0..<25 {
+                waitToPlace(cancel: cancel, find: {
                     let windows: [AXUIElement] = attribute(element, kAXWindowsAttribute) ?? []
-                    if let window = windows.first {
-                        DispatchQueue.main.async {
-                            app.activate()
-                            place(window, side)
-                        }
-                        return
-                    }
-                    Thread.sleep(forTimeInterval: 0.2)
-                }
+                    return windows.first
+                }, place: { window in
+                    app.activate()
+                    place(window, side)
+                })
             }
+        }
+    }
+
+    static func waitToPlace<Window>(cancel: CancelToken, find: () -> Window?,
+                                     place: @escaping (Window) -> Void,
+                                     deliver: (@escaping () -> Void) -> Void = { DispatchQueue.main.async(execute: $0) },
+                                     pause: () -> Void = { Thread.sleep(forTimeInterval: 0.2) }) {
+        for _ in 0..<25 {
+            guard !cancel.isCancelled else { return }
+            if let window = find() {
+                deliver {
+                    guard !cancel.isCancelled else { return }
+                    place(window)
+                }
+                return
+            }
+            pause()
         }
     }
 

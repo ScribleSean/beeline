@@ -215,7 +215,6 @@ final class BarModel: ObservableObject {
     }
 
     func clearPlan() {
-        if planning != nil { Planner.cancel() }
         planning?.cancel()
         planning = nil
         plan = nil
