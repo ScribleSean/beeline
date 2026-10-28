@@ -47,3 +47,26 @@ import Testing
     #expect(!Accessibility.sameWindow(nil, one))
     #expect(Accessibility.sameWindow(nil, nil))
 }
+
+@Test func confirmValidationReadsTheQuotedContextAgain() {
+    let expected = Accessibility.ControlContext(label: "Delete", windowTitle: "Draft A", dialogMessage: "Delete A?")
+    var current: Accessibility.ControlContext? = expected
+    let stillValid = Accessibility.controlValidator(expected: expected) { current }
+    #expect(stillValid())
+    current = .init(label: "Delete", windowTitle: "Draft A", dialogMessage: "Delete B?")
+    #expect(!stillValid(), "the same button now deletes another item")
+    current = .init(label: "Delete", windowTitle: "Draft B", dialogMessage: "Delete A?")
+    #expect(!stillValid(), "the quoted window changed")
+    current = .init(label: "Delete", windowTitle: "Draft A", dialogMessage: nil)
+    #expect(!stillValid(), "unreadable dialog text fails closed")
+    current = nil
+    #expect(!stillValid(), "a disabled control or different front window fails closed")
+}
+
+@Test func confirmValidationIncludesTextPastTheCardSummary() {
+    let prefix = String(repeating: "a", count: 130)
+    let expected = Accessibility.ControlContext(label: "Delete", windowTitle: "Mail", dialogMessage: prefix + "A")
+    let current = Accessibility.ControlContext(label: "Delete", windowTitle: "Mail", dialogMessage: prefix + "B")
+    #expect(Accessibility.dialogSummary(expected.dialogMessage!) == Accessibility.dialogSummary(current.dialogMessage!))
+    #expect(!Accessibility.controlValidator(expected: expected, read: { current })())
+}

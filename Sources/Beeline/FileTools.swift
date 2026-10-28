@@ -275,11 +275,19 @@ enum FileTools {
     }
 
     private static func identity(of url: URL) -> NSObject? {
-        (try? url.resourceValues(forKeys: [.fileResourceIdentifierKey]))?.fileResourceIdentifier as? NSObject
+        // URL resource values may be cached across the staging copy. Re-read the current directory entry.
+        var fresh = url
+        fresh.removeAllCachedResourceValues()
+        return (try? fresh.resourceValues(forKeys: [.fileResourceIdentifierKey]))?.fileResourceIdentifier as? NSObject
+    }
+
+    struct TransferIO {
+        var copy: (URL, URL) throws -> Void = { try FileManager.default.copyItem(at: $0, to: $1) }
+        var move: (URL, URL) throws -> Void = { try FileManager.default.moveItem(at: $0, to: $1) }
     }
 
     @discardableResult
-    static func transfer(_ sources: [URL], to destination: URL, copying: Bool, replacing: Replacements, report: Bool = false) -> [URL] {
+    static func transfer(_ sources: [URL], to destination: URL, copying: Bool, replacing: Replacements, report: Bool = false, io: TransferIO = TransferIO()) -> [URL] {
         // "Notes.txt" and "notes.txt" from a case-sensitive disk are one name in a Mac's usual folder, and
         // the second would replace the first.
         var counts: [String: Int] = [:]
@@ -294,7 +302,7 @@ enum FileTools {
             let target = destination.appendingPathComponent(name)
             guard !overlaps(source, target) else { return nil }
             guard FileManager.default.fileExists(atPath: target.path) else {
-                guard (try? deliver(source, to: target, copying: copying)) != nil else { return nil }
+                guard (try? deliver(source, to: target, copying: copying, io: io)) != nil else { return nil }
                 let delivered = identity(of: target)
                 undos.append { takeBack(target, to: source, copying: copying, ifStill: delivered) }
                 return target
@@ -313,18 +321,34 @@ enum FileTools {
                 }
             }
             let staged = scratch.appendingPathComponent(name)
-            guard (try? deliver(source, to: staged, copying: copying)) != nil else { return nil }
+            guard (try? deliver(source, to: staged, copying: copying, io: io)) != nil else { return nil }
+            func returnStaged() {
+                if copying {
+                    try? FileManager.default.removeItem(at: staged)
+                } else {
+                    try? io.move(staged, source)
+                }
+            }
+            guard identity(of: target)?.isEqual(shown) == true else {
+                Log.append("file tools: the item in the way changed while staging, skipped")
+                returnStaged()
+                return nil
+            }
             let trashed: URL?
             do {
                 trashed = try trash(target)
             } catch {
                 Log.append("file tools: could not trash the old item (\((error as NSError).code))")
-                if !copying { try? FileManager.default.moveItem(at: staged, to: source) }
+                returnStaged()
                 return nil
             }
-            guard (try? FileManager.default.moveItem(at: staged, to: target)) != nil else {
+            guard (try? io.move(staged, target)) != nil else {
                 Log.append("file tools: could not put the new item in place")
-                if !copying { try? FileManager.default.moveItem(at: staged, to: source) }
+                if let trashed {
+                    do { try io.move(trashed, target) }
+                    catch { Log.append("file tools: could not restore the old item from \(trashed.path)") }
+                }
+                returnStaged()
                 return nil
             }
             let delivered = identity(of: target)
@@ -359,9 +383,9 @@ enum FileTools {
         }
     }
 
-    private static func deliver(_ source: URL, to target: URL, copying: Bool) throws {
+    private static func deliver(_ source: URL, to target: URL, copying: Bool, io: TransferIO) throws {
         do {
-            if copying { try FileManager.default.copyItem(at: source, to: target) } else { try FileManager.default.moveItem(at: source, to: target) }
+            if copying { try io.copy(source, target) } else { try io.move(source, target) }
         } catch {
             Log.append("file tools: \(copying ? "copy" : "move") failed (\((error as NSError).code))")
             throw error

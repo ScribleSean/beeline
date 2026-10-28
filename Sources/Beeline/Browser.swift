@@ -8,11 +8,17 @@ struct Browser {
     let isSafari: Bool
 
     private let commandQueue: DispatchQueue
+    private let execute: (String) -> String?
+    private let report: (String) -> Void
 
-    init(name: String, bundleID: String, isSafari: Bool) {
+    init(name: String, bundleID: String, isSafari: Bool,
+         execute: @escaping (String) -> String? = { Browser.osascript($0) },
+         report: @escaping (String) -> Void = { Actions.report($0) }) {
         self.name = name
         self.bundleID = bundleID
         self.isSafari = isSafari
+        self.execute = execute
+        self.report = report
         commandQueue = DispatchQueue(label: "beeline.browser." + bundleID, qos: .userInitiated)
     }
 
@@ -66,22 +72,11 @@ struct Browser {
             item.close = {
                 let script: String
                 if isSafari {
-                    let url = Self.quoted(address), name = Self.quoted(title)
-                    script = """
-                    tell application "Safari"
-                        tell window id \(window)
-                            if (count of (tabs whose URL is \(url) and name is \(name))) > 0 then
-                                close (first tab whose URL is \(url) and name is \(name))
-                            else if (count of (tabs whose URL is \(url))) is 1 then
-                                close (first tab whose URL is \(url))
-                            end if
-                        end tell
-                    end tell
-                    """
+                    script = Self.safariCommand(window: window, address: address, title: title, closing: true)
                 } else {
                     script = "tell application \"\(name)\" to close tab id \(tabID) of window id \(window)"
                 }
-                commandQueue.async { _ = Self.osascript(script) }
+                commandQueue.async { runCommand(script) }
             }
             return item
         }
@@ -144,15 +139,9 @@ struct Browser {
     private func activate(window: Int, tabID: Int, address: String, title: String) {
         let select: String
         if isSafari {
-            select = """
-                tell window id \(window)
-                    try
-                        set current tab to (first tab whose URL is \(Self.quoted(address)) and name is \(Self.quoted(title)))
-                    on error
-                        set current tab to (first tab whose URL is \(Self.quoted(address)))
-                    end try
-                end tell
-                """
+            let script = Self.safariCommand(window: window, address: address, title: title, closing: false)
+            commandQueue.async { runCommand(script) }
+            return
         } else {
             select = """
                 set w to window id \(window)
@@ -171,7 +160,43 @@ struct Browser {
             activate
         end tell
         """
-        commandQueue.async { _ = Self.osascript(script) }
+        commandQueue.async { runCommand(script) }
+    }
+
+    private func runCommand(_ script: String) {
+        if execute(script)?.trimmingCharacters(in: .whitespacesAndNewlines) == "ambiguous" {
+            report("Several Safari tabs match this page. Make the tab you mean unique, then try again, or select it in Safari.")
+        }
+    }
+
+    // This handler is also exercised with plain lists, without contacting Safari.
+    static let safariMatchHandler = """
+    script safariResolver
+    on uniqueSafariMatch(exactMatches, addressMatches)
+        if (count of exactMatches) > 1 then return {"ambiguous"}
+        if (count of exactMatches) is 1 then return {"ok", item 1 of exactMatches}
+        if (count of addressMatches) > 1 then return {"ambiguous"}
+        if (count of addressMatches) is 1 then return {"ok", item 1 of addressMatches}
+        return {"missing"}
+    end uniqueSafariMatch
+    end script
+    """
+
+    static func safariCommand(window: Int, address: String, title: String, closing: Bool) -> String {
+        """
+        \(safariMatchHandler)
+        tell application "Safari"
+            tell window id \(window)
+                set exactMatches to (get tabs whose URL is \(quoted(address)) and name is \(quoted(title)))
+                set addressMatches to (get tabs whose URL is \(quoted(address)))
+                set choice to safariResolver's uniqueSafariMatch(exactMatches, addressMatches)
+                if item 1 of choice is not "ok" then return item 1 of choice
+                \(closing ? "close (item 2 of choice)" : "set current tab to (item 2 of choice)")
+            end tell
+            \(closing ? "" : "set index of window id \(window) to 1\nactivate")
+        end tell
+        return "ok"
+        """
     }
 
     /// Runs AppleScript in a child process so it is safe off the main thread. AppleScript's own Apple
