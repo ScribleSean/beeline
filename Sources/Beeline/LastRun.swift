@@ -24,12 +24,12 @@ final class LastRun {
         lock.unlock()
     }
 
-    /// A plan that stopped keeps only the steps that ran; nil when the stop doesn't know which step it was.
-    func stopped(before index: Int?) {
+    /// A plan that stopped keeps only the steps that ran.
+    func stopped(before index: Int) {
         lock.lock()
         defer { lock.unlock() }
         guard let old = entry else { return }
-        let steps = index.map { Array(old.steps.prefix($0)) } ?? old.steps
+        let steps = Array(old.steps.prefix(index))
         entry = steps.isEmpty ? nil : Entry(request: old.request, steps: steps, finished: false, at: old.at)
     }
 
@@ -47,7 +47,7 @@ final class LastRun {
     }
 
     private static let leadWords: Set<String> = ["now", "also", "then", "and"]
-    private static let phrases = ["the other", "the same", "again", "instead"]
+    private static let phrases = ["the other", "the same", "again", "instead", "it", "that", "them"]
 
     /// Wording that leans on what just ran, so the Claude row should come first.
     func isFollowUp(_ query: String, now: Date = Date()) -> Bool {

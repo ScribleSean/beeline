@@ -109,6 +109,7 @@ final class BarModel: ObservableObject {
 
     /// How a single result reads to Claude in the next request's context; its names are screen text.
     static func stepText(_ item: Item) -> String {
+        if let history = item.historyText { return history }
         let name = ScreenText.quote(String(item.title.prefix(120)))
         let what = item.verb.isEmpty ? name : "\(ScreenText.sanitize(item.verb)) \(name)"
         return item.subtitle.isEmpty ? what : "\(what) (\(ScreenText.quote(String(item.subtitle.prefix(120)))))"
@@ -153,7 +154,7 @@ final class BarModel: ObservableObject {
             return [row] + items.filter { $0.id != Self.claudeRowID }
         }
         let words = query.split(separator: " ").count
-        guard words >= 2, Settings.isOn(Settings.offerClaude), items.first?.kind != .calculation else { return items }
+        guard words >= 2 || LastRun.shared.isFollowUp(query), Settings.isOn(Settings.offerClaude), items.first?.kind != .calculation else { return items }
         let question = catalogue.isQuestion(query)
         let row = Item(id: Self.claudeRowID, kind: .action, verb: "", title: question ? "Ask Claude" : "Ask Claude to work it out",
                        subtitle: question ? "answers here in a few seconds" : "takes a few seconds", keywords: "",
@@ -251,7 +252,6 @@ final class BarModel: ObservableObject {
         }
         armedID = nil
         catalogue.recordUse(of: item, query: query)
-        if !item.title.isEmpty { LastRun.shared.record(request: query, steps: [Self.stepText(item)]) }
         onRun(item)
     }
 
@@ -306,7 +306,6 @@ final class BarModel: ObservableObject {
 
     func runSelected() {
         if let plan {
-            LastRun.shared.record(request: query, steps: plan.steps.map(\.text))
             onRunPlan(plan)
             return
         }

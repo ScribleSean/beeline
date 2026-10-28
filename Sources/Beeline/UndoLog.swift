@@ -62,10 +62,14 @@ final class UndoLog {
     func planStep(now: Date = Date()) -> PlanStep? {
         guard let entry = latest(now: now) else { return nil }
         let id = entry.id
-        return PlanStep(text: "Undo the last thing Beeline did: \(ScreenText.quote(entry.title))",
-                        icon: NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: nil)) { [weak self] in
+        // Runs in line, not on a background queue like the Undo row, so the plan's next step sees it done.
+        var step = PlanStep(text: "Undo the last thing Beeline did: \(ScreenText.quote(entry.title))",
+                            icon: NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: nil)) { [weak self] in
             self?.undoLatest(id: id)
         }
+        // Something newer replaced it, so the plan stops here instead of carrying on as if it had.
+        step.stillValid = { [weak self] in self?.latest()?.id == id }
+        return step
     }
 
     func hint(now: Date = Date()) -> String? {

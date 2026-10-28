@@ -32,12 +32,14 @@ final class BarController: NSObject, NSWindowDelegate {
             guard let self else { return }
             self.voice.cancel()
             let origin = self.beeOrigin
+            let asked = self.model.query
             self.hide()
-            self.perform(item, from: origin)
+            self.perform(item, from: origin, asked: asked)
         }
         model.onRunPlan = { [weak self] plan in
             guard let self else { return }
             let origin = self.beeOrigin
+            LastRun.shared.record(request: self.model.query, steps: plan.steps.map(\.text))
             self.hide()
             self.execute(plan, from: origin)
         }
@@ -102,6 +104,7 @@ final class BarController: NSObject, NSWindowDelegate {
     let runGuard = RunGuard()
     private var runTask: Task<Void, Never>?
     private var runIsPlan = false
+    private var stepsRun = 0
     private var placementCancel: CancelToken?
 
     private var beeOrigin: CGPoint? {
@@ -109,10 +112,10 @@ final class BarController: NSObject, NSWindowDelegate {
         return CGPoint(x: panel.frame.minX + 34, y: panel.frame.maxY - 41)
     }
 
-    private func perform(_ item: Item, from origin: CGPoint?) {
+    private func perform(_ item: Item, from origin: CGPoint?, asked: String) {
         guard Bee.isEnabled, let find = item.target, item.stillValid?() ?? true, let target = find() else {
             runGuard.stop(.replaced)
-            runNow(item)
+            runNow(item, asked: asked)
             return
         }
         let run = runGuard.begin()
@@ -123,7 +126,7 @@ final class BarController: NSObject, NSWindowDelegate {
             guard self.runGuard.isCurrent(run) else { return }
             self.runGuard.end(run)
             self.runTask = nil
-            if self.runNow(item) {
+            if self.runNow(item, asked: asked) {
                 if landed { self.bee.leave() }
             } else {
                 self.bee.say("It changed, so I left it")
@@ -133,7 +136,7 @@ final class BarController: NSObject, NSWindowDelegate {
     }
 
     @discardableResult
-    private func runNow(_ item: Item) -> Bool {
+    private func runNow(_ item: Item, asked: String) -> Bool {
         guard item.runIfValid() else {
             NSSound.beep()
             Log.append("skipped a \(item.kind) whose target changed")
@@ -141,6 +144,8 @@ final class BarController: NSObject, NSWindowDelegate {
             return false
         }
         DemoLog.note("pressed", ["title": item.title])
+        // A rewrite or a copied answer has no title; it still replaces what came before.
+        if item.title.isEmpty { LastRun.shared.clear() } else { LastRun.shared.record(request: asked, steps: [BarModel.stepText(item)]) }
         return true
     }
 
@@ -149,6 +154,7 @@ final class BarController: NSObject, NSWindowDelegate {
         let cancel = CancelToken()
         placementCancel = cancel
         runIsPlan = true
+        stepsRun = 0
         runTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 150_000_000)
             for (index, step) in plan.steps.enumerated() {
@@ -164,6 +170,7 @@ final class BarController: NSObject, NSWindowDelegate {
                     }
                 }
                 step.run(cancel: cancel)
+                self.stepsRun = index + 1
                 DemoLog.note("pressed", ["title": step.text, "step": index + 1])
                 try? await Task.sleep(nanoseconds: UInt64(step.settleTime * 1_000_000_000))
                 guard self.runGuard.isCurrent(run) else { return }
@@ -171,7 +178,7 @@ final class BarController: NSObject, NSWindowDelegate {
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
                     guard self.runGuard.isCurrent(run) else { return }
                     if !succeeded() {
-                        return self.reportStop(run, at: index, of: plan, reason: "it didn't take effect")
+                        return self.reportStop(run, at: index, of: plan, reason: "it didn't take effect", ran: true)
                     }
                 }
             }
@@ -185,8 +192,8 @@ final class BarController: NSObject, NSWindowDelegate {
     }
 
     private func runStopped(_ reason: RunGuard.Reason) {
-        // A live task means steps were still to come; a stop after that only cancels a slow app launch.
-        if runTask != nil, reason != .replaced { LastRun.shared.stopped(before: runIsPlan ? nil : 0) }
+        // A live plan task means steps were still to come; a stop after that only cancels a slow app launch.
+        if runTask != nil, runIsPlan, reason != .replaced { LastRun.shared.stopped(before: stepsRun) }
         placementCancel?.cancel()
         placementCancel = nil
         DemoLog.note("stopped", ["reason": "\(reason)"])
@@ -209,11 +216,11 @@ final class BarController: NSObject, NSWindowDelegate {
         }
     }
 
-    private func reportStop(_ run: Int, at index: Int, of plan: Plan, reason: String) {
+    private func reportStop(_ run: Int, at index: Int, of plan: Plan, reason: String, ran: Bool = false) {
         placementCancel?.cancel()
         placementCancel = nil
         Log.append("plan stopped at step \(index + 1) of \(plan.steps.count)")
-        LastRun.shared.stopped(before: index)
+        LastRun.shared.stopped(before: ran ? index + 1 : index)
         DemoLog.note("plan-stopped", ["step": index + 1, "reason": reason])
         runGuard.end(run)
         runTask = nil

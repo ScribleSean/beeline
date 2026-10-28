@@ -27,6 +27,8 @@ struct Item: Identifiable {
     var close: (() -> Void)?
     var stillValid: (() -> Bool)?
     var target: (() -> CGRect?)?
+    /// How this reads to Claude in the next request when the title alone doesn't name what it acted on.
+    var historyText: String?
 
     var isLearned: Bool {
         if case .learned = source { return true }
@@ -234,15 +236,17 @@ final class Catalogue {
 
     private static func tileItems(for window: Item) -> [Item] {
         guard let tile = window.tile else { return [] }
-        let choices: [(String, Accessibility.Side, String)] = [
-            ("Move This Window to the Left Half", .left, "side snap tile put current"),
-            ("Move This Window to the Right Half", .right, "side snap tile put current"),
-            ("Make This Window Fill the Screen", .full, "maximise maximize full big enlarge whole current"),
+        let choices: [(String, Accessibility.Side, String, String)] = [
+            ("Move This Window to the Left Half", .left, "side snap tile put current", "Move %@ to the left half of the screen"),
+            ("Move This Window to the Right Half", .right, "side snap tile put current", "Move %@ to the right half of the screen"),
+            ("Make This Window Fill the Screen", .full, "maximise maximize full big enlarge whole current", "Make %@ fill the screen"),
         ]
-        return choices.map { title, side, keywords in
+        let name = "window \(ScreenText.quote(String(window.title.prefix(120)))) (\(ScreenText.quote(String(window.subtitle.prefix(120)))))"
+        return choices.map { title, side, keywords, history in
             var item = Item(id: "tile:\(title)", kind: .window, verb: "", title: title, subtitle: window.subtitle,
                             keywords: keywords, icon: window.icon) { tile(side) }
             item.target = window.target
+            item.historyText = history.replacingOccurrences(of: "%@", with: name)
             return item
         }
     }

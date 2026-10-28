@@ -101,7 +101,7 @@ enum Planner {
 
     /// The previous request's own text and step names can hold screen text, so each stays on one line.
     private static func context(_ previous: LastRun.Entry, now: Date) -> String {
-        let minutes = Int((now.timeIntervalSince(previous.at) / 60).rounded())
+        let minutes = Int((now.timeIntervalSince(previous.at) / 60).rounded(.down))
         let ago = minutes < 1 ? "just now" : minutes == 1 ? "1 minute ago" : "\(minutes) minutes ago"
         let steps = previous.steps.map { "- \(ScreenText.sanitize($0))" }.joined(separator: "\n")
         return "Previous request (\(ago)): \(ScreenText.quote(previous.request))\nSteps it ran:\n\(steps)\n"
