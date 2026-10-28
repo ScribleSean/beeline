@@ -489,15 +489,14 @@ final class Catalogue {
     func planOptions(for request: String = "") -> [PlanStep] {
         var options: [PlanStep] = []
         func clean(_ title: String) -> String {
-            let flat = title.unicodeScalars.map { $0.properties.generalCategory == .control || $0 == "\"" ? " " : Character($0) }
-            return String(String(flat).split(whereSeparator: \.isWhitespace).joined(separator: " ").prefix(120))
+            ScreenText.quote(String(ScreenText.sanitize(title).split(whereSeparator: \.isWhitespace).joined(separator: " ").prefix(120)))
         }
         let frontName = frontApp?.localizedName
         let ordered = (windows + planOnlyWindows).sorted { a, b in
             (a.isCurrentWindow ? 0 : a.subtitle == frontName ? 1 : 2) < (b.isCurrentWindow ? 0 : b.subtitle == frontName ? 1 : 2)
         }
         for window in ordered.prefix(16) {
-            let name = "window \"\(clean(window.title))\" (\(clean(window.subtitle)))" + (window.isCurrentWindow ? " [the current window]" : "")
+            let name = "window \(clean(window.title)) (\(clean(window.subtitle)))" + (window.isCurrentWindow ? " [the current window]" : "")
             var switchTo = PlanStep(text: "Switch to \(name)", icon: window.icon, run: window.run)
             switchTo.target = window.target
             options.append(switchTo)
@@ -512,7 +511,7 @@ final class Catalogue {
             }
         }
         for tab in tabs.prefix(40) {
-            let name = "tab \"\(clean(tab.title))\" (\(tab.subtitle), \(clean(tab.keywords)))"
+            let name = "tab \(clean(tab.title)) (\(ScreenText.quote(tab.subtitle)), \(clean(tab.keywords)))"
             options.append(PlanStep(text: "Switch to \(name)", icon: tab.icon, run: tab.run))
             if let close = tab.close {
                 options.append(PlanStep(text: "Close \(name)", icon: tab.icon, run: close))
@@ -523,15 +522,18 @@ final class Catalogue {
             let nameWords = Matcher.parse(String(quit.title.dropFirst(5))).tokens
             return nameWords.contains { word in requestWords.contains { $0.hasPrefix(word) || word.hasPrefix($0) } }
         }
-        for item in actions + namedQuits where !item.needsConfirm {
+        for item in actions where !item.needsConfirm {
             options.append(PlanStep(text: item.title, icon: item.icon, run: item.run))
+        }
+        for item in namedQuits where !item.needsConfirm {
+            options.append(PlanStep(text: "Quit \(ScreenText.quote(String(item.title.dropFirst(5))))", icon: item.icon, run: item.run))
         }
         for item in settings {
             options.append(PlanStep(text: "Open \(item.title) settings", icon: item.icon, run: item.run))
         }
         let appsWithWindows = Set((windows + planOnlyWindows).map(\.subtitle))
         for item in apps where !item.keywords.isEmpty || runningAppPaths.contains(item.id) {
-            options.append(PlanStep(text: "Open the app \(item.title)", icon: item.icon, run: item.run))
+            options.append(PlanStep(text: "Open the app \(ScreenText.quote(item.title))", icon: item.icon, run: item.run))
             guard !appsWithWindows.contains(item.title) else { continue }
             let url = URL(fileURLWithPath: item.id)
             // Compared by bundle id, because an app's path can be a link into a system cryptex.
@@ -541,12 +543,12 @@ final class Catalogue {
                     (bundleID != nil && $0.bundleIdentifier == bundleID) || $0.bundleURL?.standardizedFileURL == url.standardizedFileURL
                 }
             }
-            var left = PlanStep(text: "Open the app \(item.title) and put it on the left half of the screen", icon: item.icon) {
+            var left = PlanStep(text: "Open the app \(ScreenText.quote(item.title)) and put it on the left half of the screen", icon: item.icon) {
                 Accessibility.openAndPlace(url, .left)
             }
             left.settleTime = 3
             left.succeeded = launched
-            var right = PlanStep(text: "Open the app \(item.title) and put it on the right half of the screen", icon: item.icon) {
+            var right = PlanStep(text: "Open the app \(ScreenText.quote(item.title)) and put it on the right half of the screen", icon: item.icon) {
                 Accessibility.openAndPlace(url, .right)
             }
             right.settleTime = 3
@@ -554,7 +556,7 @@ final class Catalogue {
             options += [left, right]
         }
         for item in controls.prefix(60) where !item.needsConfirm {
-            var step = PlanStep(text: "In the current window only, \(item.verb.lowercased()) the \(item.subtitle) \"\(clean(item.title))\"",
+            var step = PlanStep(text: "In the current window only, \(ScreenText.sanitize(item.verb.lowercased())) the \(ScreenText.sanitize(item.subtitle)) \(clean(item.title))",
                                 icon: item.icon, run: item.run)
             step.stillValid = item.stillValid
             step.target = item.target
