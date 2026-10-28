@@ -1,7 +1,7 @@
 import Foundation
 
-/// What Beeline last ran from the bar, kept a few minutes so Claude can read a follow-up
-/// such as "now the other window" against it.
+/// The last plan Claude made and ran, kept a few minutes so Claude can read a follow-up such as
+/// "now the other window" against it. A request handled locally is never kept: Claude never saw it.
 final class LastRun {
     struct Entry {
         let request: String
@@ -15,22 +15,24 @@ final class LastRun {
 
     private let lock = NSLock()
     private var entry: Entry?
+    /// The one run allowed to write, so a stopped or replaced plan can't overwrite what came after it.
+    private var owner: Int?
 
-    /// A plan records again after each step that took effect, so the record never lists one still to come.
-    func record(request: String, steps: [String], finished: Bool = true, now: Date = Date()) {
-        let request = request.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !request.isEmpty, !steps.isEmpty else { return }
+    /// A plan starts: the run before it no longer reads as "that", even if this one fails before step 1.
+    func begin(run: Int) {
         lock.lock()
-        entry = Entry(request: request, steps: steps, finished: finished, at: now)
+        entry = nil
+        owner = run
         lock.unlock()
     }
 
-    /// A plan that stopped after some of its steps ran.
-    func markUnfinished() {
+    /// A plan records again after each step that took effect, so the record never lists one still to come.
+    func record(run: Int, request: String, steps: [String], finished: Bool = true, now: Date = Date()) {
+        let request = request.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !request.isEmpty, !steps.isEmpty else { return }
         lock.lock()
-        defer { lock.unlock() }
-        guard let old = entry else { return }
-        entry = Entry(request: old.request, steps: old.steps, finished: false, at: old.at)
+        if owner == run { entry = Entry(request: request, steps: steps, finished: finished, at: now) }
+        lock.unlock()
     }
 
     func latest(now: Date = Date()) -> Entry? {
@@ -40,9 +42,11 @@ final class LastRun {
         return entry
     }
 
+    /// Something ran that Claude didn't plan, so nothing is kept and no earlier plan may write.
     func clear() {
         lock.lock()
         entry = nil
+        owner = nil
         lock.unlock()
     }
 

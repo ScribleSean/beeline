@@ -57,7 +57,6 @@ final class UndoLog {
             DispatchQueue.global(qos: .userInitiated).async { self?.undoLatest(id: id) }
         }
         item.stillValid = { [weak self] in self?.latest()?.id == id }
-        item.historyText = "Undo \(ScreenText.quote(entry.title))"
         return item
     }
 

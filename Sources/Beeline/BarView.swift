@@ -107,16 +107,6 @@ final class BarModel: ObservableObject {
         return Array((picks + found.filter { !picked.contains($0.id) && $0.id != Self.claudeRowID && $0.id != Self.rewriteRowID }).prefix(6))
     }
 
-    /// How a single result reads to Claude in the next request's context; its names are screen text.
-    static func stepText(_ item: Item) -> String {
-        if let history = item.historyText { return history }
-        // What was copied stays off the network: a follow-up only learns that something was pasted.
-        if item.kind == .clipboard { return "Paste a clipboard item" }
-        let name = ScreenText.quote(String(item.title.prefix(120)))
-        let what = item.verb.isEmpty ? name : "\(ScreenText.sanitize(item.verb)) \(name)"
-        return item.subtitle.isEmpty ? what : "\(what) (\(ScreenText.quote(String(item.subtitle.prefix(120)))))"
-    }
-
     static let claudeRowID = "ask-claude"
     static let rewriteRowID = "rewrite-selection"
 

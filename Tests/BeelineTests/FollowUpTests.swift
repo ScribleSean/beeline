@@ -7,7 +7,8 @@ private func step(_ text: String) -> PlanStep { PlanStep(text: text, icon: nil, 
 @Test func theLastRunIsForgottenAfterAFewMinutes() {
     let log = LastRun()
     let then = Date()
-    log.record(request: "put safari on the left", steps: ["Move window \"Docs\" (\"Safari\") to the left half of the screen"], now: then)
+    log.begin(run: 1)
+    log.record(run: 1, request: "put safari on the left", steps: ["Move window \"Docs\" (\"Safari\") to the left half of the screen"], now: then)
     #expect(log.latest(now: then.addingTimeInterval(LastRun.lifetime - 1))?.request == "put safari on the left")
     #expect(log.latest(now: then.addingTimeInterval(LastRun.lifetime + 1)) == nil)
 }
@@ -15,14 +16,13 @@ private func step(_ text: String) -> PlanStep { PlanStep(text: text, icon: nil, 
 @Test func aStoppedPlanKeepsOnlyTheStepsThatRan() {
     let log = LastRun()
     // As the controller does: record again after each step that took effect.
-    log.record(request: "tidy up", steps: ["one"], finished: false)
+    log.begin(run: 1)
+    log.record(run: 1, request: "tidy up", steps: ["one"], finished: false)
     #expect(log.latest()?.steps == ["one"], "while it runs, steps still to come aren't listed")
-    log.markUnfinished()
-    #expect(log.latest()?.steps == ["one"])
-    #expect(log.latest()?.finished == false)
-    log.record(request: "tidy up", steps: ["one", "two"], finished: true)
+    #expect(log.latest()?.finished == false, "a stop now leaves it marked unfinished")
+    log.record(run: 1, request: "tidy up", steps: ["one", "two"], finished: true)
     #expect(log.latest()?.finished == true)
-    log.record(request: "", steps: ["x"])
+    log.record(run: 1, request: "", steps: ["x"])
     #expect(log.latest()?.request == "tidy up", "an empty request records nothing")
 }
 
@@ -100,7 +100,8 @@ private func settled(_ step: PlanStep) -> Bool? {
 
     let log = LastRun()
     #expect(BarModel.isPlainQuestion("again?", true, last: log))
-    log.record(request: "safari left", steps: ["Move Safari to the left half"])
+    log.begin(run: 1)
+    log.record(run: 1, request: "safari left", steps: ["Move Safari to the left half"])
     #expect(!BarModel.isPlainQuestion("again?", true, last: log), "goes to the planner, which sees the last run")
     #expect(!BarModel.isPlainQuestion("now the other window?", true, last: log))
     #expect(BarModel.isPlainQuestion("is it raining?", true, last: log), "a pronoun alone doesn't make it a follow-up")
@@ -113,7 +114,8 @@ private func settled(_ step: PlanStep) -> Bool? {
 @Test func followUpWordingCountsOnlyWhileTheLastRunIsFresh() {
     let log = LastRun()
     #expect(!log.isFollowUp("now the other window"))
-    log.record(request: "safari left", steps: ["Move Safari to the left half"])
+    log.begin(run: 1)
+    log.record(run: 1, request: "safari left", steps: ["Move Safari to the left half"])
     for query in ["now the other window", "And do the same for Mail", "the other one", "that again", "also mute",
                   "again?", "put it on the right", "undo that and put it on the right"] {
         #expect(log.isFollowUp(query), "\(query)")
@@ -123,14 +125,25 @@ private func settled(_ step: PlanStep) -> Bool? {
     }
 }
 
-@Test func aSingleResultReadsToClaudeByWhatItActedOn() {
-    var tile = Item(id: "tile:Move This Window to the Left Half", kind: .window, verb: "", title: "Move This Window to the Left Half",
-                    subtitle: "Safari", keywords: "", icon: nil, run: {})
-    tile.historyText = "Move window \"Docs\" (\"Safari\") to the left half of the screen"
-    #expect(BarModel.stepText(tile) == "Move window \"Docs\" (\"Safari\") to the left half of the screen")
-    let app = Item(id: "/Applications/Safari.app", kind: .app, verb: "Open", title: "Safari", subtitle: "App", keywords: "", icon: nil, run: {})
-    #expect(BarModel.stepText(app) == #"Open "Safari" ("App")"#)
-    let clip = Item(id: "clip:0:1", kind: .clipboard, verb: "Paste", title: "hunter2 my password", subtitle: "Notes · now",
-                    keywords: "", icon: nil, run: {})
-    #expect(BarModel.stepText(clip) == "Paste a clipboard item", "copied text never reaches Claude this way")
+@Test func aLocalRunForgetsTheLastPlanAndRecordsNothing() {
+    let log = LastRun()
+    log.begin(run: 1)
+    log.record(run: 1, request: "put safari on the left", steps: ["Move Safari to the left half"])
+    log.clear()
+    #expect(log.latest() == nil, "a local run never reaches Claude, and the plan before it no longer reads as \"that\"")
+    log.record(run: 1, request: "put safari on the left", steps: ["Move Safari to the left half"], finished: false)
+    #expect(log.latest() == nil, "the earlier plan, still settling, can't write over the local run")
+}
+
+@Test func aNewPlanLeavesNoRecordUntilItsFirstStepLands() {
+    let log = LastRun()
+    log.begin(run: 1)
+    log.record(run: 1, request: "safari left", steps: ["one"])
+    log.begin(run: 2)
+    #expect(log.latest() == nil, "a plan that fails or stops before step 1 doesn't leave the old one looking current")
+    log.record(run: 1, request: "safari left", steps: ["one", "two"])
+    #expect(log.latest() == nil, "the replaced plan can't write")
+    log.record(run: 2, request: "mail right", steps: ["Move Mail"], finished: false)
+    #expect(log.latest()?.request == "mail right")
+    #expect(log.latest()?.finished == false, "a step that landed before a stop is kept, marked unfinished")
 }

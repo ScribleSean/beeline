@@ -104,7 +104,6 @@ final class BarController: NSObject, NSWindowDelegate {
     let runGuard = RunGuard()
     private var runTask: Task<Void, Never>?
     private var runIsPlan = false
-    private var stepsRun = 0
     private var placementCancel: CancelToken?
 
     private var beeOrigin: CGPoint? {
@@ -113,6 +112,8 @@ final class BarController: NSObject, NSWindowDelegate {
     }
 
     private func perform(_ item: Item, from origin: CGPoint?, asked: String) {
+        // Handled here without Claude, so it stays here: no follow-up reads it, and the plan before it is gone.
+        LastRun.shared.clear()
         guard Bee.isEnabled, let find = item.target, item.stillValid?() ?? true, let target = find() else {
             runGuard.stop(.replaced)
             runNow(item, asked: asked)
@@ -144,17 +145,15 @@ final class BarController: NSObject, NSWindowDelegate {
             return false
         }
         DemoLog.note("pressed", ["title": item.title])
-        // A rewrite or a copied answer has no title; it still replaces what came before.
-        if item.title.isEmpty { LastRun.shared.clear() } else { LastRun.shared.record(request: asked, steps: [BarModel.stepText(item)]) }
         return true
     }
 
     private func execute(_ plan: Plan, from origin: CGPoint?, asked: String) {
         let run = runGuard.begin()
+        LastRun.shared.begin(run: run)
         let cancel = CancelToken()
         placementCancel = cancel
         runIsPlan = true
-        stepsRun = 0
         runTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 150_000_000)
             for (index, step) in plan.steps.enumerated() {
@@ -172,16 +171,20 @@ final class BarController: NSObject, NSWindowDelegate {
                 step.run(cancel: cancel)
                 DemoLog.note("pressed", ["title": step.text, "step": index + 1])
                 try? await Task.sleep(nanoseconds: UInt64(step.settleTime * 1_000_000_000))
-                guard self.runGuard.isCurrent(run) else { return }
+                var tookEffect = true
                 if let succeeded = step.succeeded, !succeeded() {
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    guard self.runGuard.isCurrent(run) else { return }
-                    if !succeeded() {
-                        return self.reportStop(run, at: index, of: plan, reason: "it didn't take effect")
-                    }
+                    if self.runGuard.isCurrent(run) { try? await Task.sleep(nanoseconds: 2_000_000_000) }
+                    tookEffect = succeeded()
                 }
-                self.stepsRun = index + 1
-                LastRun.shared.record(request: asked, steps: plan.steps.prefix(index + 1).map(\.text), finished: index + 1 == plan.steps.count)
+                // A stop during the wait still keeps a step that landed. Only this run may write, and a
+                // stopped one never reads as finished.
+                let current = self.runGuard.isCurrent(run)
+                if tookEffect {
+                    LastRun.shared.record(run: run, request: asked, steps: plan.steps.prefix(index + 1).map(\.text),
+                                          finished: current && index + 1 == plan.steps.count)
+                }
+                guard current else { return }
+                if !tookEffect { return self.reportStop(run, at: index, of: plan, reason: "it didn't take effect") }
             }
             guard let self, self.runGuard.isCurrent(run) else { return }
             self.runGuard.end(run, pending: plan.steps.contains { $0.cancellableRun != nil } ? cancel : nil)
@@ -193,8 +196,6 @@ final class BarController: NSObject, NSWindowDelegate {
     }
 
     private func runStopped(_ reason: RunGuard.Reason) {
-        // A live plan task means steps were still to come; a stop after that only cancels a slow app launch.
-        if runTask != nil, runIsPlan, stepsRun > 0 { LastRun.shared.markUnfinished() }
         placementCancel?.cancel()
         placementCancel = nil
         DemoLog.note("stopped", ["reason": "\(reason)"])
@@ -221,8 +222,8 @@ final class BarController: NSObject, NSWindowDelegate {
         placementCancel?.cancel()
         placementCancel = nil
         Log.append("plan stopped at step \(index + 1) of \(plan.steps.count)")
-        // The record holds only the steps that took effect, which is none when the first one failed.
-        if index > 0 { LastRun.shared.markUnfinished() }
+        // The record was emptied when this plan began and lists only steps that took effect, each marked
+        // unfinished until the last, so it is empty when step 1 failed and nothing older looks current.
         DemoLog.note("plan-stopped", ["step": index + 1, "reason": reason])
         runGuard.end(run)
         runTask = nil
