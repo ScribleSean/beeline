@@ -35,7 +35,10 @@ struct PlanStep: Identifiable {
     /// Like `tookEffect`, but tells a step still at work (an app that's hung) from one that failed.
     @MainActor func outcome(within grace: TimeInterval) async -> Outcome {
         if await tookEffect(within: grace) { return .tookEffect }
-        return stillRunning?() == true ? .stillRunning : .didNotTakeEffect
+        // Read "still running" first, then check once more: work that finished in between counts as done.
+        let running = stillRunning?() == true
+        if succeeded?() == true { return .tookEffect }
+        return running ? .stillRunning : .didNotTakeEffect
     }
 
     /// Whether it took effect, waiting up to `grace` for its check. A stopped plan's task is cancelled, which

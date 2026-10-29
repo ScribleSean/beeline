@@ -271,3 +271,12 @@ private func ran(leaving undo: UndoLog.Entry?) -> LastRun.Entry {
     #expect(await replaced.outcome(within: 0.5) == .didNotTakeEffect, "nothing to take back is still a failure")
     #expect(PlanStep.Outcome.didNotTakeEffect.stopReason(after: 3) == "it didn't take effect")
 }
+
+@MainActor @Test func anUndoThatFinishesAsTheWaitEndsCountsAsDone() async {
+    var done = false
+    var step = PlanStep(text: "Undo Mute", icon: nil, run: {})
+    step.succeeded = { done }
+    // The undo finishes in the instant between the wait timing out and the running check.
+    step.stillRunning = { done = true; return false }
+    #expect(await step.outcome(within: 0.1) == .tookEffect)
+}
