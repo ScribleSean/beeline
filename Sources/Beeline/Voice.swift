@@ -27,13 +27,26 @@ final class Voice {
     private var generation = 0
 
     convenience init() {
-        let speech = SpeechSession()
-        self.init(io: speech.io)
+        let engine = AVAudioEngine()
+        let speech = SpeechSession(engine: engine)
+        let router = SpeechRouter(recognizer: speech)
+        self.init(io: Voice.IO(authorise: speech.authorise,
+                               begin: { router.begin($0, update: $1, level: $2) },
+                               stop: router.stop, cancel: router.cancel))
+        self.router = router
+        if #available(macOS 26, *) {
+            Task { @MainActor in
+                guard let locale = await AnalyzerSession.readyLocale() else { return }
+                router.analyzer = AnalyzerSession(engine: engine, locale: locale)
+            }
+        }
         NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange,
-                                               object: speech.engine, queue: .main) { [weak self] _ in
+                                               object: engine, queue: .main) { [weak self] _ in
             self?.stop()
         }
     }
+
+    private(set) var router: SpeechRouter?
 
     init(io: IO) { self.io = io }
 
@@ -100,9 +113,10 @@ final class Voice {
 
 }
 
-/// Owns the real microphone and recognition task; tests inject a session without hardware.
-private final class SpeechSession {
-    let engine = AVAudioEngine()
+/// SFSpeechRecognizer on the shared audio engine: the only engine on macOS 14 and 15, and the fallback on
+/// newer systems. Tests inject a session without hardware.
+private final class SpeechSession: SpeechBackend {
+    let engine: AVAudioEngine
     private let recognizer: SFSpeechRecognizer? = {
         if let own = SFSpeechRecognizer(locale: .current), own.supportsOnDeviceRecognition { return own }
         return SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
@@ -111,11 +125,15 @@ private final class SpeechSession {
     private var task: SFSpeechRecognitionTask?
     private var generation = 0
 
-    var io: Voice.IO {
-        Voice.IO(authorise: authorise, begin: begin, stop: stop, cancel: { self.generation += 1; self.task?.cancel(); self.task = nil })
+    init(engine: AVAudioEngine) { self.engine = engine }
+
+    func cancel() {
+        generation += 1
+        task?.cancel()
+        task = nil
     }
 
-    private func authorise(_ done: @escaping (String?) -> Void) {
+    func authorise(_ done: @escaping (String?) -> Void) {
         if SFSpeechRecognizer.authorizationStatus() == .authorized,
            AVCaptureDevice.authorizationStatus(for: .audio) == .authorized { return done(nil) }
         SFSpeechRecognizer.requestAuthorization { status in
@@ -128,15 +146,15 @@ private final class SpeechSession {
         }
     }
 
-    private func stop() {
+    func stop() {
         if engine.isRunning { engine.stop() }
         engine.inputNode.removeTap(onBus: 0)
         request?.endAudio()
         request = nil
     }
 
-    private func begin(_ vocabulary: [String], update: @escaping (String?, Bool, Bool) -> Void,
-                       level: @escaping (Double) -> Void) -> String? {
+    func begin(_ vocabulary: [String], update: @escaping (String?, Bool, Bool) -> Void,
+               level: @escaping (Double) -> Void, failed: @escaping () -> Void) -> String? {
         guard let recognizer, recognizer.isAvailable else { return "Speech recognition isn't available right now." }
         guard recognizer.supportsOnDeviceRecognition else { return "On-device speech recognition isn't available for English on this Mac." }
         generation += 1
