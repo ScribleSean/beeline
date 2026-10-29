@@ -46,6 +46,7 @@ final class BarModel: ObservableObject {
     private var modelPicks: [Item] = []
 
     func refresh() {
+        defer { speakSelectionSoon() }
         let typed = query
         catalogue.refreshFiles(for: typed) { [weak self] in
             if let self, self.query == typed { self.refreshInBackground() }
@@ -87,6 +88,7 @@ final class BarModel: ObservableObject {
                 let selectedID = self.results.indices.contains(self.selected) ? self.results[self.selected].id : nil
                 self.results = self.decorated(self.merged(picks, self.results))
                 self.selected = selectedID.flatMap { id in self.results.firstIndex { $0.id == id } } ?? 0
+                self.speakSelectionSoon()
             }
         }
     }
@@ -100,6 +102,59 @@ final class BarModel: ObservableObject {
         let selectedID = results.indices.contains(selected) ? results[selected].id : nil
         refresh()
         if let selectedID, let index = results.firstIndex(where: { $0.id == selectedID }) { selected = index }
+        speakSelectionSoon()
+    }
+
+    /// Set by the bar controller; nothing is spoken for a bar that is not on screen.
+    var isOpen = true {
+        didSet {
+            spokenRow = nil
+            pendingSpeech?.invalidate()
+            pendingSpeech = nil
+        }
+    }
+    private var spokenRow: String?
+    private var pendingSpeech: Timer?
+
+    /// Spoken at once and at high priority, but only while the bar is on screen.
+    func say(_ text: String) {
+        if isOpen { Announce.say(text, priority: .high) }
+    }
+
+    /// Typing refreshes on every key, so the top hit is spoken once the typing pauses.
+    private func speakSelectionSoon() {
+        pendingSpeech?.invalidate()
+        let timer = Timer(timeInterval: 0.4, repeats: false) { [weak self] _ in self?.speakSelection() }
+        RunLoop.main.add(timer, forMode: .common)
+        pendingSpeech = timer
+    }
+
+    /// Speaks the selected row only when it changes, so a refresh with the same top hit stays quiet.
+    func speakSelection() {
+        pendingSpeech?.invalidate()
+        pendingSpeech = nil
+        guard isOpen, voiceLevel == nil else { return }
+        let text: String
+        if isShowingPlan || armedID != nil || query.isEmpty {
+            spokenRow = nil
+            return
+        }
+        let key: String
+        if results.indices.contains(selected) {
+            let item = results[selected]
+            let number = results[...selected].filter { $0.kind == .clipboard }.count
+            text = Announce.spoken(item, number: number)
+            key = item.id + "\n" + text
+        } else if !query.isEmpty {
+            text = "No results"
+            key = text
+        } else {
+            spokenRow = nil
+            return
+        }
+        guard key != spokenRow else { return }
+        spokenRow = key
+        Announce.say(text)
     }
 
     private func merged(_ picks: [Item], _ found: [Item]) -> [Item] {
@@ -110,21 +165,35 @@ final class BarModel: ObservableObject {
     static let claudeRowID = "ask-claude"
     static let rewriteRowID = "rewrite-selection"
 
-    @Published var plan: Plan?
-    @Published var isAskingClaude = false
-    @Published var planProblem: String?
+    @Published var plan: Plan? {
+        didSet { if let plan { say(Announce.plan(plan)) } }
+    }
+    @Published var isAskingClaude = false {
+        didSet { if isAskingClaude, !oldValue { say("Asking Claude") } }
+    }
+    @Published var planProblem: String? {
+        didSet { if let planProblem { say(planProblem) } }
+    }
     var onRunPlan: (Plan) -> Void = { _ in }
     private var planning: Task<Void, Never>?
 
-    @Published var claudeAnswer: String?
+    @Published var claudeAnswer: String? {
+        didSet { if let claudeAnswer { say(claudeAnswer) } }
+    }
 
-    @Published var rewritten: String?
+    @Published var rewritten: String? {
+        didSet { if let rewritten { say(rewritten) } }
+    }
     private var rewriteTarget: Rewrite.Selection?
 
     var isShowingPlan: Bool { plan != nil || isAskingClaude || planProblem != nil || claudeAnswer != nil || rewritten != nil }
 
+    /// Not spoken on its own: "Listening" must stay silent so the mic doesn't hear VoiceOver; callers announce the rest.
     @Published var voiceNote: String?
-    @Published var voiceLevel: Double?
+    /// Set while the microphone listens; rows wait until it stops so the mic never hears VoiceOver.
+    @Published var voiceLevel: Double? {
+        didSet { if voiceLevel == nil, oldValue != nil { speakSelectionSoon() } }
+    }
 
     @Published var tip = BarModel.tips[0]
     static let tips = [
@@ -252,10 +321,17 @@ final class BarModel: ObservableObject {
         planProblem = nil
         claudeAnswer = nil
         rewritten = nil
+        speakSelectionSoon()
     }
 
     @Published var armedID: String? {
-        didSet { if armedID != nil, armedID != oldValue { armedAt = Date() } }
+        didSet {
+            if armedID == nil, oldValue != nil { speakSelectionSoon() }
+            guard let armedID, armedID != oldValue else { return }
+            armedAt = Date()
+            spokenRow = nil
+            if let armed = results.first(where: { $0.id == armedID }) { say(Announce.confirm(armed)) }
+        }
     }
     private(set) var armedAt = Date.distantPast
 
@@ -295,6 +371,7 @@ final class BarModel: ObservableObject {
         armedID = nil
         guard !results.isEmpty, !isShowingPlan else { return }
         selected = (selected + delta + results.count) % results.count
+        speakSelection()
     }
 
     @discardableResult
@@ -370,8 +447,16 @@ private struct LevelMeter: View {
 
 struct BarView: View {
     @ObservedObject var model: BarModel
+    /// Lets the offscreen preview draw the solid surface without changing system settings.
+    var solidOverride: Bool?
     @FocusState private var focused: Bool
     @AppStorage(Settings.showDetails) private var showDetails = false
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    private var solid: Bool {
+        solidOverride ?? BarSurface.isSolid(increaseContrast: contrast == .increased, reduceTransparency: reduceTransparency)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -404,6 +489,7 @@ struct BarView: View {
                 AnswerCard(item: answer).padding(.top, 8)
                     .contentShape(Rectangle())
                     .onTapGesture { model.run(answer) }
+                    .accessibilityAction { model.run(answer) }
             } else if model.query.isEmpty, let undo = UndoLog.shared.hint() {
                 Text(undo)
                     .font(.system(size: 13))
@@ -430,11 +516,16 @@ struct BarView: View {
                                 .padding(.horizontal, 12)
                                 .padding(.top, index == 0 ? 4 : 8)
                                 .padding(.bottom, 2)
+                                .accessibilityAddTraits(.isHeader)
                         }
                         ResultRow(item: item, isSelected: index == model.selected, isArmed: false)
                             .contentShape(Rectangle())
                             .onHover { inside in if inside { model.selected = index } }
                             .onTapGesture {
+                                model.selected = index
+                                model.run(item)
+                            }
+                            .accessibilityAction {
                                 model.selected = index
                                 model.run(item)
                             }
@@ -518,13 +609,18 @@ struct BarView: View {
         }
         .padding(10)
         .background {
-            ZStack {
-                Glass()
-                Theme.warmth
+            if solid {
+                Color(nsColor: .windowBackgroundColor)
+            } else {
+                ZStack {
+                    Glass()
+                    Theme.warmth
+                }
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Theme.panelEdge, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .strokeBorder(solid ? Color.primary.opacity(0.5) : Theme.panelEdge, lineWidth: 1))
         .shadow(color: .black.opacity(0.2), radius: 28, y: 12)
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -593,10 +689,11 @@ private struct Glass: NSViewRepresentable {
     func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
-private struct ResultRow: View {
+struct ResultRow: View {
     let item: Item
     let isSelected: Bool
     let isArmed: Bool
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         HStack(spacing: 12) {
@@ -613,10 +710,8 @@ private struct ResultRow: View {
                 Text("best guess").foregroundStyle(.tertiary)
             } else if item.isAlias {
                 Text("alias").foregroundStyle(.tertiary)
-                    .accessibilityLabel("your alias")
             } else if item.isLearned {
                 Text("learned").foregroundStyle(.tertiary)
-                    .accessibilityLabel("ranked first because you picked it before")
             }
             Text(item.subtitle)
                 .foregroundStyle(.secondary)
@@ -641,9 +736,13 @@ private struct ResultRow: View {
                     .fill(Theme.raised)
                     .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
                     .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .strokeBorder(isArmed ? Color.red : Theme.yellow, lineWidth: 1.5))
+                        .strokeBorder(isArmed ? Color.red : contrast == .increased ? Theme.accent : Theme.yellow,
+                                      lineWidth: contrast == .increased ? 2 : 1.5))
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Announce.row(item))
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
     @ViewBuilder private var icon: some View {
@@ -732,6 +831,8 @@ private struct PlanSection: View {
                         .background(Theme.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .strokeBorder(index == 0 ? Theme.yellow : Theme.capsuleEdge, lineWidth: index == 0 ? 1.5 : 1))
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Step \(index + 1), \(step.displayText)")
                     }
                 }
 
@@ -755,6 +856,7 @@ private struct PlanSection: View {
                             .background(Theme.yellow, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Run")
                 }
                 .font(.system(size: 12))
                 .padding(.horizontal, 4)
@@ -807,25 +909,16 @@ private struct AnswerCard: View {
         .padding(.vertical, 14)
         .background(Theme.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.yellow, lineWidth: 1.5))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([item.title, item.subtitle, item.keywords].filter { !$0.isEmpty }.joined(separator: ", "))
+        .accessibilityAddTraits(.isButton)
     }
 }
 
-private struct ConfirmCard: View {
+struct ConfirmCard: View {
     let item: Item
     let confirm: () -> Void
     let cancel: () -> Void
-
-    private var trashSummary: String? {
-        guard item.id == "action:Empty Trash",
-              let names = try? FileManager.default.contentsOfDirectory(atPath: NSHomeDirectory() + "/.Trash") else { return nil }
-        let count = names.filter { !$0.hasPrefix(".") }.count
-        return count == 1 ? "1 item will be deleted permanently." : "\(count) items will be deleted permanently."
-    }
-
-    private var ejectSummary: String? {
-        guard item.id == "action:Eject All Disks" else { return nil }
-        return Actions.ejectSummary(Actions.ejectableDisks().map(\.name))
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -838,10 +931,11 @@ private struct ConfirmCard: View {
                     }
                 }
                 .frame(width: 40, height: 40)
+                .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("\((item.verb.isEmpty ? "" : item.verb + " ") + item.title)?")
+                    Text(item.confirmQuestion)
                         .font(.system(size: 16, weight: .semibold))
-                    Text(trashSummary ?? ejectSummary ?? item.confirmNote ?? "This can't be undone.")
+                    Text(item.confirmSummary)
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }
@@ -858,6 +952,7 @@ private struct ConfirmCard: View {
                         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.capsuleEdge, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Cancel")
                 Button(action: confirm) {
                     HStack(spacing: 6) { Text(item.verb.isEmpty ? item.title : item.verb); Text("↩").opacity(0.8) }
                         .font(.system(size: 13, weight: .semibold))
@@ -867,6 +962,7 @@ private struct ConfirmCard: View {
                         .background(Color.red, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(item.verb.isEmpty ? item.title : item.verb)
             }
         }
         .padding(16)

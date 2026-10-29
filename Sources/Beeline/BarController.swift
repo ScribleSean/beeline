@@ -123,7 +123,8 @@ final class BarController: NSObject, NSWindowDelegate {
         runIsPlan = false
         runTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let landed = await self.bee.fly(to: target, saying: BeeLabel.text(for: item), from: origin)
+            let landed = await self.bee.fly(to: target, saying: BeeLabel.text(for: item),
+                                               speaking: Announce.action(item), from: origin)
             guard self.runGuard.isCurrent(run) else { return }
             self.runGuard.end(run)
             self.runTask = nil
@@ -164,7 +165,7 @@ final class BarController: NSObject, NSWindowDelegate {
                     return self.reportStop(run, at: index, of: plan, reason: "it's no longer on screen")
                 }
                 if Bee.isEnabled, let target = step.target?() {
-                    _ = await self.bee.fly(to: target, saying: BeeLabel.text(for: step), from: origin)
+                    _ = await self.bee.fly(to: target, saying: BeeLabel.text(for: step), speaking: step.displayText, from: origin)
                     guard self.runGuard.isCurrent(run) else { return }
                     if let stillValid = step.stillValid, !stillValid() {
                         return self.reportStop(run, at: index, of: plan, reason: "it changed while I got there")
@@ -310,6 +311,7 @@ final class BarController: NSObject, NSWindowDelegate {
                 self.isListening = false
                 self.model.voiceLevel = nil
                 self.model.voiceNote = reason
+                self.model.say(reason)
             }
         }
         voice.start()
@@ -325,6 +327,7 @@ final class BarController: NSObject, NSWindowDelegate {
         model.selected = model.results.firstIndex { $0.id == item.id } ?? 0
         let verb = item.verb.isEmpty ? "Running" : item.verb == "Open" ? "Opening" : item.verb
         model.voiceNote = "\(verb) \(item.title) · esc to cancel"
+        model.say("\(Announce.action(item)). Escape to cancel.")
         DemoLog.note("auto-act", ["title": item.title])
         let timer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: false) { [weak self] _ in
             guard let self, let pending = self.pendingAct, pending.item.id == item.id else { return }
@@ -368,6 +371,7 @@ final class BarController: NSObject, NSWindowDelegate {
 
     func show() {
         isShown = true
+        model.isOpen = true
         voice.cancel()
         model.clearPlan()
         model.newTip()
@@ -408,6 +412,7 @@ final class BarController: NSObject, NSWindowDelegate {
         model.voiceNote = nil
         guard isShown else { return }
         isShown = false
+        model.isOpen = false
         model.clearPlan()
         panel.orderOut(nil)
     }

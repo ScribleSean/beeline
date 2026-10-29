@@ -12,7 +12,8 @@ final class Bee {
     static var pace: Double = 1
 
     @MainActor
-    func fly(to axTarget: CGRect, saying text: String, from origin: CGPoint?) async -> Bool {
+    /// `text` is the short label beside the bee; VoiceOver hears `speaking`, the untruncated action, when given.
+    func fly(to axTarget: CGRect, saying text: String, speaking: String? = nil, from origin: CGPoint?) async -> Bool {
         hideWork?.cancel()
         let frames = NSScreen.screens.map(\.frame)
         guard let primary = NSScreen.screens.first?.frame,
@@ -32,7 +33,7 @@ final class Bee {
         let panel = overlay(on: screen)
         model.screen = screen
         model.ring = nil
-        model.label = text
+        model.show(text, speaking: speaking)
         model.flight = BeeFlight.Path(from: still ? perch : start, to: perch)
         model.flightStart = Date()
         model.duration = duration
@@ -55,7 +56,7 @@ final class Bee {
     @discardableResult
     func say(_ text: String) -> Bool {
         guard model.isShown else { return false }
-        model.label = text
+        model.show(text)
         model.ring = nil
         return true
     }
@@ -109,6 +110,12 @@ final class BeeModel: ObservableObject {
     @Published var isShown = false
     @Published var faceLeftWhenLanded = false
 
+    /// Spoken every time: the bee's panel ignores the mouse, so VoiceOver never lands on it.
+    func show(_ label: String, speaking: String? = nil) {
+        self.label = label
+        Announce.say(speaking ?? label)  // medium: a step label shouldn't cut off what the target app says
+    }
+
     /// AppKit screen coordinates start at the bottom left; the SwiftUI overlay's start at the top left.
     func local(_ point: CGPoint) -> CGPoint {
         CGPoint(x: point.x - screen.minX, y: screen.maxY - point.y)
@@ -121,6 +128,8 @@ final class BeeModel: ObservableObject {
 
 private struct BeeOverlay: View {
     @ObservedObject var model: BeeModel
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
         TimelineView(.animation(minimumInterval: nil, paused: !model.isShown)) { context in
@@ -152,7 +161,7 @@ private struct BeeOverlay: View {
                         .truncationMode(.tail)
                         .padding(.horizontal, 10)
                         .frame(height: 24)
-                        .background(.regularMaterial, in: Capsule())
+                        .background(labelBackground, in: Capsule())
                         .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
                         .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
                         .frame(maxWidth: 260, alignment: onRight ? .leading : .trailing)
@@ -168,6 +177,13 @@ private struct BeeOverlay: View {
         .animation(.easeOut(duration: 0.2), value: model.isShown)
         .animation(.easeOut(duration: 0.15), value: model.label)
         .allowsHitTesting(false)
+        // Kept out of the tree so hit tests at a target never land on this full-screen panel; the bee speaks instead.
+        .accessibilityHidden(true)
+    }
+
+    private var labelBackground: AnyShapeStyle {
+        BarSurface.isSolid(increaseContrast: contrast == .increased, reduceTransparency: reduceTransparency)
+            ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor)) : AnyShapeStyle(.regularMaterial)
     }
 }
 
