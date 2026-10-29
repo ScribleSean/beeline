@@ -8,17 +8,25 @@ final class UndoLog {
         let undo: () -> Void
     }
 
-    static let shared = UndoLog()
+    // An undo that a plan's step records late (mute, volume and dark mode wait on a script) is still the plan's.
+    static let shared = UndoLog { LastRun.shared.adopt(undo: $0.id, at: $0.at) }
     static let lifetime: TimeInterval = 600
     static let offerTime: TimeInterval = 120
 
     private let lock = NSLock()
     private var entry: Entry?
+    private let onRecord: ((Entry) -> Void)?
+
+    init(onRecord: ((Entry) -> Void)? = nil) {
+        self.onRecord = onRecord
+    }
 
     func record(_ title: String, now: Date = Date(), undo: @escaping () -> Void) {
+        let made = Entry(title: title, at: now, undo: undo)
         lock.lock()
-        entry = Entry(title: title, at: now, undo: undo)
+        entry = made
         lock.unlock()
+        onRecord?(made)
     }
 
     func latest(within age: TimeInterval = lifetime, now: Date = Date()) -> Entry? {
@@ -71,10 +79,13 @@ final class UndoLog {
                             icon: NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: nil)) { [weak self] in
             DispatchQueue.global(qos: .userInitiated).async { outcome.set(self?.undoLatest(id: id) != nil) }
         }
-        // The plan waits for it, and stops if something newer replaced the entry.
+        // The plan moves on as soon as it has finished, and stops if something newer replaced the entry.
+        // Still running after the grace (a hung app) reads as unknown, not as "didn't take effect".
         step.succeeded = { outcome.value == true }
+        step.stillRunning = { outcome.value == nil }
         step.stillValid = { [weak self] in self?.latest()?.id == id }
-        step.settleTime = 1
+        step.settleTime = 0
+        step.grace = 3
         return step
     }
 
