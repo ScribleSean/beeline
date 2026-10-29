@@ -275,3 +275,51 @@ private final class Box: @unchecked Sendable {
     RunLoop.main.run(until: Date().addingTimeInterval(0.6))
     #expect(heard == ["Open Notes, Apps"])
 }
+
+@Test @MainActor func theActionPanelSpeaksItsRowsWithoutNamingTheItem() {
+    let model = sharedModel
+    var clip = Item(id: "clip:1", kind: .clipboard, verb: "Paste", title: "secret copied text", subtitle: "Clipboard",
+                    keywords: "", icon: nil, run: {})
+    clip.source = .learned(1)
+    let calc = Item(id: "/System/Applications/Calculator.app", kind: .app, verb: "Open", title: "Calculator",
+                    subtitle: "App", keywords: "", icon: nil, run: {})
+    let heard = spoken {
+        model.closeActions(refreshing: false)
+        model.armedID = nil
+        model.clearPlan()
+        model.results = [calc]
+        model.selected = 0
+        model.toggleActions()
+        model.moveAction(1)
+        model.closeActions(refreshing: false)
+        model.results = [clip]
+        model.selected = 0
+        model.toggleActions()
+        model.moveAction(1)
+        model.closeActions(refreshing: false)
+    }
+    #expect(heard.contains("Actions. Open, Return"))
+    #expect(heard.contains("Copy path, Shift Command C"))
+    #expect(heard.last == "Forget pick, Shift Command Delete")
+    #expect(!heard.contains { $0.contains("secret") })
+}
+
+@Test @MainActor func theListStaysQuietUnderThePanelAndSpeaksAgainWhenItCloses() {
+    let model = sharedModel
+    let calc = Item(id: "/System/Applications/Calculator.app", kind: .app, verb: "Open", title: "Calculator",
+                    subtitle: "App", keywords: "", icon: nil, run: {})
+    let heard = spoken {
+        model.closeActions(refreshing: false)
+        model.armedID = nil
+        model.clearPlan()
+        model.results = [calc]
+        model.selected = 0
+        model.speakSelection()
+        model.toggleActions()
+        model.speakSelection()
+        model.closeActions(refreshing: false)
+        model.speakSelection()
+    }
+    #expect(heard.suffix(2) == ["Actions. Open, Return", "Open Calculator, App"])
+    #expect(heard.filter { $0 == "Open Calculator, App" }.count == 2)
+}

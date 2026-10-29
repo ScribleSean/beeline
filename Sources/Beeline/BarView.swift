@@ -23,9 +23,41 @@ enum Theme {
     static let panelEdge = adaptive(light: NSColor(white: 1, alpha: 0.7), dark: NSColor(white: 1, alpha: 0.1))
 }
 
+/// One row of the ⌘K panel. Each key also works straight from the result list.
+struct BarAction: Identifiable, Equatable {
+    enum ID { case open, copy, reveal, forget, alias }
+    let id: ID
+    let title: String
+    let symbol: String
+
+    var keys: String {
+        switch id {
+        case .open: return "↩"
+        case .copy: return "⇧⌘C"
+        case .reveal: return "⌘↩"
+        case .forget: return "⇧⌘⌫"
+        case .alias: return "⇧⌘A"
+        }
+    }
+
+    var spokenKeys: String {
+        switch id {
+        case .open: return "Return"
+        case .copy: return "Shift Command C"
+        case .reveal: return "Command Return"
+        case .forget: return "Shift Command Delete"
+        case .alias: return "Shift Command A"
+        }
+    }
+}
+
 final class BarModel: ObservableObject {
     @Published var query = "" {
-        didSet { refresh() }
+        didSet {
+            // The text field writes the same text back on focus, which must not close the panel.
+            if query != oldValue { actionTarget = nil }
+            refresh()
+        }
     }
     @Published var results: [Item] = []
     @Published var selected = 0
@@ -94,7 +126,7 @@ final class BarModel: ObservableObject {
     }
 
     func refreshInBackground() {
-        guard !isShowingPlan else { return }
+        guard !isShowingPlan, !showsActions else { return }
         if let armedID {
             if let armed = results.first(where: { $0.id == armedID }), armed.stillValid?() == false { self.armedID = nil }
             return
@@ -133,7 +165,7 @@ final class BarModel: ObservableObject {
     func speakSelection() {
         pendingSpeech?.invalidate()
         pendingSpeech = nil
-        guard isOpen, voiceLevel == nil else { return }
+        guard isOpen, voiceLevel == nil, !showsActions else { return }
         let text: String
         if isShowingPlan || armedID != nil || query.isEmpty {
             spokenRow = nil
@@ -336,6 +368,7 @@ final class BarModel: ObservableObject {
     private(set) var armedAt = Date.distantPast
 
     func run(_ item: Item) {
+        actionTarget = nil
         if item.id == Self.claudeRowID {
             askClaude()
             return
@@ -369,37 +402,134 @@ final class BarModel: ObservableObject {
 
     func move(_ delta: Int) {
         armedID = nil
+        actionTarget = nil
         guard !results.isEmpty, !isShowingPlan else { return }
         selected = (selected + delta + results.count) % results.count
         speakSelection()
     }
 
-    @discardableResult
-    func forgetSelectedPick() -> Bool {
-        guard results.indices.contains(selected) else { return false }
-        let item = results[selected]
+    /// The result the ⌘K panel was opened on. It stays put while the list underneath refreshes.
+    @Published private(set) var actionTarget: Item?
+    @Published var actionSelected = 0
+    /// The panel's rows as they were when it opened, so a row that stops applying can't shift the others.
+    @Published private(set) var panelActions: [BarAction] = []
+    var showsActions: Bool { actionTarget != nil && !isShowingPlan && armedID == nil }
+    var pasteboard = NSPasteboard.general
+    var revealInFinder: (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
+
+    /// What ⌘K and the action shortcuts act on: the panel's row, else the selected one.
+    var focusedItem: Item? {
+        if showsActions, let actionTarget { return actionTarget }
+        guard !isShowingPlan, armedID == nil, results.indices.contains(selected) else { return nil }
+        return results[selected]
+    }
+
+    /// Open first, then the rest in a fixed order. Empty when Open would be the only choice.
+    func actions(for item: Item) -> [BarAction] {
+        guard item.id != Self.claudeRowID, item.id != Self.rewriteRowID, item.kind != .calculation else { return [] }
+        var list = [BarAction(id: .open, title: item.verb.isEmpty ? "Run" : item.verb, symbol: "return")]
+        if let copy = Self.copyable(item) { list.append(BarAction(id: .copy, title: copy.title, symbol: "doc.on.doc")) }
+        if Self.path(of: item) != nil { list.append(BarAction(id: .reveal, title: "Show in Finder", symbol: "folder")) }
         if item.isAlias {
-            catalogue.aliases.remove(query)
-        } else if item.isLearned {
-            catalogue.forgetPick(of: item, query: query)
+            list.append(BarAction(id: .forget, title: "Remove alias", symbol: "minus.circle"))
         } else {
-            return false
+            if item.isLearned { list.append(BarAction(id: .forget, title: "Forget pick", symbol: "arrow.uturn.backward")) }
+            if let alias = Aliases.normalise(query), alias.count <= 12, Catalogue.canHaveAlias(item) {
+                list.append(BarAction(id: .alias, title: "Make “\(alias)” its alias", symbol: "character.cursor.ibeam"))
+            }
         }
-        refresh()
+        return list.count > 1 ? list : []
+    }
+
+    var focusedActions: [BarAction] { focusedItem.map(actions(for:)) ?? [] }
+
+    /// Apps and files carry their path as their id.
+    static func path(of item: Item) -> String? {
+        guard [.app, .file].contains(item.kind), item.id.hasPrefix("/"), FileManager.default.fileExists(atPath: item.id) else { return nil }
+        return item.id
+    }
+
+    static func copyable(_ item: Item) -> (title: String, text: String)? {
+        // A path is still worth copying after the file moves, so only Show in Finder checks it exists.
+        if [.app, .file].contains(item.kind), item.id.hasPrefix("/") { return ("Copy path", item.id) }
+        if let link = item.link { return ("Copy link", link.absoluteString) }
+        guard item.kind != .clipboard, !item.title.isEmpty else { return nil }
+        return ("Copy name", item.title)
+    }
+
+    @discardableResult
+    func toggleActions() -> Bool {
+        if showsActions {
+            closeActions()
+            return true
+        }
+        guard let item = focusedItem, !actions(for: item).isEmpty else { return false }
+        actionSelected = 0
+        panelActions = actions(for: item)
+        actionTarget = item
+        pendingSpeech?.invalidate()
+        pendingSpeech = nil
+        // Never names the row, so a clipboard row's text isn't read out.
+        if let first = panelActions.first { say("Actions. \(first.title), \(first.spokenKeys)") }
         return true
     }
 
-    var canAliasSelected: Bool {
-        guard results.indices.contains(selected), !isShowingPlan, armedID == nil,
-              let alias = Aliases.normalise(query), alias.count <= 12 else { return false }
-        return Catalogue.canHaveAlias(results[selected])
+    func closeActions(refreshing: Bool = true) {
+        guard actionTarget != nil else { return }
+        actionTarget = nil
+        spokenRow = nil  // back on the list, so its row is spoken again
+        if refreshing { refreshInBackground() }
     }
 
+    func moveAction(_ delta: Int) {
+        let count = panelActions.count
+        guard count > 0 else { return }
+        actionSelected = (actionSelected + delta + count) % count
+        let action = panelActions[actionSelected]
+        say("\(action.title), \(action.spokenKeys)")
+    }
+
+    /// The highlighted row runs only if it still applies (a file can vanish while the panel is open).
+    func performSelectedAction() {
+        guard showsActions, panelActions.indices.contains(actionSelected) else { return }
+        perform(panelActions[actionSelected].id)
+    }
+
+    /// Runs one action on the focused row, from the panel or straight from its shortcut. False when that
+    /// row doesn't offer it, so the key goes on to the text field.
     @discardableResult
-    func aliasSelected() -> Bool {
-        guard canAliasSelected else { return false }
-        catalogue.aliases.set(query, for: results[selected])
-        refresh()
+    func perform(_ action: BarAction.ID) -> Bool {
+        guard let item = focusedItem, actions(for: item).contains(where: { $0.id == action }) else { return false }
+        // Read once, before the panel closes, so a check can't fail halfway.
+        let text = Self.copyable(item)?.text, path = Self.path(of: item)
+        if action == .copy, text == nil { return false }
+        if action == .reveal, path == nil { return false }
+        actionTarget = nil
+        switch action {
+        case .open:
+            run(item)
+        case .copy:
+            guard let text else { return false }
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+            onRun(Item(id: "copied", kind: .calculation, verb: "", title: "", subtitle: "", keywords: "", icon: nil, run: {}))
+        case .reveal:
+            guard let path else { return false }
+            let reveal = revealInFinder
+            onRun(Item(id: "revealed", kind: .calculation, verb: "", title: "", subtitle: "", keywords: "", icon: nil) {
+                reveal(URL(fileURLWithPath: path))
+            })
+        case .forget:
+            if item.isAlias {
+                catalogue.aliases.remove(query)
+            } else {
+                catalogue.forgetPick(of: item, query: query)
+            }
+            refresh()
+        case .alias:
+            catalogue.aliases.set(query, for: item)
+            refresh()
+        }
         return true
     }
 
@@ -485,6 +615,10 @@ struct BarView: View {
             } else if let armed = model.results.first(where: { $0.id == model.armedID }) {
                 ConfirmCard(item: armed, confirm: { model.confirmByClick() }, cancel: { model.armedID = nil })
                     .padding(.top, 8)
+            } else if model.showsActions, let target = model.actionTarget {
+                ActionPanel(item: target, actions: model.panelActions, selected: model.actionSelected,
+                            hover: { model.actionSelected = $0 }, choose: { model.perform($0) })
+                    .padding(.top, 8)
             } else if model.results.count == 1, let answer = model.results.first, answer.kind == .calculation {
                 AnswerCard(item: answer).padding(.top, 8)
                     .contentShape(Rectangle())
@@ -534,9 +668,8 @@ struct BarView: View {
                 .padding(.top, 6)
             }
 
-            if showDetails, !model.isShowingPlan, model.results.indices.contains(model.selected),
-               model.results[model.selected].id != BarModel.claudeRowID {
-                DetailStrip(item: model.results[model.selected], searchMilliseconds: model.searchMilliseconds,
+            if showDetails, let item = model.focusedItem, item.id != BarModel.claudeRowID {
+                DetailStrip(item: item, searchMilliseconds: model.searchMilliseconds,
                             modelMilliseconds: model.modelMilliseconds)
             }
 
@@ -579,27 +712,22 @@ struct BarView: View {
 
             if !model.isShowingPlan, model.armedID == nil {
                 HStack(spacing: 16) {
-                    if model.results.count == 1, model.results.first?.kind == .calculation {
+                    if model.showsActions {
+                        Text("↑↓ move")
+                        Text("↩ choose")
+                    } else if model.results.count == 1, model.results.first?.kind == .calculation {
                         Text("↩ copy")
                     } else if !model.results.isEmpty {
                         Text("↑↓ move")
                         Text("↩ open")
-                        if model.results.indices.contains(model.selected) {
-                            let item = model.results[model.selected]
-                            if item.isAlias {
-                                Text("⇧⌘⌫ remove alias")
-                            } else if item.isLearned {
-                                Text("⇧⌘⌫ forget pick")
-                            } else if model.canAliasSelected {
-                                Text("⇧⌘A make “\(Usage.normalise(model.query))” its alias")
-                                    .lineLimit(1)
-                            }
+                        if !model.focusedActions.isEmpty {
+                            Text("⌘K actions")
                         }
                     } else {
                         Text("\(Settings.activeShortcutLabel) opens Beeline anywhere")
                     }
                     Spacer()
-                    Text("esc close")
+                    Text(model.showsActions ? "esc back" : "esc close")
                 }
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
@@ -912,6 +1040,74 @@ private struct AnswerCard: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel([item.title, item.subtitle, item.keywords].filter { !$0.isEmpty }.joined(separator: ", "))
         .accessibilityAddTraits(.isButton)
+    }
+}
+
+private struct ActionPanel: View {
+    let item: Item
+    let actions: [BarAction]
+    let selected: Int
+    let hover: (Int) -> Void
+    let choose: (BarAction.ID) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 10) {
+                if let icon = item.icon {
+                    Image(nsImage: icon).resizable().scaledToFit().frame(width: 18, height: 18)
+                }
+                Text(item.title).fontWeight(.medium).lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 8)
+                Text(item.subtitle).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+            }
+            .font(.system(size: 12))
+            .padding(.horizontal, 12)
+            .padding(.top, 4)
+            .padding(.bottom, 6)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Actions for \(item.title)")
+            .accessibilityAddTraits(.isHeader)
+
+            ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
+                let isSelected = index == selected
+                HStack(spacing: 12) {
+                    Image(systemName: action.symbol)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Theme.accent)
+                        .frame(width: 26, height: 26)
+                        .background(Theme.honeyTile, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    Text(action.title)
+                        .font(.system(size: 14))
+                        .fontWeight(isSelected ? .medium : .regular)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(action.keys)
+                        .font(.system(size: 12))
+                        .foregroundStyle(isSelected ? Theme.accent : Color.secondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 1)
+                        .background(isSelected ? Theme.honeyTile : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 38)
+                .background {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .fill(Theme.raised)
+                            .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+                            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(Theme.yellow, lineWidth: 1.5))
+                    }
+                }
+                .contentShape(Rectangle())
+                .onHover { inside in if inside { hover(index) } }
+                .onTapGesture { choose(action.id) }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(action.title), \(action.spokenKeys)")
+                .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+                .accessibilityAction { choose(action.id) }
+            }
+        }
     }
 }
 

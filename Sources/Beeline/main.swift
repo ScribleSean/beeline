@@ -77,6 +77,13 @@ if let flag = CommandLine.arguments.firstIndex(of: "--preview"), CommandLine.arg
     model.catalogue.includeFiles = false
     model.query = CommandLine.arguments[flag + 1]
     if CommandLine.arguments.contains("arm") { model.runSelected() }
+    if CommandLine.arguments.contains("actions") {
+        if let index = CommandLine.arguments.firstIndex(of: "actions"), CommandLine.arguments.count > index + 1,
+           let row = Int(CommandLine.arguments[index + 1]) { model.actionSelected = row }
+        let row = model.actionSelected
+        model.toggleActions()
+        model.actionSelected = row
+    }
     if CommandLine.arguments.contains("plan") {
         let icon = { (name: String) in NSWorkspace.shared.icon(forFile: "/System/Applications/\(name).app") }
         model.plan = Plan(steps: [

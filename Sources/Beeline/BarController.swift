@@ -58,6 +58,7 @@ final class BarController: NSObject, NSWindowDelegate {
         NotificationCenter.default.addObserver(forName: Actions.failed, object: nil, queue: .main) { [weak self] note in
             guard let self, let message = note.userInfo?["message"] as? String else { return }
             if !self.isShown { self.show() }
+            self.model.closeActions(refreshing: false)
             self.model.clearPlan()
             self.model.planProblem = message
         }
@@ -65,12 +66,20 @@ final class BarController: NSObject, NSWindowDelegate {
             guard let self, self.panel.isKeyWindow else { return event }
             // While an input method is composing (Japanese, Chinese, Korean), Return and Escape belong to it.
             if let editor = self.panel.firstResponder as? NSTextView, editor.hasMarkedText() { return event }
-            if Int(event.keyCode) == kVK_Delete,
-               event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.command, .shift],
-               self.model.forgetSelectedPick() { return nil }
-            if Int(event.keyCode) == kVK_ANSI_A,
-               event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.command, .shift],
-               self.model.aliasSelected() { return nil }
+            // Like any other key, these stop a voice result that is about to run on its own.
+            if self.handleActionShortcut(event) { self.cancelPendingAct(); return nil }
+            if self.model.showsActions {
+                self.cancelPendingAct()
+                switch Int(event.keyCode) {
+                case kVK_Escape: self.model.closeActions(); return nil
+                case kVK_DownArrow: self.model.moveAction(1); return nil
+                case kVK_UpArrow: self.model.moveAction(-1); return nil
+                case kVK_Return, kVK_ANSI_KeypadEnter:
+                    if !event.isARepeat { self.model.performSelectedAction() }
+                    return nil
+                default: break
+                }
+            }
             if self.handleEditShortcut(event) { return nil }
             switch Int(event.keyCode) {
             case kVK_Escape:
@@ -232,6 +241,34 @@ final class BarController: NSObject, NSWindowDelegate {
         if !isShown { show() }
         model.clearPlan()
         model.planProblem = "Stopped at step \(index + 1), “\(plan.steps[index].text)”, because \(reason). Later steps didn't run."
+    }
+
+    /// ⌘K and the panel's own keys. A key the focused row doesn't offer goes on as usual (⌘↩ then opens).
+    private func handleActionShortcut(_ event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        // Letters by what they type, like handleEditShortcut, so ⌘K is K on Dvorak; a layout that types no
+        // Latin letter (Russian, Greek) falls back to the key's QWERTY position.
+        let typed = event.charactersIgnoringModifiers?.lowercased()
+        let letter = typed.map { $0.allSatisfy(\.isASCII) } == true ? typed
+            : [kVK_ANSI_K: "k", kVK_ANSI_C: "c", kVK_ANSI_A: "a"][Int(event.keyCode)]
+        let isReturn = [kVK_Return, kVK_ANSI_KeypadEnter].contains(Int(event.keyCode))
+        // A held key acts once: a repeat of ⇧⌘⌫ would forget the next pick too. A key the row doesn't
+        // offer goes on to the text field.
+        func act(_ action: BarAction.ID) -> Bool {
+            guard model.focusedActions.contains(where: { $0.id == action }) else { return false }
+            return event.isARepeat || model.perform(action)
+        }
+        if modifiers == .command, letter == "k" {
+            if !event.isARepeat { model.toggleActions() }
+            return true
+        }
+        // Inside the panel ⌘↩ is only Show in Finder; on the list it falls back to open.
+        if modifiers == .command, isReturn { return act(.reveal) || model.showsActions }
+        guard modifiers == [.command, .shift] else { return false }
+        if letter == "c" { return act(.copy) }
+        if letter == "a" { return act(.alias) }
+        if Int(event.keyCode) == kVK_Delete { return act(.forget) }
+        return false
     }
 
     /// AppKit routes ⌘C, ⌘V and the rest to a text field through the Edit menu, which Beeline doesn't have.
@@ -413,6 +450,7 @@ final class BarController: NSObject, NSWindowDelegate {
         guard isShown else { return }
         isShown = false
         model.isOpen = false
+        model.closeActions(refreshing: false)
         model.clearPlan()
         panel.orderOut(nil)
     }
