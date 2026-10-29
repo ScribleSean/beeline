@@ -184,7 +184,8 @@ final class BarController: NSObject, NSWindowDelegate {
                 DemoLog.note("pressed", ["title": step.text, "step": index + 1])
                 try? await Task.sleep(nanoseconds: UInt64(step.settleTime * 1_000_000_000))
                 // Same grace after a stop, so an undo that lands late is still recorded.
-                let tookEffect = await step.tookEffect(within: 2)
+                let outcome = await step.outcome(within: step.grace)
+                let tookEffect = outcome == .tookEffect
                 // A stop during the wait still keeps a step that landed. Only this run may write, and a
                 // stopped one never reads as finished.
                 let current = self.runGuard.isCurrent(run)
@@ -194,7 +195,10 @@ final class BarController: NSObject, NSWindowDelegate {
                                           undoID: UndoLog.shared.latestID(since: began))
                 }
                 guard current else { return }
-                if !tookEffect { return self.reportStop(run, at: index, of: plan, reason: "it didn't take effect") }
+                if !tookEffect {
+                    return self.reportStop(run, at: index, of: plan,
+                                           reason: outcome.stopReason(after: step.settleTime + step.grace))
+                }
             }
             guard let self, self.runGuard.isCurrent(run) else { return }
             self.runGuard.end(run, pending: plan.steps.contains { $0.cancellableRun != nil } ? cancel : nil)

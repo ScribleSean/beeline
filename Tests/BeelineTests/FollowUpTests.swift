@@ -216,3 +216,58 @@ private func ran(leaving undo: UndoLog.Entry?) -> LastRun.Entry {
     #expect(await !never.tookEffect(within: 0.2))
     #expect(await PlanStep(text: "Lock", icon: nil, run: {}).tookEffect(within: 0), "no check means it ran")
 }
+
+@MainActor @Test func aPlanKnowsWhenAnAsyncUndoFinished() async {
+    let log = UndoLog()
+    let release = DispatchSemaphore(value: 0)
+    // As mute, volume and dark mode now do: the undo returns only once its script has run.
+    log.record("Mute") { release.wait() }
+    guard let undo = log.planStep(for: ran(leaving: log.latest())) else { Issue.record("no undo step"); return }
+    #expect(undo.settleTime == 0, "no fixed guess at how long it takes")
+    undo.run()
+    try? await Task.sleep(nanoseconds: 100_000_000)
+    #expect(undo.succeeded?() == false, "still running, so not done yet")
+    #expect(undo.stillRunning?() == true)
+    let started = Date()
+    DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) { release.signal() }
+    #expect(await undo.outcome(within: undo.grace) == .tookEffect)
+    #expect(Date().timeIntervalSince(started) < 1.5, "the plan moves on once it finished, well inside the grace")
+}
+
+@Test func aLateUndoFromThePlanIsStillOffered() {
+    let last = LastRun()
+    let log = UndoLog { last.adopt(undo: $0.id, at: $0.at) }
+    let then = Date()
+    last.begin(run: 1)
+    // The step's wait ended before the mute's script recorded its undo.
+    last.record(run: 1, request: "mute", steps: ["Mute"], undoID: log.latestID(since: then), now: then)
+    #expect(last.latest()?.undoID == nil)
+    log.record("Mute", now: then.addingTimeInterval(1.5)) {}
+    #expect(last.latest()?.undoID == log.latest()?.id)
+    #expect(log.planStep(for: last.latest()) != nil, "\"undo that\" can take back the slow mute")
+
+    log.record("Toggle Dark Mode", now: then.addingTimeInterval(LastRun.lateUndo + 1)) {}
+    #expect(log.planStep(for: last.latest()) == nil, "too late to be the plan's")
+    last.clear()
+    log.record("Mute", now: then.addingTimeInterval(2)) {}
+    #expect(last.latest() == nil, "after a local action nothing is adopted")
+}
+
+@MainActor @Test func anUndoOnAHungAppIsUnknownNotFailed() async {
+    let log = UndoLog()
+    let release = DispatchSemaphore(value: 0)
+    log.record("Move Mail to the left half") { release.wait() }
+    guard let hung = log.planStep(for: ran(leaving: log.latest())) else { Issue.record("no undo step"); return }
+    hung.run()
+    let outcome = await hung.outcome(within: 0.2)
+    #expect(outcome == .stillRunning)
+    #expect(outcome.stopReason(after: 3) == "it was still waiting on the app after 3 seconds. It may still finish")
+    release.signal()
+
+    log.record("Move Mail to the left half") {}
+    guard let replaced = log.planStep(for: ran(leaving: log.latest())) else { Issue.record("no undo step"); return }
+    log.record("Mute") {}
+    replaced.run()
+    #expect(await replaced.outcome(within: 0.5) == .didNotTakeEffect, "nothing to take back is still a failure")
+    #expect(PlanStep.Outcome.didNotTakeEffect.stopReason(after: 3) == "it didn't take effect")
+}

@@ -15,7 +15,28 @@ struct PlanStep: Identifiable {
     }
     var stillValid: (() -> Bool)?
     var succeeded: (() -> Bool)?
+    /// True while the step's work is still going, so a check that hasn't passed yet isn't a failure.
+    var stillRunning: (() -> Bool)?
+    /// How long the plan waits for `succeeded` after the settle time.
+    var grace: TimeInterval = 2
     var target: (() -> CGRect?)?
+
+    enum Outcome: Equatable {
+        case tookEffect, didNotTakeEffect, stillRunning
+
+        func stopReason(after seconds: TimeInterval) -> String {
+            switch self {
+            case .stillRunning: return "it was still waiting on the app after \(Int(seconds)) seconds. It may still finish"
+            default: return "it didn't take effect"
+            }
+        }
+    }
+
+    /// Like `tookEffect`, but tells a step still at work (an app that's hung) from one that failed.
+    @MainActor func outcome(within grace: TimeInterval) async -> Outcome {
+        if await tookEffect(within: grace) { return .tookEffect }
+        return stillRunning?() == true ? .stillRunning : .didNotTakeEffect
+    }
 
     /// Whether it took effect, waiting up to `grace` for its check. A stopped plan's task is cancelled, which
     /// would end Task.sleep at once, so this waits on the main queue instead and a late landing still counts.

@@ -14,6 +14,8 @@ final class LastRun {
 
     static let shared = LastRun()
     static let lifetime: TimeInterval = 300
+    /// How long after a plan's last recorded step an undo it set off may still arrive (scripts time out at 15 s).
+    static let lateUndo: TimeInterval = 20
 
     private let lock = NSLock()
     private var entry: Entry?
@@ -34,6 +36,17 @@ final class LastRun {
         guard !request.isEmpty, !steps.isEmpty else { return }
         lock.lock()
         if owner == run { entry = Entry(request: request, steps: steps, finished: finished, at: now, undoID: undoID) }
+        lock.unlock()
+    }
+
+    /// An undo recorded after its step's wait, as a slow mute or dark-mode change does, still belongs to the
+    /// plan. Only while that plan still owns the record, so a local action or a newer plan never lends it one.
+    func adopt(undo id: UUID, at: Date) {
+        lock.lock()
+        if owner != nil, var current = entry, at >= current.at, at <= current.at.addingTimeInterval(Self.lateUndo) {
+            current.undoID = id
+            entry = current
+        }
         lock.unlock()
     }
 

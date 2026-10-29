@@ -148,8 +148,9 @@ enum Actions {
         DispatchQueue.global(qos: .userInitiated).async {
             let before = runScript("output muted of (get volume settings)", what: "read the sound") == "true"
             guard runScript("set volume output muted \(muted)", what: muted ? "mute" : "unmute") != nil, before != muted else { return }
+            // Undos run off the main thread and wait for the script, so a plan knows when it finished.
             UndoLog.shared.record(title) {
-                script("set volume output muted \(before)", what: before ? "mute" : "unmute")
+                _ = runScript("set volume output muted \(before)", what: before ? "mute" : "unmute")
             }
         }
     }
@@ -159,7 +160,7 @@ enum Actions {
             guard let before = runScript("output volume of (get volume settings)", what: "read the volume").flatMap(Int.init),
                   runScript("set volume output volume \(max(0, min(100, before + step)))", what: what) != nil,
                   max(0, min(100, before + step)) != before else { return }
-            UndoLog.shared.record(title) { script("set volume output volume \(before)", what: "put the volume back") }
+            UndoLog.shared.record(title) { _ = runScript("set volume output volume \(before)", what: "put the volume back") }
         }
     }
 
@@ -170,7 +171,7 @@ enum Actions {
                   runScript("\(prefs) set dark mode to \(before == "true" ? "false" : "true")", what: "switch dark mode", app: "System Events") != nil
             else { return }
             UndoLog.shared.record("Toggle Dark Mode") {
-                script("\(prefs) set dark mode to \(before)", what: "switch dark mode back", app: "System Events")
+                _ = runScript("\(prefs) set dark mode to \(before)", what: "switch dark mode back", app: "System Events")
             }
         }
     }
