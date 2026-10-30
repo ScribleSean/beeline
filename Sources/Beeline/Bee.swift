@@ -59,7 +59,7 @@ final class Bee {
         model.faceLeftWhenLanded = target.midX < perch.x
         model.isShown = true
         position = perch
-        panel.orderFrontRegardless()
+        TestRun.orderFront(panel, key: false)
         DemoLog.note("bee-takeoff", ["from": DemoLog.numbers(start), "to": DemoLog.numbers(perch),
                                      "target": DemoLog.numbers(target), "seconds": duration, "label": text])
 

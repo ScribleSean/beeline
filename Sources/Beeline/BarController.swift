@@ -469,7 +469,7 @@ final class BarController: NSObject, NSWindowDelegate {
             panel.setFrame(NSRect(x: visible.midX - size.width / 2, y: top - size.height,
                                   width: size.width, height: size.height), display: true)
         }
-        panel.makeKeyAndOrderFront(nil)
+        TestRun.orderFront(panel)
         if runGuard.isRunning { runGuard.stop(.takeover) }
     }
 
