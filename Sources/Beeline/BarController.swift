@@ -88,6 +88,9 @@ final class BarController: NSObject, NSWindowDelegate {
                         self.model.pasteIntoActionFilter()
                         return nil
                     }
+                    // Cut and undo would change the search under the panel and close it.
+                    if modifiers.contains(.command), modifiers.isSubset(of: [.command, .shift]),
+                       ["x", "z"].contains(event.charactersIgnoringModifiers?.lowercased()) { return nil }
                     if modifiers.isDisjoint(with: [.command, .control]) {
                         if self.model.typeInActions(event.characters ?? "") { return nil }
                         // A dead key (´ then e) would start composing in the search field and close the panel.
