@@ -250,6 +250,8 @@ private func tab() -> Item {
     #expect(model.pasteIntoActionFilter())
     #expect(model.actionFilter.hasPrefix("show finder"))
     #expect(model.actionFilter.count == 64)
+    #expect(model.pasteIntoActionFilter())
+    #expect(model.actionFilter.count == 64)
     model.deleteActionFilter(all: true)
     #expect(model.showsActions)
     model.closeActions(refreshing: false)

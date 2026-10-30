@@ -86,6 +86,8 @@ final class BarController: NSObject, NSWindowDelegate {
                         self.model.deleteActionFilter(all: !modifiers.isSubset(of: .shift))
                         return nil
                     }
+                    // Forward Delete has nothing after the filter to remove, and in the search it closes the panel.
+                    if Int(event.keyCode) == kVK_ForwardDelete { return nil }
                     if modifiers == .command, event.charactersIgnoringModifiers?.lowercased() == "v" {
                         self.model.pasteIntoActionFilter()
                         return nil
@@ -105,6 +107,8 @@ final class BarController: NSObject, NSWindowDelegate {
             if self.handleEditShortcut(event) { return nil }
             switch Int(event.keyCode) {
             case kVK_Escape:
+                // A held Esc acts once, so the repeat after closing the ⌘K panel doesn't also hide the bar.
+                if event.isARepeat { return nil }
                 if self.isListening {
                     self.cancelListening()
                 } else if self.cancelPendingAct() {

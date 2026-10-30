@@ -526,7 +526,7 @@ final class BarModel: ObservableObject {
     }
 
     private func setActionFilter(_ text: String) {
-        actionFilter = text
+        actionFilter = String(text.prefix(64))
         actionSelected = 0
         if let first = visibleActions.first { say("\(first.title), \(first.spokenKeys)") } else { say("No match") }
     }
