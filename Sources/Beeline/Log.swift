@@ -1,7 +1,28 @@
-import Foundation
+import AppKit
+
+/// True inside `swift test`: the process is a test runner (xctest, or swiftpm-testing-helper for Swift Testing)
+/// that loaded an .xctest bundle. The shipped app, a process named Beeline, is never this.
+enum TestRun {
+    static let isActive: Bool = {
+        let process = ProcessInfo.processInfo
+        if ["xctest", "swiftpm-testing-helper"].contains(process.processName) { return true }
+        if process.environment["XCTestConfigurationFilePath"] != nil { return true }
+        return process.arguments.contains { $0.contains(".xctest") }
+            || Bundle.allBundles.contains { $0.bundlePath.hasSuffix(".xctest") }
+    }()
+
+    /// Brings a window front, except under test, where it's built but never put on screen.
+    static func orderFront(_ window: NSWindow?, key: Bool = true, activating: Bool = false) {
+        guard let window, !isActive else { return }
+        if activating { NSApp.activate(ignoringOtherApps: true) }
+        key ? window.makeKeyAndOrderFront(nil) : window.orderFrontRegardless()
+    }
+}
 
 enum Log {
-    private static let path = NSHomeDirectory() + "/Library/Logs/Beeline.log"
+    static let path = TestRun.isActive
+        ? NSTemporaryDirectory() + "Beeline-tests.log"
+        : NSHomeDirectory() + "/Library/Logs/Beeline.log"
 
     static func start(_ line: String) {
         try? (line + "\n").write(toFile: path, atomically: true, encoding: .utf8)
@@ -19,4 +40,7 @@ enum Log {
             try? handle.write(contentsOf: Data((line + "\n").utf8))
         }
     }
+
+    /// Waits for queued lines to land; tests use it to read what was written.
+    static func flush() { queue.sync {} }
 }

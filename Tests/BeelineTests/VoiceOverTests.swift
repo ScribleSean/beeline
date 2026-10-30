@@ -112,6 +112,11 @@ private func row(_ id: String, verb: String = "Open", subtitle: String = "Apps",
     let title = UUID().uuidString
     window.title = title
     window.contentView = host
+    // The AX tree needs the window ordered in, but nothing should appear on the screen of whoever runs the tests:
+    // fully transparent, click-through and parked far off every display.
+    window.alphaValue = 0
+    window.ignoresMouseEvents = true
+    window.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
     window.orderFrontRegardless()
     defer { window.orderOut(nil) }
     // Let SwiftUI draw the window before asking for its tree.

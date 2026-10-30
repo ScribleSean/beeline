@@ -18,8 +18,7 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
         }
         state.refresh()
         window?.center()
-        NSApp.activate(ignoringOtherApps: true)
-        window?.makeKeyAndOrderFront(nil)
+        TestRun.orderFront(window, activating: true)
         UserDefaults.standard.set(true, forKey: Settings.welcomed)
     }
 

@@ -115,8 +115,7 @@ final class SettingsWindowController: NSObject {
         state.didClearClipboard = false
         login.refresh()
         window?.center()
-        NSApp.activate(ignoringOtherApps: true)
-        window?.makeKeyAndOrderFront(nil)
+        TestRun.orderFront(window, activating: true)
     }
 }
 
