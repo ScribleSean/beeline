@@ -384,7 +384,8 @@ final class BarModel: ObservableObject {
             return
         }
         armedID = nil
-        catalogue.recordUse(of: item, query: query)
+        // Test phrases from the voice test mode must not teach Sean's real ranking.
+        if !Demo.isVoice { catalogue.recordUse(of: item, query: query) }
         onRun(item)
     }
 

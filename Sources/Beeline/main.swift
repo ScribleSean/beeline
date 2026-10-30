@@ -193,7 +193,7 @@ if let flag = CommandLine.arguments.firstIndex(of: "--plan"), CommandLine.argume
     dispatchMain()
 }
 
-if let bundleID = Bundle.main.bundleIdentifier {
+if !Demo.isVoice, let bundleID = Bundle.main.bundleIdentifier {
     let me = ProcessInfo.processInfo.processIdentifier
     var others: [NSRunningApplication] = []
     for _ in 0..<50 {

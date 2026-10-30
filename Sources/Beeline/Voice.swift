@@ -8,6 +8,7 @@ final class Voice {
         case unavailable(String)
     }
 
+    var onAudioEnd: () -> Void = {}
     var onText: (String) -> Void = { _ in }
     var onFinal: (String) -> Void = { _ in }
     var onState: (State) -> Void = { _ in }
@@ -22,19 +23,34 @@ final class Voice {
 
     private let io: IO
     var vocabulary: [String] = []
+    private var finishesWithAudio = false
     private var active = false
     private var cancelledBeforeStart = false
     private var generation = 0
 
     convenience init() {
         let engine = AVAudioEngine()
-        let speech = SpeechSession(engine: engine)
-        let router = SpeechRouter(recognizer: speech)
-        self.init(io: Voice.IO(authorise: speech.authorise,
+        let file = FileSpeechBackend.path().map { FileSpeechBackend.Audio(url: URL(fileURLWithPath: $0)) }
+        let speech = SpeechSession(engine: engine, file: file)
+        let router = SpeechRouter(recognizer: file.map { FileSpeechBackend(source: $0, backend: speech) } ?? speech,
+                                  preference: { file == nil ? UserDefaults.standard.string(forKey: SpeechEngine.preferenceKey) : nil })
+        self.init(io: Voice.IO(authorise: { done in
+            guard let file else { return speech.authorise(done) }
+            Task { @MainActor in
+                if #available(macOS 26, *), let locale = await AnalyzerSession.readyLocale() {
+                    router.analyzer = FileSpeechBackend(source: file, backend: AnalyzerSession(engine: engine, locale: locale, file: file))
+                    done(nil)
+                } else { speech.authorise(done) }
+            }
+        },
                                begin: { router.begin($0, update: $1, level: $2) },
-                               stop: router.stop, cancel: router.cancel))
+                               stop: router.stop, cancel: router.cancel), finishesWithAudio: file != nil)
         self.router = router
-        if #available(macOS 26, *) {
+        file?.onEnd = { [weak self] in
+            self?.onAudioEnd()
+            self?.stop()
+        }
+        if #available(macOS 26, *), file == nil {
             Task { @MainActor in
                 guard let locale = await AnalyzerSession.readyLocale() else { return }
                 router.analyzer = AnalyzerSession(engine: engine, locale: locale)
@@ -48,7 +64,10 @@ final class Voice {
 
     private(set) var router: SpeechRouter?
 
-    init(io: IO) { self.io = io }
+    init(io: IO, finishesWithAudio: Bool = false) {
+        self.io = io
+        self.finishesWithAudio = finishesWithAudio
+    }
 
     func start() {
         guard !active else { return }
@@ -57,18 +76,25 @@ final class Voice {
         let session = generation
         io.authorise { [weak self] problem in
             guard let self, session == self.generation, !self.cancelledBeforeStart else { return }
-            if let problem { return self.onState(.unavailable(problem)) }
+            if let problem {
+                DemoLog.note("voice-error", ["why": problem])
+                return self.onState(.unavailable(problem))
+            }
             self.active = true
             let problem = self.io.begin(Self.contextualStrings(self.vocabulary), { [weak self] text, final, finished in
                 guard let self, session == self.generation else { return }
-                if let text { self.onText(text) }
+                if let text {
+                    DemoLog.note(final ? "voice-final" : "voice-partial", ["text": text])
+                    self.onText(text)
+                }
                 if final, let text { self.onFinal(text) }
-                if finished, session == self.generation { self.stop() }
+                if finished, session == self.generation, !self.finishesWithAudio { self.stop() }
             }, { [weak self] level in
                 guard let self, session == self.generation else { return }
                 self.onLevel(level)
             })
             if let problem {
+                DemoLog.note("voice-error", ["why": problem])
                 self.stop()
                 self.onState(.unavailable(problem))
             } else if self.active {
@@ -115,8 +141,9 @@ final class Voice {
 
 /// SFSpeechRecognizer on the shared audio engine: the only engine on macOS 14 and 15, and the fallback on
 /// newer systems. Tests inject a session without hardware.
-private final class SpeechSession: SpeechBackend {
+final class SpeechSession: SpeechBackend {
     let engine: AVAudioEngine
+    let file: FileSpeechBackend.Audio?
     private let recognizer: SFSpeechRecognizer? = {
         if let own = SFSpeechRecognizer(locale: .current), own.supportsOnDeviceRecognition { return own }
         return SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
@@ -125,15 +152,21 @@ private final class SpeechSession: SpeechBackend {
     private var task: SFSpeechRecognitionTask?
     private var generation = 0
 
-    init(engine: AVAudioEngine) { self.engine = engine }
+    init(engine: AVAudioEngine, file: FileSpeechBackend.Audio? = nil) { self.engine = engine; self.file = file }
 
     func cancel() {
         generation += 1
         task?.cancel()
         task = nil
+        if file != nil { stop() }
     }
 
     func authorise(_ done: @escaping (String?) -> Void) {
+        if file != nil {
+            // Demo automation never prompts or asks for microphone access.
+            done(SFSpeechRecognizer.authorizationStatus() == .authorized ? nil : "Speech Recognition permission is required for the file recognizer.")
+            return
+        }
         if SFSpeechRecognizer.authorizationStatus() == .authorized,
            AVCaptureDevice.authorizationStatus(for: .audio) == .authorized { return done(nil) }
         SFSpeechRecognizer.requestAuthorization { status in
@@ -147,8 +180,10 @@ private final class SpeechSession: SpeechBackend {
     }
 
     func stop() {
-        if engine.isRunning { engine.stop() }
-        engine.inputNode.removeTap(onBus: 0)
+        if let file { file.stop() } else {
+            if engine.isRunning { engine.stop() }
+            engine.inputNode.removeTap(onBus: 0)
+        }
         request?.endAudio()
         request = nil
     }
@@ -160,28 +195,36 @@ private final class SpeechSession: SpeechBackend {
         generation += 1
         let session = generation
         task?.cancel()
-        let input = engine.inputNode
-        input.removeTap(onBus: 0)
-        let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else { return "No microphone found." }
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.requiresOnDeviceRecognition = true
         request.contextualStrings = vocabulary
         self.request = request
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-            request.append(buffer)
-            let value = Voice.level(of: buffer)
-            DispatchQueue.main.async { level(value) }
+        if let file {
+            do { _ = try file.start(consume: request.append, level: level) }
+            catch { return "Couldn't read voice file: \(error.localizedDescription)" }
+        } else {
+            let input = engine.inputNode
+            input.removeTap(onBus: 0)
+            let format = input.outputFormat(forBus: 0)
+            guard format.sampleRate > 0, format.channelCount > 0 else { return "No microphone found." }
+            input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+                request.append(buffer)
+                let value = Voice.level(of: buffer)
+                DispatchQueue.main.async { level(value) }
+            }
+            engine.prepare()
+            do { try engine.start() } catch { return "The microphone couldn't start." }
         }
-        engine.prepare()
-        do { try engine.start() } catch { return "The microphone couldn't start." }
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             let text = result?.bestTranscription.formattedString
             let final = result?.isFinal == true
             let finished = final || error != nil
             DispatchQueue.main.async {
                 guard let self, session == self.generation else { return }
+                if let error, self.file != nil, !final {
+                    DemoLog.note("voice-error", ["why": error.localizedDescription])
+                }
                 if finished { self.task = nil }
                 update(text, final, finished)
             }

@@ -30,6 +30,10 @@ final class BarController: NSObject, NSWindowDelegate {
         super.init()
         model.onRun = { [weak self] item in
             guard let self else { return }
+            if Demo.isVoice && !Demo.voiceRun {
+                DemoLog.note("voice-plan", ["id": item.id, "action": Announce.action(item)])
+                return
+            }
             self.voice.cancel()
             let origin = self.beeOrigin
             let asked = self.model.query
@@ -38,6 +42,10 @@ final class BarController: NSObject, NSWindowDelegate {
         }
         model.onRunPlan = { [weak self] plan in
             guard let self else { return }
+            if Demo.isVoice && !Demo.voiceRun {
+                DemoLog.note("voice-plan", ["action": Announce.plan(plan), "steps": plan.steps.count])
+                return
+            }
             let origin = self.beeOrigin
             let asked = self.model.query
             self.hide()
@@ -330,7 +338,7 @@ final class BarController: NSObject, NSWindowDelegate {
         openedByPress = !isShown
         if !isShown { show() }
         holdTimer?.invalidate()
-        guard Settings.isOn(Settings.holdToTalk) else { return }
+        guard Demo.isVoice || Settings.isOn(Settings.holdToTalk) else { return }
         holdTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: false) { [weak self] _ in
             self?.startListening()
         }
@@ -366,6 +374,7 @@ final class BarController: NSObject, NSWindowDelegate {
             let last = self.model.voiceLevel ?? 0
             self.model.voiceLevel = level > last ? level : last * 0.7 + level * 0.3
         }
+        voice.onAudioEnd = { [weak self] in self?.shortcutReleased() }
         voice.onFinal = { [weak self] text in self?.heard(text) }
         voice.onState = { [weak self] state in
             guard let self else { return }
@@ -389,7 +398,7 @@ final class BarController: NSObject, NSWindowDelegate {
 
     func heard(_ text: String) {
         cancelPendingAct()
-        guard !isListening, isShown, Settings.isOn(Settings.actOnRelease), Settings.isOn(Settings.holdToTalk),
+        guard !isListening, isShown, (Demo.isVoice || Settings.isOn(Settings.actOnRelease)), (Demo.isVoice || Settings.isOn(Settings.holdToTalk)),
               model.query == text, model.armedID == nil, !model.isShowingPlan,
               let item = AutoAct.pick(model.results, spoken: text) else { return }
         model.selected = model.results.firstIndex { $0.id == item.id } ?? 0
@@ -398,6 +407,10 @@ final class BarController: NSObject, NSWindowDelegate {
         let spoken = "\(Announce.action(item)). Escape to cancel."
         model.say(spoken)
         DemoLog.note("auto-act", ["title": item.title])
+        if Demo.isVoice {
+            DemoLog.note("voice-plan", ["id": item.id, "action": Announce.action(item)])
+            if !Demo.voiceRun { return }
+        }
         let wait = AutoAct.window(voiceOver: AutoAct.voiceOverIsOn(), spoken: spoken)
         let timer = Timer.scheduledTimer(withTimeInterval: wait, repeats: false) { [weak self] _ in
             guard let self, let pending = self.pendingAct, pending.item.id == item.id else { return }
