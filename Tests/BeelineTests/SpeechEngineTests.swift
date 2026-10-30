@@ -191,3 +191,19 @@ func analyzerTranscribesARecordedRequest() async throws {
     #expect(text.lowercased().contains("window to the left"))
     #expect(partials.count > 1)
 }
+
+@Test func analyzerFailingAfterWordsIsLoggedAsAVoiceError() throws {
+    // The voice test mode reads this log; without the error it waits out its timeout as "no final transcript".
+    let path = TestEnvironment.scratch.appendingPathComponent("voice-error-\(UUID().uuidString).jsonl").path
+    let log = try #require(DemoLog(path: path))
+    let before = DemoLog.shared
+    DemoLog.shared = log
+    defer { DemoLog.shared = before }
+    let new = FakeBackend(), old = FakeBackend()
+    let router = SpeechRouter(analyzer: new, recognizer: old, preference: { nil })
+    voice(router).start()
+    new.update?("open safari", false, false)
+    new.failed?()
+    let why = log.last("voice-error")?["why"] as? String
+    #expect(why?.contains("after hearing words") == true, "\(why ?? "no voice-error")")
+}

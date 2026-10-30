@@ -26,11 +26,19 @@ final class BarController: NSObject, NSWindowDelegate {
         return panel
     }()
 
-    override init() {
+    /// The voice test mode (BEELINE_DEMO=voice) and whether it may run what it picks (BEELINE_VOICE_RUN=1).
+    private let isVoiceTest: Bool
+    private let voiceTestRuns: Bool
+    private var voiceTestPlansOnly: Bool { isVoiceTest && !voiceTestRuns }
+
+    /// Tests pass their own environment, and `watching: false` so nothing reads the screen or clipboard.
+    init(environment: [String: String] = ProcessInfo.processInfo.environment, watching: Bool = true) {
+        isVoiceTest = FileSpeechBackend.path(in: environment) != nil
+        voiceTestRuns = FileSpeechBackend.shouldRun(in: environment)
         super.init()
         model.onRun = { [weak self] item in
             guard let self else { return }
-            if Demo.isVoice && !Demo.voiceRun {
+            if self.voiceTestPlansOnly {
                 DemoLog.note("voice-plan", ["id": item.id, "action": Announce.action(item)])
                 return
             }
@@ -42,7 +50,7 @@ final class BarController: NSObject, NSWindowDelegate {
         }
         model.onRunPlan = { [weak self] plan in
             guard let self else { return }
-            if Demo.isVoice && !Demo.voiceRun {
+            if self.voiceTestPlansOnly {
                 DemoLog.note("voice-plan", ["action": Announce.plan(plan), "steps": plan.steps.count])
                 return
             }
@@ -61,8 +69,10 @@ final class BarController: NSObject, NSWindowDelegate {
                 NSWorkspace.shared.open(url)
             }
         }
-        model.catalogue.startWatching()
-        Chooser.prewarm()
+        if watching {
+            model.catalogue.startWatching()
+            Chooser.prewarm()
+        }
         NotificationCenter.default.addObserver(forName: Actions.failed, object: nil, queue: .main) { [weak self] note in
             guard let self, let message = note.userInfo?["message"] as? String else { return }
             if !self.isShown { self.show() }
@@ -141,7 +151,8 @@ final class BarController: NSObject, NSWindowDelegate {
         }
     }
 
-    private var isShown = false
+    /// Internal so a test can stand in for a shown bar without putting it on screen.
+    var isShown = false
     var isOpen: Bool { isShown }
     private let bee = Bee()
     let runGuard = RunGuard()
@@ -338,7 +349,7 @@ final class BarController: NSObject, NSWindowDelegate {
         openedByPress = !isShown
         if !isShown { show() }
         holdTimer?.invalidate()
-        guard Demo.isVoice || Settings.isOn(Settings.holdToTalk) else { return }
+        guard isVoiceTest || Settings.isOn(Settings.holdToTalk) else { return }
         holdTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: false) { [weak self] _ in
             self?.startListening()
         }
@@ -399,7 +410,7 @@ final class BarController: NSObject, NSWindowDelegate {
     func heard(_ text: String) {
         cancelPendingAct()
         let declined: String? = isListening ? "still listening" : !isShown ? "bar hidden"
-            : !(Demo.isVoice || (Settings.isOn(Settings.actOnRelease) && Settings.isOn(Settings.holdToTalk))) ? "auto-act off in Settings"
+            : !(isVoiceTest || (Settings.isOn(Settings.actOnRelease) && Settings.isOn(Settings.holdToTalk))) ? "auto-act off in Settings"
             : model.query != text ? "query changed" : model.armedID != nil ? "a row is armed"
             : model.isShowingPlan ? "showing a plan" : nil
         guard declined == nil, let item = AutoAct.pick(model.results, spoken: text) else {
@@ -407,15 +418,14 @@ final class BarController: NSObject, NSWindowDelegate {
             return
         }
         model.selected = model.results.firstIndex { $0.id == item.id } ?? 0
+        DemoLog.note("auto-act", ["title": item.title])
+        if isVoiceTest { DemoLog.note("voice-plan", ["id": item.id, "action": Announce.action(item)]) }
+        // Plan only: say what voice chose, but nothing is coming that Escape could cancel.
+        if voiceTestPlansOnly { return model.say(Announce.action(item)) }
         let verb = item.verb.isEmpty ? "Running" : item.verb == "Open" ? "Opening" : item.verb
         model.voiceNote = "\(verb) \(item.title) · esc to cancel"
         let spoken = "\(Announce.action(item)). Escape to cancel."
         model.say(spoken)
-        DemoLog.note("auto-act", ["title": item.title])
-        if Demo.isVoice {
-            DemoLog.note("voice-plan", ["id": item.id, "action": Announce.action(item)])
-            if !Demo.voiceRun { return }
-        }
         let wait = AutoAct.window(voiceOver: AutoAct.voiceOverIsOn(), spoken: spoken)
         let timer = Timer.scheduledTimer(withTimeInterval: wait, repeats: false) { [weak self] _ in
             guard let self, let pending = self.pendingAct, pending.item.id == item.id else { return }

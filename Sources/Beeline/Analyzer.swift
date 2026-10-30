@@ -66,11 +66,19 @@ final class SpeechRouter {
             self.analyzerFailed = true
             DemoLog.note("voice-engine-failed", ["heard": heardWords])
             // After release the press is over: never reopen the microphone for it.
-            guard !heardWords, !self.released else { return update(nil, false, true) }
+            guard !heardWords, !self.released else {
+                // Logged so the voice test mode reports the failure instead of waiting for a final transcript.
+                DemoLog.note("voice-error", ["why": heardWords ? "The speech analyzer failed after hearing words."
+                                                              : "The speech analyzer failed after the press ended."])
+                return update(nil, false, true)
+            }
             // The recognizer owns the press before it starts, so a failed start is still cleaned up by stop.
             DemoLog.note("voice-engine", ["engine": "recognizer", "fallback": true])
             self.current = self.recognizer
-            if self.recognizer.begin(words, update: update, level: level, failed: {}) != nil { update(nil, false, true) }
+            if let problem = self.recognizer.begin(words, update: update, level: level, failed: {}) {
+                DemoLog.note("voice-error", ["why": problem])
+                update(nil, false, true)
+            }
         })
     }
 
