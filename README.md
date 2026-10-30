@@ -127,12 +127,6 @@ Each ad hoc build is a new app to macOS, so its permissions stop working after a
 
 Builds are signed with hardened runtime, so other code can't load into Beeline (for example through `DYLD_INSERT_LIBRARIES`) and borrow its permissions. `Resources/Beeline.entitlements` turns back on what hardened runtime blocks and Beeline uses: the microphone, Apple Events and Reminders. A new feature that needs another protected resource (camera, contacts, location) needs its entitlement there too, or it fails silently.
 
-How the bee and the stop rules came about is in [docs/VOICE-MERGE.md](docs/VOICE-MERGE.md), which records how an earlier voice-control prototype was folded in.
-
-## License
-
-[MIT](LICENSE)
-
 To test voice without a microphone, build the app and run:
 
 ```sh
@@ -153,7 +147,15 @@ verification of the target app's state.
 
 File input is enabled only by both `BEELINE_DEMO=voice` and
 `BEELINE_VOICE_FILE=/path/to/audio`. It uses an installed macOS 26 dictation model
-when available, otherwise the on-device recognizer. It never downloads a model
-or requests microphone permission. The recognizer fallback needs existing Speech
+when available, otherwise the on-device recognizer. It doesn't download a model
+or request microphone permission. The recognizer fallback needs existing Speech
 Recognition permission; missing permission or a model is a failure with a reason.
-The normal `swift test` file tests need no permissions and never show windows.
+The normal `swift test` file tests need no permissions and don't show windows.
+
+## Contributing
+
+Issues and pull requests are welcome. Before opening a pull request, run `swift build` and `swift test`, and add a test for any behaviour you change. Keep changes small and focused.
+
+## License
+
+[MIT](LICENSE)
