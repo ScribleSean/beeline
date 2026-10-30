@@ -31,7 +31,7 @@ final class BarController: NSObject, NSWindowDelegate {
         model.onRun = { [weak self] item in
             guard let self else { return }
             if Demo.isVoice && !Demo.voiceRun {
-                DemoLog.note("voice-plan", ["id": item.id, "action": Announce.action(item), "query": self.model.resultsQuery])
+                DemoLog.note("voice-plan", ["id": item.id, "action": Announce.action(item)])
                 return
             }
             self.voice.cancel()
@@ -398,10 +398,14 @@ final class BarController: NSObject, NSWindowDelegate {
 
     func heard(_ text: String) {
         cancelPendingAct()
-        guard !isListening, isShown, (Demo.isVoice || Settings.isOn(Settings.actOnRelease)), (Demo.isVoice || Settings.isOn(Settings.holdToTalk)),
-              model.query == text, model.armedID == nil, !model.isShowingPlan,
-              model.prepareVoiceResults(for: text),
-              let item = AutoAct.pick(model.results, spoken: text) else { return }
+        let declined: String? = isListening ? "still listening" : !isShown ? "bar hidden"
+            : !(Demo.isVoice || (Settings.isOn(Settings.actOnRelease) && Settings.isOn(Settings.holdToTalk))) ? "auto-act off in Settings"
+            : model.query != text ? "query changed" : model.armedID != nil ? "a row is armed"
+            : model.isShowingPlan ? "showing a plan" : nil
+        guard declined == nil, let item = AutoAct.pick(model.results, spoken: text) else {
+            DemoLog.note("auto-act-declined", ["why": declined ?? "no exact, safe top match", "top": model.results.first?.title ?? ""])
+            return
+        }
         model.selected = model.results.firstIndex { $0.id == item.id } ?? 0
         let verb = item.verb.isEmpty ? "Running" : item.verb == "Open" ? "Opening" : item.verb
         model.voiceNote = "\(verb) \(item.title) · esc to cancel"
@@ -409,7 +413,7 @@ final class BarController: NSObject, NSWindowDelegate {
         model.say(spoken)
         DemoLog.note("auto-act", ["title": item.title])
         if Demo.isVoice {
-            DemoLog.note("voice-plan", ["id": item.id, "action": Announce.action(item), "query": self.model.resultsQuery])
+            DemoLog.note("voice-plan", ["id": item.id, "action": Announce.action(item)])
             if !Demo.voiceRun { return }
         }
         let wait = AutoAct.window(voiceOver: AutoAct.voiceOverIsOn(), spoken: spoken)
@@ -417,7 +421,7 @@ final class BarController: NSObject, NSWindowDelegate {
             guard let self, let pending = self.pendingAct, pending.item.id == item.id else { return }
             self.pendingAct = nil
             self.model.voiceNote = nil
-            guard self.model.query == text, self.model.resultsQuery == text, let current = self.model.results.first(where: { $0.id == item.id }) else { return }
+            guard self.model.query == text, let current = self.model.results.first(where: { $0.id == item.id }) else { return }
             self.model.run(current)
         }
         pendingAct = (item, timer)

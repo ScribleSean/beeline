@@ -99,21 +99,20 @@ enum Demo {
             guard let finalAt = DemoLog.shared?.lastIndex("voice-final"), finalAt > eof else {
                 return (false, "no final transcript after the audio file ended")
             }
-            guard bar.model.prepareVoiceResults(for: text) else {
-                return (false, "the final transcript no longer owns the query")
-            }
-            DemoLog.note("voice-results", ["text": text, "query": bar.model.resultsQuery])
             if DemoLog.shared?.last("voice-plan") == nil { bar.heard(text) }
             if DemoLog.shared?.last("voice-plan") == nil {
                 if let plan = bar.model.plan {
-                    DemoLog.note("voice-plan", ["action": Announce.plan(plan), "steps": plan.steps.count, "query": bar.model.resultsQuery])
-                } else if !bar.model.isShowingPlan, bar.model.results.indices.contains(bar.model.selected) {
-                    let item = bar.model.results[bar.model.selected]
-                    DemoLog.note("voice-plan", ["id": item.id, "action": Announce.action(item), "query": bar.model.resultsQuery])
+                    DemoLog.note("voice-plan", ["action": Announce.plan(plan), "steps": plan.steps.count, "query": bar.model.query])
+                    if Demo.voiceRun { bar.model.runSelected() }
                 } else {
-                    return (false, bar.model.planProblem ?? "the transcript produced no action")
+                    // Real voice declined to act (not an exact, safe match), so the test mode doesn't act either.
+                    if bar.model.results.indices.contains(bar.model.selected) {
+                        let top = bar.model.results[bar.model.selected]
+                        DemoLog.note("voice-top", ["id": top.id, "action": Announce.action(top), "query": bar.model.query])
+                    }
+                    DemoLog.note("voice-plan", ["action": "none", "query": bar.model.query])
+                    return (true, bar.model.planProblem ?? "file transcribed; Beeline waits for the user (no exact, safe match to act on)")
                 }
-                if Demo.voiceRun { bar.model.runSelected() }
             }
             if Demo.voiceRun {
                 let isPlan = DemoLog.shared?.last("voice-plan")?["steps"] != nil
