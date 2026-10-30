@@ -235,7 +235,12 @@ enum Planner {
 
     private static func askClaude(_ prompt: String, system: String, requestID: UUID) -> Result<String, Failure> {
         defer { processes.finish(requestID) }
-        guard let claude = claudePath() else { return .failure(.message(notFoundMessage)) }
+        let found = claudePath()
+        let claude: URL
+        switch launchable(found) {
+        case .success(let real): claude = real
+        case .failure(let failure): return .failure(failure)
+        }
         let process = Process()
         process.executableURL = claude
         process.arguments = ["-p", "--model", "sonnet", "--tools", "", "--strict-mcp-config", "--setting-sources", "",
@@ -248,7 +253,7 @@ enum Planner {
                      "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy", "NODE_EXTRA_CA_CERTS"] {
             if let value = inherited[name] { environment[name] = value }
         }
-        environment["PATH"] = [claude.deletingLastPathComponent().path, "/usr/bin", "/bin", "/usr/sbin", "/sbin"].joined(separator: ":")
+        environment["PATH"] = [(found ?? claude).deletingLastPathComponent().path, "/usr/bin", "/bin", "/usr/sbin", "/sbin"].joined(separator: ":")
         process.environment = environment
         process.currentDirectoryURL = FileManager.default.temporaryDirectory
 
