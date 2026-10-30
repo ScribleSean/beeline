@@ -77,7 +77,12 @@ final class BarController: NSObject, NSWindowDelegate {
                 case kVK_Return, kVK_ANSI_KeypadEnter:
                     if !event.isARepeat { self.model.performSelectedAction() }
                     return nil
-                default: break
+                default:
+                    // Typing narrows the panel instead of changing the search, which would close it.
+                    if event.modifierFlags.intersection([.command, .control]).isEmpty {
+                        if Int(event.keyCode) == kVK_Delete { self.model.deleteActionFilter(); return nil }
+                        if self.model.typeInActions(event.characters ?? "") { return nil }
+                    }
                 }
             }
             if self.handleEditShortcut(event) { return nil }
@@ -268,6 +273,7 @@ final class BarController: NSObject, NSWindowDelegate {
         }
         // Inside the panel ⌘↩ is only Show in Finder; on the list it falls back to open.
         if modifiers == .command, isReturn { return act(.reveal) || model.showsActions }
+        if modifiers == [.command, .shift, .option], letter == "c" { return act(.copyMarkdown) }
         guard modifiers == [.command, .shift] else { return false }
         if letter == "c" { return act(.copy) }
         if letter == "a" { return act(.alias) }

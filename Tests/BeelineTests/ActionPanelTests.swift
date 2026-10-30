@@ -39,9 +39,82 @@ private func tab() -> Item {
 @Test @MainActor func aTabCopiesItsLinkAndHasNoFinder() {
     let model = ready("fl", [tab()])
     let actions = model.actions(for: tab())
-    #expect(actions.map(\.id) == [.open, .copy])
+    #expect(actions.map(\.id) == [.open, .copy, .copyMarkdown])
     #expect(BarModel.copyable(tab())?.text == "https://example.com/flights")
     #expect(actions[1].title == "Copy link")
+    #expect(actions[2].title == "Copy as Markdown link")
+}
+
+@Test @MainActor func aTabCopiesAsAMarkdownLinkFromThePanelOrItsKey() {
+    var ran: [String] = []
+    let model = ready("fl", [tab()])
+    model.onRun = { ran.append($0.id) }
+    #expect(model.perform(.copyMarkdown))
+    #expect(model.pasteboard.string(forType: .string) == "[Flights](https://example.com/flights)")
+    #expect(ran == ["copied"])
+    #expect(!model.actions(for: app()).contains { $0.id == .copyMarkdown })
+}
+
+@Test func markdownLinksEscapeWhatWouldBreakThem() {
+    var item = tab()
+    item = Item(id: item.id, kind: .tab, verb: item.verb, title: #"[Draft] a\b"#, subtitle: "", keywords: "", icon: nil, run: {})
+    item.link = URL(string: "https://en.wikipedia.org/wiki/Bee_(disambiguation)")
+    #expect(BarModel.markdownLink(item) == #"[\[Draft\] a\\b](https://en.wikipedia.org/wiki/Bee_%28disambiguation%29)"#)
+    var untitled = Item(id: "tab:x", kind: .tab, verb: "", title: "", subtitle: "", keywords: "", icon: nil, run: {})
+    untitled.link = URL(string: "https://example.com/")
+    #expect(BarModel.markdownLink(untitled) == "[https://example.com/](https://example.com/)")
+}
+
+@Test @MainActor func typingInThePanelNarrowsItsActions() {
+    var ran: [String] = []
+    let model = ready("calc", [app()])
+    model.onRun = { ran.append($0.id) }
+    #expect(model.toggleActions())
+    model.moveAction(1)
+    #expect(model.typeInActions("fi"))
+    #expect(model.visibleActions.map(\.id) == [.reveal])
+    #expect(model.actionSelected == 0)
+    #expect(model.query == "calc")
+    #expect(model.showsActions)
+    model.deleteActionFilter()
+    model.deleteActionFilter()
+    #expect(model.visibleActions == model.panelActions)
+    // Words match from their start, in any order, ignoring case.
+    #expect(model.typeInActions("PATH c"))
+    #expect(model.visibleActions.map(\.title) == ["Copy path"])
+    model.performSelectedAction()
+    #expect(model.pasteboard.string(forType: .string) == calculatorPath)
+    #expect(ran == ["copied"])
+}
+
+@Test @MainActor func aFilterWithNoMatchRunsNothingAndReopeningClearsIt() {
+    var ran: [String] = []
+    let model = ready("calc", [app()])
+    model.onRun = { ran.append($0.id) }
+    #expect(model.toggleActions())
+    #expect(model.typeInActions("zz"))
+    #expect(model.visibleActions.isEmpty)
+    model.moveAction(1)
+    model.performSelectedAction()
+    #expect(ran.isEmpty)
+    #expect(model.showsActions)
+    #expect(model.toggleActions())
+    #expect(model.toggleActions())
+    #expect(model.actionFilter.isEmpty)
+    #expect(model.visibleActions == model.panelActions)
+    model.closeActions(refreshing: false)
+}
+
+@Test @MainActor func keysThatTypeNothingAreNotFiltered() {
+    let model = ready("calc", [app()])
+    #expect(model.toggleActions())
+    for key in ["\t", "\r", "\u{1b}", "\u{F700}", ""] {
+        #expect(!model.typeInActions(key), Comment(rawValue: key.debugDescription))
+    }
+    #expect(model.actionFilter.isEmpty)
+    #expect(model.typeInActions("é"))
+    model.closeActions(refreshing: false)
+    #expect(!model.typeInActions("a"))
 }
 
 @Test @MainActor func learnedAndAliasRowsOfferToUndoThatInsteadOfAnAlias() {

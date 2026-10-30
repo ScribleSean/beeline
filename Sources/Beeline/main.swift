@@ -83,6 +83,9 @@ if let flag = CommandLine.arguments.firstIndex(of: "--preview"), CommandLine.arg
         let row = model.actionSelected
         model.toggleActions()
         model.actionSelected = row
+        if let index = CommandLine.arguments.firstIndex(of: "filter"), CommandLine.arguments.count > index + 1 {
+            model.typeInActions(CommandLine.arguments[index + 1])
+        }
     }
     if CommandLine.arguments.contains("plan") {
         let icon = { (name: String) in NSWorkspace.shared.icon(forFile: "/System/Applications/\(name).app") }
