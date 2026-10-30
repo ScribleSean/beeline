@@ -86,3 +86,23 @@ private func executable(_ scratch: Scratch, _ name: String, _ contents: String =
     guard FileManager.default.isExecutableFile(atPath: installed.path) else { return }
     #expect(ClaudeBinary.verified(installed) != nil)
 }
+
+/// A real Developer ID binary from another team, so only the team clause can refuse it.
+@Test func aDeveloperIDBinaryFromAnotherTeamIsRefused() throws {
+    let otherTeam = "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists"
+        + " and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and ! certificate leaf[subject.OU] = \"Q6L2SF6YDW\""
+    let folders = ["/opt/homebrew/bin", "/usr/local/bin", "/Applications/OrbStack.app/Contents/MacOS"]
+    let found = folders.lazy
+        .flatMap { folder in ((try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []).map { URL(fileURLWithPath: folder).appendingPathComponent($0) } }
+        .first { ClaudeBinary.verified($0, requirement: otherTeam) != nil }
+    guard let found else { return }
+    #expect(ClaudeBinary.verified(found) == nil, "accepted \(found.path)")
+}
+
+@Test func theTeamClauseIsWhatLetsTheInstalledClaudeThrough() {
+    let installed = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/claude")
+    guard FileManager.default.isExecutableFile(atPath: installed.path) else { return }
+    let wrongTeam = ClaudeBinary.anthropic.replacingOccurrences(of: "Q6L2SF6YDW", with: "HUAQ24HBR6")
+    #expect(wrongTeam != ClaudeBinary.anthropic)
+    #expect(ClaudeBinary.verified(installed, requirement: wrongTeam) == nil)
+}
