@@ -63,6 +63,9 @@ private func tab() -> Item {
     var untitled = Item(id: "tab:x", kind: .tab, verb: "", title: "", subtitle: "", keywords: "", icon: nil, run: {})
     untitled.link = URL(string: "https://example.com/")
     #expect(BarModel.markdownLink(untitled) == "[https://example.com/](https://example.com/)")
+    var odd = Item(id: "tab:y", kind: .tab, verb: "", title: "A\n\n`B` <i>", subtitle: "", keywords: "", icon: nil, run: {})
+    odd.link = URL(string: "https://example.com/")
+    #expect(BarModel.markdownLink(odd) == #"[A \`B\` \<i>](https://example.com/)"#)
 }
 
 @Test @MainActor func typingInThePanelNarrowsItsActions() {
@@ -225,4 +228,31 @@ private func tab() -> Item {
     #expect(ran.isEmpty)
     #expect(!model.catalogue.aliases.matches("vfx", row))
     #expect(BarModel.copyable(row)?.text == file.path)
+}
+
+@Test @MainActor func pastingAndClearingEditTheFilterNotTheSearch() {
+    let model = ready("calc", [app()])
+    #expect(!model.pasteIntoActionFilter())
+    #expect(model.toggleActions())
+    model.pasteboard.clearContents()
+    model.pasteboard.setString("finder\nsecond line", forType: .string)
+    #expect(model.pasteIntoActionFilter())
+    #expect(model.actionFilter == "finder")
+    #expect(model.visibleActions.map(\.id) == [.reveal])
+    #expect(model.query == "calc")
+    model.deleteActionFilter(all: true)
+    #expect(model.actionFilter.isEmpty)
+    #expect(model.showsActions)
+    model.closeActions(refreshing: false)
+}
+
+@Test @MainActor func escapeClearsTheFilterBeforeClosingThePanel() {
+    let model = ready("calc", [app()])
+    #expect(model.toggleActions())
+    #expect(model.typeInActions("zz"))
+    model.escapeInActions()
+    #expect(model.showsActions)
+    #expect(model.actionFilter.isEmpty)
+    model.escapeInActions()
+    #expect(!model.showsActions)
 }

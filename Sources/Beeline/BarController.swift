@@ -71,7 +71,7 @@ final class BarController: NSObject, NSWindowDelegate {
             if self.model.showsActions {
                 self.cancelPendingAct()
                 switch Int(event.keyCode) {
-                case kVK_Escape: self.model.closeActions(); return nil
+                case kVK_Escape: self.model.escapeInActions(); return nil
                 case kVK_DownArrow: self.model.moveAction(1); return nil
                 case kVK_UpArrow: self.model.moveAction(-1); return nil
                 case kVK_Return, kVK_ANSI_KeypadEnter:
@@ -79,9 +79,19 @@ final class BarController: NSObject, NSWindowDelegate {
                     return nil
                 default:
                     // Typing narrows the panel instead of changing the search, which would close it.
-                    if event.modifierFlags.intersection([.command, .control]).isEmpty {
-                        if Int(event.keyCode) == kVK_Delete { self.model.deleteActionFilter(); return nil }
+                    let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
+                    if Int(event.keyCode) == kVK_Delete, modifiers.isSubset(of: [.command, .option]) {
+                        self.model.deleteActionFilter(all: !modifiers.isEmpty)
+                        return nil
+                    }
+                    if modifiers == .command, event.charactersIgnoringModifiers?.lowercased() == "v" {
+                        self.model.pasteIntoActionFilter()
+                        return nil
+                    }
+                    if modifiers.isDisjoint(with: [.command, .control]) {
                         if self.model.typeInActions(event.characters ?? "") { return nil }
+                        // A dead key (´ then e) would start composing in the search field and close the panel.
+                        if event.characters?.isEmpty == true { return nil }
                     }
                 }
             }

@@ -476,8 +476,10 @@ final class BarModel: ObservableObject {
     /// A browser tab as [Title](link), with the characters that would end either part early escaped.
     static func markdownLink(_ item: Item) -> String? {
         guard item.kind == .tab, let link = item.link?.absoluteString else { return nil }
-        var text = item.title.isEmpty ? link : item.title
-        for mark in ["\\", "[", "]"] { text = text.replacingOccurrences(of: mark, with: "\\" + mark) }
+        // A blank line in a title would end the link, so whitespace runs become one space.
+        var text = (item.title.isEmpty ? link : item.title)
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        for mark in ["\\", "[", "]", "`", "<"] { text = text.replacingOccurrences(of: mark, with: "\\" + mark) }
         let target = link.replacingOccurrences(of: "(", with: "%28").replacingOccurrences(of: ")", with: "%29")
         return "[\(text)](\(target))"
     }
@@ -498,9 +500,24 @@ final class BarModel: ObservableObject {
         return true
     }
 
-    func deleteActionFilter() {
+    /// Esc clears a filter before it closes the panel.
+    func escapeInActions() {
+        if actionFilter.isEmpty { closeActions() } else { setActionFilter("") }
+    }
+
+    /// ⌫ drops a character; ⌥⌫ and ⌘⌫ clear the filter.
+    func deleteActionFilter(all: Bool = false) {
         guard showsActions, !actionFilter.isEmpty else { return }
-        setActionFilter(String(actionFilter.dropLast()))
+        setActionFilter(all ? "" : String(actionFilter.dropLast()))
+    }
+
+    /// ⌘V while the panel is open pastes the clipboard's first line into the filter, not the search.
+    @discardableResult
+    func pasteIntoActionFilter() -> Bool {
+        guard showsActions else { return false }
+        let line = pasteboard.string(forType: .string)?.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+        typeInActions(line.filter { !$0.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) } })
+        return true
     }
 
     private func setActionFilter(_ text: String) {
