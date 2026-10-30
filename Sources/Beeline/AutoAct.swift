@@ -1,8 +1,15 @@
-import Foundation
+import AppKit
 
 enum AutoAct {
     static let safeActions: Set<String> = ["action:Mute", "action:Unmute", "action:Volume Up", "action:Volume Down",
                                            "action:Toggle Dark Mode", "action:Mission Control"]
+
+    /// How long a voice result waits before running by itself. VoiceOver needs time to say what is about to
+    /// run and the user time to press Escape after hearing it.
+    static func window(voiceOver: Bool) -> TimeInterval { voiceOver ? 3 : 0.7 }
+
+    /// Read when each voice result arrives, so turning VoiceOver on mid-session counts.
+    static var voiceOverIsOn: () -> Bool = { NSWorkspace.shared.isVoiceOverEnabled }
 
     private static let leadIns = ["open", "launch", "start", "show", "go to", "switch to", "bring up", "show me", "turn on"]
 

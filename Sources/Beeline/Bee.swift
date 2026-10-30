@@ -11,6 +11,18 @@ final class Bee {
     static var forceOn = false
     static var pace: Double = 1
 
+    /// One plan step: the bee flies to it when it's on and the step has a place on screen. Otherwise nothing
+    /// moves, so VoiceOver hears the step here instead. Nil when the bee didn't fly.
+    @MainActor
+    func guide(to target: (() -> CGRect?)?, saying text: String, speaking: String, from origin: CGPoint?,
+               enabled: Bool = Bee.isEnabled) async -> Bool? {
+        guard enabled, let rect = target?(), rect.width > 0, rect.height > 0 else {
+            Announce.say(speaking)
+            return nil
+        }
+        return await fly(to: rect, saying: text, speaking: speaking, from: origin)
+    }
+
     @MainActor
     /// `text` is the short label beside the bee; VoiceOver hears `speaking`, the untruncated action, when given.
     func fly(to axTarget: CGRect, saying text: String, speaking: String? = nil, from origin: CGPoint?) async -> Bool {

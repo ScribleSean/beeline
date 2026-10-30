@@ -102,7 +102,8 @@ private func row(_ id: String, verb: String = "Open", subtitle: String = "Apps",
 /// What an assistive app reads: SwiftUI builds its accessibility tree only for a real AX client, so this asks
 /// through the AX API from another thread while the main run loop answers, as VoiceOver would.
 /// Nil when the window isn't in the tree at all, which happens while the display sleeps or the screen is locked.
-@MainActor private func labels(in view: some View) -> [String]? {
+/// With `text`, plain text VoiceOver reads on its way through counts too, not only labels.
+@MainActor private func labels(in view: some View, text: Bool = false) -> [String]? {
     NSApplication.shared.setActivationPolicy(.accessory)
     NSApplication.shared.finishLaunching()
     let host = NSHostingView(rootView: view)
@@ -128,6 +129,8 @@ private func row(_ id: String, verb: String = "Open", subtitle: String = "Apps",
             guard depth < 30 else { return }
             AXUIElementSetMessagingTimeout(element, 2)
             if let label = value(element, kAXDescriptionAttribute) as? String, !label.isEmpty { found.append(label) }
+            if text, value(element, kAXRoleAttribute) as? String == kAXStaticTextRole,
+               let shown = value(element, kAXValueAttribute) as? String, !shown.isEmpty { found.append(shown) }
             for child in (value(element, kAXChildrenAttribute) as? [AXUIElement]) ?? [] { walk(child, depth: depth + 1) }
         }
         let app = AXUIElementCreateApplication(getpid())
@@ -322,4 +325,52 @@ private final class Box: @unchecked Sendable {
     }
     #expect(heard.suffix(2) == ["Actions. Open, Return", "Open Calculator, App"])
     #expect(heard.filter { $0 == "Open Calculator, App" }.count == 2)
+}
+
+@Test func aVoiceResultWaitsLongerWithVoiceOver() {
+    #expect(AutoAct.window(voiceOver: false) == 0.7)
+    // Long enough to hear "Open Safari. Escape to cancel." and then press Escape.
+    #expect(AutoAct.window(voiceOver: true) >= 2.5)
+}
+
+@Test @MainActor func aStepIsSpokenWhenTheBeeDoesNotFly() async {
+    let bee = Bee()
+    var heard: [String] = []
+    let real = Announce.post
+    Announce.post = { text, _ in heard.append(text) }
+    defer { Announce.post = real }
+    let off = await bee.guide(to: { CGRect(x: 40, y: 40, width: 60, height: 20) }, saying: "Wi-Fi",
+                              speaking: "Turn Wi-Fi Off", from: nil, enabled: false)
+    let nowhere = await bee.guide(to: nil, saying: "Notes", speaking: "Open Notes", from: nil, enabled: true)
+    let gone = await bee.guide(to: { nil }, saying: "Mail", speaking: "Open Mail", from: nil, enabled: true)
+    let empty = await bee.guide(to: { .zero }, saying: "Maps", speaking: "Open Maps", from: nil, enabled: true)
+    #expect([off, nowhere, gone, empty].allSatisfy { $0 == nil })
+    #expect(heard == ["Turn Wi-Fi Off", "Open Notes", "Open Mail", "Open Maps"])
+}
+
+@Test(.enabled(if: AXIsProcessTrusted())) @MainActor func keyHintsAreHiddenFromVoiceOver() {
+    let model = sharedModel
+    _ = spoken {
+        model.closeActions(refreshing: false)
+        model.armedID = nil
+        model.clearPlan()
+        model.results = [row("Safari"), row("Notes")]
+    }
+    // The heading proves the walk reads plain text; the hints under it should not be there.
+    guard let footer = labels(in: VStack { Text("Results"); KeyHints(model: model) }, text: true) else { return }
+    #expect(footer == ["Results"])
+
+    _ = spoken { model.planProblem = "Claude is not signed in." }
+    let problem = labels(in: PlanSection(model: model), text: true) ?? []
+    #expect(problem.contains("Claude is not signed in."))
+    #expect(!problem.contains { $0.hasPrefix("esc") })
+
+    _ = spoken {
+        model.clearPlan()
+        model.claudeAnswer = "About 384,400 km."
+    }
+    let answer = labels(in: PlanSection(model: model), text: true) ?? []
+    #expect(answer.contains("About 384,400 km."))
+    #expect(!answer.contains { $0.hasPrefix("esc") || $0.hasPrefix("↩") })
+    model.clearPlan()
 }
