@@ -12,7 +12,7 @@ if Demo.requested != nil {
     }
 }
 
-let knownFlags: [String: Int] = ["--query": 1, "--rewrite": 2, "--controls": 1, "--preview": 2, "--preview-welcome": 1,
+let knownFlags: [String: Int] = ["--query": 1, "--rewrite": 2, "--controls": 1, "--preview": 2, "--preview-welcome": 1, "--preview-settings": 1,
                                  "--files": 2, "--pick": 2, "--ai": 1, "--plan": 1]
 // Single-dash arguments are macOS's and Xcode's own (-NSDocumentRevisionsDebugMode and the like).
 if let flag = CommandLine.arguments.dropFirst().first(where: { $0.hasPrefix("--") }) {
@@ -77,6 +77,7 @@ if let flag = CommandLine.arguments.firstIndex(of: "--preview"), CommandLine.arg
     model.catalogue.includeFiles = false
     model.query = CommandLine.arguments[flag + 1]
     if CommandLine.arguments.contains("arm") { model.runSelected() }
+    model.showsShortcutHint = CommandLine.arguments.contains("first-open")
     if CommandLine.arguments.contains("actions") {
         if let index = CommandLine.arguments.firstIndex(of: "actions"), CommandLine.arguments.count > index + 1,
            let row = Int(CommandLine.arguments[index + 1]) { model.actionSelected = row }
@@ -121,6 +122,12 @@ if let flag = CommandLine.arguments.firstIndex(of: "--preview"), CommandLine.arg
 if let flag = CommandLine.arguments.firstIndex(of: "--preview-welcome"), CommandLine.arguments.count > flag + 1 {
     NSApplication.shared.setActivationPolicy(.prohibited)
     WelcomeWindowController.renderPreview(to: CommandLine.arguments[flag + 1])
+    exit(0)
+}
+
+if let flag = CommandLine.arguments.firstIndex(of: "--preview-settings"), CommandLine.arguments.count > flag + 1 {
+    NSApplication.shared.setActivationPolicy(.prohibited)
+    SettingsWindowController.renderPreview(to: CommandLine.arguments[flag + 1])
     exit(0)
 }
 

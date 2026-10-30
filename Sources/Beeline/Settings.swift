@@ -15,6 +15,7 @@ enum Settings {
     static let appearance = "appearance"
     static let welcomed = "welcomed"
     static let wasTrusted = "wasTrusted"
+    static let barOpens = "barOpens"
 
     static let forgetHistory = Notification.Name("BeelineForgetHistory")
     static let clearClipboard = Notification.Name("BeelineClearClipboard")
@@ -117,6 +118,18 @@ final class SettingsWindowController: NSObject {
         window?.center()
         TestRun.orderFront(window, activating: true)
     }
+
+    static func renderPreview(to path: String) {
+        let host = NSHostingView(rootView: SettingsView(state: SettingsState(), login: LoginItem()))
+        host.frame = NSRect(origin: .zero, size: host.fittingSize)
+        let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+        let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+        host.cacheDisplay(in: host.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+    }
 }
 
 private struct SettingsView: View {
@@ -138,32 +151,37 @@ private struct SettingsView: View {
         Form {
             Section("General") {
                 Toggle(isOn: Binding(get: { login.isOn }, set: { login.set($0) })) {
-                    label("Open at login", login.note ?? "Start Beeline when you log in to your Mac.")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Open at login")
+                        if let note = login.note {
+                            Text(note).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 Picker(selection: $shortcut) {
                     Text("⌘ Space").tag("command")
                     Text("⌥ Space").tag("option")
                     Text("⌃ Space").tag("control")
                 } label: {
-                    label("Shortcut", "For ⌘ Space, Spotlight's shortcut must be off in Keyboard settings.")
+                    Text("Shortcut")
                 }
                 .onChange(of: shortcut) { NotificationCenter.default.post(name: Settings.shortcutChanged, object: nil) }
                 Toggle(isOn: $holdToTalk) {
-                    label("Hold the shortcut to talk", "Speak instead of typing. Recognised on this Mac.")
+                    Text("Hold the shortcut to talk")
                 }
                 Toggle(isOn: $actOnRelease) {
-                    label("Act when you let go", "Opens an app, setting or window you named plainly, after a moment to press esc. Anything else waits for ↩.")
+                    Text("Act when you let go")
                 }
                 .disabled(!holdToTalk)
                 Toggle(isOn: $showBee) {
-                    label("Show the bee", "It flies to what Beeline is about to press. Esc stops it from any app.")
+                    Text("Show the bee")
                 }
                 Picker(selection: $appearance) {
                     Text("System").tag("system")
                     Text("Light").tag("light")
                     Text("Dark").tag("dark")
                 } label: {
-                    label("Appearance", "Light, dark, or follow your Mac.")
+                    Text("Appearance")
                 }
                 .pickerStyle(.segmented)
                 .onChange(of: appearance) { Settings.applyAppearance() }
@@ -171,22 +189,22 @@ private struct SettingsView: View {
 
             Section("Search") {
                 Toggle(isOn: $useOnDeviceModel) {
-                    label("Use the on-device model", "Rewrites loose requests as search words. Nothing leaves your Mac.")
+                    Text("Use the on-device model")
                 }
                 Toggle(isOn: $offerClaude) {
-                    label("Offer Ask Claude", "Sends multi-step requests to Claude. You see its plan before anything runs.")
+                    Text("Offer Ask Claude")
                 }
                 Toggle(isOn: $showDetails) {
-                    label("Show details", "Shows why Beeline chose a result and how long the search took.")
+                    Text("Show details")
                 }
             }
 
             Section("History") {
                 Toggle(isOn: $learnFromUse) {
-                    label("Learn from what I pick", "Frequent choices rank higher. Stored on this Mac.")
+                    Text("Learn from what I pick")
                 }
                 Toggle(isOn: $clipboardHistory) {
-                    label("Clipboard history", "Type “clip” to paste something you copied. Kept in memory only.")
+                    Text("Clipboard history")
                 }
                 HStack {
                     Spacer()
@@ -238,13 +256,6 @@ private struct SettingsView: View {
         .tint(Theme.yellow)
         .frame(width: 500)
         .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private func label(_ title: String, _ detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-            Text(detail).font(.caption).foregroundStyle(.secondary)
-        }
     }
 }
 
