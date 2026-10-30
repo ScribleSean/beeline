@@ -25,7 +25,7 @@ enum Theme {
 
 /// One row of the ⌘K panel. Each key also works straight from the result list.
 struct BarAction: Identifiable, Equatable {
-    enum ID { case open, copy, reveal, forget, alias }
+    enum ID { case open, copy, copyMarkdown, reveal, forget, alias }
     let id: ID
     let title: String
     let symbol: String
@@ -34,6 +34,7 @@ struct BarAction: Identifiable, Equatable {
         switch id {
         case .open: return "↩"
         case .copy: return "⇧⌘C"
+        case .copyMarkdown: return "⌥⇧⌘C"
         case .reveal: return "⌘↩"
         case .forget: return "⇧⌘⌫"
         case .alias: return "⇧⌘A"
@@ -44,6 +45,7 @@ struct BarAction: Identifiable, Equatable {
         switch id {
         case .open: return "Return"
         case .copy: return "Shift Command C"
+        case .copyMarkdown: return "Option Shift Command C"
         case .reveal: return "Command Return"
         case .forget: return "Shift Command Delete"
         case .alias: return "Shift Command A"
@@ -413,6 +415,17 @@ final class BarModel: ObservableObject {
     @Published var actionSelected = 0
     /// The panel's rows as they were when it opened, so a row that stops applying can't shift the others.
     @Published private(set) var panelActions: [BarAction] = []
+    /// What was typed while the panel is open. It narrows the panel and never reaches the search field.
+    @Published private(set) var actionFilter = ""
+    /// The panel's rows whose title has a word starting with each typed word, in any order.
+    var visibleActions: [BarAction] {
+        let words = Self.words(actionFilter)
+        guard !words.isEmpty else { return panelActions }
+        return panelActions.filter { action in
+            let title = Self.words(action.title)
+            return words.allSatisfy { word in title.contains { $0.hasPrefix(word) } }
+        }
+    }
     var showsActions: Bool { actionTarget != nil && !isShowingPlan && armedID == nil }
     var pasteboard = NSPasteboard.general
     var revealInFinder: (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
@@ -429,6 +442,9 @@ final class BarModel: ObservableObject {
         guard item.id != Self.claudeRowID, item.id != Self.rewriteRowID, item.kind != .calculation else { return [] }
         var list = [BarAction(id: .open, title: item.verb.isEmpty ? "Run" : item.verb, symbol: "return")]
         if let copy = Self.copyable(item) { list.append(BarAction(id: .copy, title: copy.title, symbol: "doc.on.doc")) }
+        if Self.markdownLink(item) != nil {
+            list.append(BarAction(id: .copyMarkdown, title: "Copy as Markdown link", symbol: "link"))
+        }
         if Self.path(of: item) != nil { list.append(BarAction(id: .reveal, title: "Show in Finder", symbol: "folder")) }
         if item.isAlias {
             list.append(BarAction(id: .forget, title: "Remove alias", symbol: "minus.circle"))
@@ -457,6 +473,64 @@ final class BarModel: ObservableObject {
         return ("Copy name", item.title)
     }
 
+    /// A browser tab as [Title](link), with the characters that would end either part early escaped.
+    static func markdownLink(_ item: Item) -> String? {
+        guard item.kind == .tab, let link = item.link?.absoluteString else { return nil }
+        // A blank line in a title would end the link, so whitespace runs become one space.
+        let title = item.title.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        var text = title.isEmpty ? link : title
+        for mark in ["\\", "[", "]", "`", "<"] { text = text.replacingOccurrences(of: mark, with: "\\" + mark) }
+        let target = link.replacingOccurrences(of: "(", with: "%28").replacingOccurrences(of: ")", with: "%29")
+        return "[\(text)](\(target))"
+    }
+
+    private static func words(_ text: String) -> [String] {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            .components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }
+    }
+
+    /// Typed characters go to the panel's filter. False for keys that type nothing (Tab, arrows, Escape),
+    /// and when the panel is closed, so those go on as usual.
+    @discardableResult
+    func typeInActions(_ characters: String) -> Bool {
+        guard showsActions, !characters.isEmpty,
+              characters.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) && !(0xF700...0xF8FF).contains($0.value) })
+        else { return false }
+        setActionFilter(actionFilter + characters)
+        return true
+    }
+
+    /// Esc clears a filter before it closes the panel.
+    func escapeInActions() {
+        if actionFilter.isEmpty { closeActions() } else { setActionFilter("") }
+    }
+
+    /// ⌫ drops a character; ⌥⌫ and ⌘⌫ clear the filter.
+    func deleteActionFilter(all: Bool = false) {
+        guard showsActions, !actionFilter.isEmpty else { return }
+        setActionFilter(all ? "" : String(actionFilter.dropLast()))
+    }
+
+    /// ⌘V while the panel is open pastes the clipboard's first line into the filter, not the search.
+    @discardableResult
+    func pasteIntoActionFilter() -> Bool {
+        guard showsActions else { return false }
+        let line = pasteboard.string(forType: .string)?.split(whereSeparator: \.isNewline).first ?? ""
+        // Tabs part words; control and private-use characters go; a long line is cut to what a filter needs.
+        let words = line.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let clean = String(String.UnicodeScalarView(words.unicodeScalars.filter {
+            !CharacterSet.controlCharacters.contains($0) && !(0xF700...0xF8FF).contains($0.value)
+        }).prefix(64))
+        typeInActions(clean)
+        return true
+    }
+
+    private func setActionFilter(_ text: String) {
+        actionFilter = String(text.prefix(64))
+        actionSelected = 0
+        if let first = visibleActions.first { say("\(first.title), \(first.spokenKeys)") } else { say("No match") }
+    }
+
     @discardableResult
     func toggleActions() -> Bool {
         if showsActions {
@@ -465,6 +539,7 @@ final class BarModel: ObservableObject {
         }
         guard let item = focusedItem, !actions(for: item).isEmpty else { return false }
         actionSelected = 0
+        actionFilter = ""
         panelActions = actions(for: item)
         actionTarget = item
         pendingSpeech?.invalidate()
@@ -482,17 +557,18 @@ final class BarModel: ObservableObject {
     }
 
     func moveAction(_ delta: Int) {
-        let count = panelActions.count
-        guard count > 0 else { return }
-        actionSelected = (actionSelected + delta + count) % count
-        let action = panelActions[actionSelected]
+        let visible = visibleActions
+        guard !visible.isEmpty else { return }
+        actionSelected = (actionSelected + delta + visible.count) % visible.count
+        let action = visible[actionSelected]
         say("\(action.title), \(action.spokenKeys)")
     }
 
     /// The highlighted row runs only if it still applies (a file can vanish while the panel is open).
     func performSelectedAction() {
-        guard showsActions, panelActions.indices.contains(actionSelected) else { return }
-        perform(panelActions[actionSelected].id)
+        let visible = visibleActions
+        guard showsActions, visible.indices.contains(actionSelected) else { return }
+        perform(visible[actionSelected].id)
     }
 
     /// Runs one action on the focused row, from the panel or straight from its shortcut. False when that
@@ -501,14 +577,15 @@ final class BarModel: ObservableObject {
     func perform(_ action: BarAction.ID) -> Bool {
         guard let item = focusedItem, actions(for: item).contains(where: { $0.id == action }) else { return false }
         // Read once, before the panel closes, so a check can't fail halfway.
-        let text = Self.copyable(item)?.text, path = Self.path(of: item)
-        if action == .copy, text == nil { return false }
+        let text = action == .copyMarkdown ? Self.markdownLink(item) : Self.copyable(item)?.text
+        let path = Self.path(of: item)
+        if [.copy, .copyMarkdown].contains(action), text == nil { return false }
         if action == .reveal, path == nil { return false }
         actionTarget = nil
         switch action {
         case .open:
             run(item)
-        case .copy:
+        case .copy, .copyMarkdown:
             guard let text else { return false }
             pasteboard.clearContents()
             pasteboard.setString(text, forType: .string)
@@ -651,7 +728,8 @@ struct BarView: View {
                 ConfirmCard(item: armed, confirm: { model.confirmByClick() }, cancel: { model.armedID = nil })
                     .padding(.top, 8)
             } else if model.showsActions, let target = model.actionTarget {
-                ActionPanel(item: target, actions: model.panelActions, selected: model.actionSelected,
+                ActionPanel(item: target, actions: model.visibleActions, filter: model.actionFilter,
+                            selected: model.actionSelected,
                             hover: { model.actionSelected = $0 }, choose: { model.perform($0) })
                     .padding(.top, 8)
             } else if model.results.count == 1, let answer = model.results.first, answer.kind == .calculation {
@@ -1061,6 +1139,7 @@ private struct AnswerCard: View {
 private struct ActionPanel: View {
     let item: Item
     let actions: [BarAction]
+    let filter: String
     let selected: Int
     let hover: (Int) -> Void
     let choose: (BarAction.ID) -> Void
@@ -1073,14 +1152,19 @@ private struct ActionPanel: View {
                 }
                 Text(item.title).fontWeight(.medium).lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: 8)
-                Text(item.subtitle).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                if filter.isEmpty {
+                    Text(item.subtitle).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                } else {
+                    Label(filter, systemImage: "magnifyingglass").foregroundStyle(.primary).lineLimit(1)
+                        .truncationMode(.head)
+                }
             }
             .font(.system(size: 12))
             .padding(.horizontal, 12)
             .padding(.top, 4)
             .padding(.bottom, 6)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Actions for \(item.title)")
+            .accessibilityLabel(filter.isEmpty ? "Actions for \(item.title)" : "Actions for \(item.title), filtered by \(filter)")
             .accessibilityAddTraits(.isHeader)
 
             ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
@@ -1121,6 +1205,13 @@ private struct ActionPanel: View {
                 .accessibilityLabel("\(action.title), \(action.spokenKeys)")
                 .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
                 .accessibilityAction { choose(action.id) }
+            }
+            if actions.isEmpty {
+                Text("No match")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 38)
             }
         }
     }

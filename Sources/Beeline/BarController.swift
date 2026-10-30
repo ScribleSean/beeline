@@ -71,18 +71,44 @@ final class BarController: NSObject, NSWindowDelegate {
             if self.model.showsActions {
                 self.cancelPendingAct()
                 switch Int(event.keyCode) {
-                case kVK_Escape: self.model.closeActions(); return nil
+                case kVK_Escape:
+                    if !event.isARepeat { self.model.escapeInActions() }
+                    return nil
                 case kVK_DownArrow: self.model.moveAction(1); return nil
                 case kVK_UpArrow: self.model.moveAction(-1); return nil
                 case kVK_Return, kVK_ANSI_KeypadEnter:
                     if !event.isARepeat { self.model.performSelectedAction() }
                     return nil
-                default: break
+                default:
+                    // Typing narrows the panel instead of changing the search, which would close it.
+                    let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
+                    if Int(event.keyCode) == kVK_Delete, modifiers.isSubset(of: [.command, .option, .shift]) {
+                        self.model.deleteActionFilter(all: !modifiers.isSubset(of: .shift))
+                        return nil
+                    }
+                    // Forward Delete has nothing after the filter to remove, and in the search it closes the panel.
+                    if Int(event.keyCode) == kVK_ForwardDelete { return nil }
+                    if modifiers == .command, event.charactersIgnoringModifiers?.lowercased() == "v" {
+                        self.model.pasteIntoActionFilter()
+                        return nil
+                    }
+                    // Cut and undo would change the search under the panel and close it.
+                    if modifiers.contains(.command), modifiers.isSubset(of: [.command, .shift]),
+                       ["x", "z"].contains(event.charactersIgnoringModifiers?.lowercased()) { return nil }
+                    // ⌃H, ⌃D, ⌃K and the rest edit the search field the same way.
+                    if modifiers.contains(.control) { return nil }
+                    if modifiers.isDisjoint(with: [.command, .control]) {
+                        if self.model.typeInActions(event.characters ?? "") { return nil }
+                        // A dead key (´ then e) would start composing in the search field and close the panel.
+                        if event.characters?.isEmpty == true { return nil }
+                    }
                 }
             }
             if self.handleEditShortcut(event) { return nil }
             switch Int(event.keyCode) {
             case kVK_Escape:
+                // A held Esc acts once, so the repeat after closing the ⌘K panel doesn't also hide the bar.
+                if event.isARepeat { return nil }
                 if self.isListening {
                     self.cancelListening()
                 } else if self.cancelPendingAct() {
@@ -268,6 +294,7 @@ final class BarController: NSObject, NSWindowDelegate {
         }
         // Inside the panel ⌘↩ is only Show in Finder; on the list it falls back to open.
         if modifiers == .command, isReturn { return act(.reveal) || model.showsActions }
+        if modifiers == [.command, .shift, .option], letter == "c" { return act(.copyMarkdown) }
         guard modifiers == [.command, .shift] else { return false }
         if letter == "c" { return act(.copy) }
         if letter == "a" { return act(.alias) }
