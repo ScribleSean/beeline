@@ -150,6 +150,15 @@ private func row(_ id: String, verb: String = "Open", subtitle: String = "Apps",
     return box.result
 }
 
+/// `labels(in:text:)`, or skips the test when the window isn't in the AX tree (display asleep, screen locked):
+/// there is nothing to read then, and passing would claim a check that never ran.
+@MainActor private func readLabels(in view: some View, text: Bool = false) throws -> [String] {
+    guard let found = labels(in: view, text: text) else {
+        try Test.cancel("The test window isn't in the accessibility tree; the display is probably asleep or locked.")
+    }
+    return found
+}
+
 /// Handed over once, under a lock, when the reading thread is done.
 private final class Box: @unchecked Sendable {
     private let lock = NSLock()
@@ -161,19 +170,18 @@ private final class Box: @unchecked Sendable {
 }
 
 // Reading the tree needs this process to be trusted for Accessibility, as Beeline itself is.
-@Test(.enabled(if: AXIsProcessTrusted())) @MainActor func hostedRowsAndConfirmCardCarryLabels() {
+@Test(.enabled(if: AXIsProcessTrusted())) @MainActor func hostedRowsAndConfirmCardCarryLabels() throws {
     var alias = row("Safari")
     alias.source = .alias
-    // A sleeping display hides the window from every AX client; there is nothing to read then, so don't fail.
-    guard let rows = labels(in: VStack {
+    let rows = try readLabels(in: VStack {
         ResultRow(item: alias, isSelected: true, isArmed: false)
         ResultRow(item: row("Notes"), isSelected: false, isArmed: false)
-    }) else { return }
+    })
     #expect(rows == ["Open Safari, Apps, your alias", "Open Notes, Apps"])
 
     var close = row("Close Tabs", verb: "", subtitle: "Action", confirm: true)
     close.confirmNote = "3 tabs will close."
-    let card = labels(in: ConfirmCard(item: close, confirm: {}, cancel: {})) ?? []
+    let card = try readLabels(in: ConfirmCard(item: close, confirm: {}, cancel: {}))
     #expect(card == ["Cancel", "Close Tabs"])
 }
 
@@ -371,7 +379,7 @@ private func hasKeyHint(_ texts: [String]) -> Bool {
     texts.contains { text in ["↑", "↩", "⌘K", "esc"].contains { text.hasPrefix($0) } }
 }
 
-@Test(.enabled(if: AXIsProcessTrusted())) @MainActor func keyHintsAreHiddenFromVoiceOver() {
+@Test(.enabled(if: AXIsProcessTrusted())) @MainActor func keyHintsAreHiddenFromVoiceOver() throws {
     let model = sharedModel
     _ = spoken {
         model.closeActions(refreshing: false)
@@ -379,19 +387,19 @@ private func hasKeyHint(_ texts: [String]) -> Bool {
         model.clearPlan()
         model.results = [row("Safari"), row("Notes")]
     }
-    // A sleeping display hides the window from every AX client; there is nothing to read then, so don't fail.
+    defer { model.clearPlan() }
     // The heading proves the walk reads plain text.
-    guard let footer = labels(in: VStack { Text("Results"); KeyHints(model: model) }, text: true) else { return }
+    let footer = try readLabels(in: VStack { Text("Results"); KeyHints(model: model) }, text: true)
     #expect(footer.contains("Results"))
     #expect(!hasKeyHint(footer))
 
     _ = spoken { model.results = [] }
-    guard let empty = labels(in: KeyHints(model: model), text: true) else { return }
+    let empty = try readLabels(in: KeyHints(model: model), text: true)
     #expect(empty.contains { $0.hasSuffix("opens Beeline anywhere") })
     #expect(!hasKeyHint(empty))
 
     _ = spoken { model.planProblem = "Claude is not signed in." }
-    guard let problem = labels(in: PlanSection(model: model), text: true) else { return model.clearPlan() }
+    let problem = try readLabels(in: PlanSection(model: model), text: true)
     #expect(problem.contains("Claude is not signed in."))
     #expect(!hasKeyHint(problem))
 
@@ -399,13 +407,12 @@ private func hasKeyHint(_ texts: [String]) -> Bool {
         model.clearPlan()
         model.claudeAnswer = "About 384,400 km."
     }
-    guard let answer = labels(in: PlanSection(model: model), text: true) else { return model.clearPlan() }
+    let answer = try readLabels(in: PlanSection(model: model), text: true)
     #expect(answer.contains("About 384,400 km."))
     #expect(!hasKeyHint(answer))
-    model.clearPlan()
 }
 
-@Test(.enabled(if: AXIsProcessTrusted())) @MainActor func theRewriteCardSpeaksItsReplaceAction() {
+@Test(.enabled(if: AXIsProcessTrusted())) @MainActor func theRewriteCardSpeaksItsReplaceAction() throws {
     let model = sharedModel
     _ = spoken {
         model.closeActions(refreshing: false)
@@ -414,9 +421,23 @@ private func hasKeyHint(_ texts: [String]) -> Bool {
         model.rewritten = "A tidier sentence."
     }
     defer { model.clearPlan() }
-    // A sleeping display hides the window from every AX client; there is nothing to read then, so don't fail.
-    guard let card = labels(in: PlanSection(model: model), text: true) else { return }
+    let card = try readLabels(in: PlanSection(model: model), text: true)
     #expect(card.contains("A tidier sentence."))
     #expect(card.contains("Replace the selection"))
+    #expect(!hasKeyHint(card))
+}
+
+@Test(.enabled(if: AXIsProcessTrusted())) @MainActor func claudesAnswerCardSpeaksItsCopyAction() throws {
+    let model = sharedModel
+    _ = spoken {
+        model.closeActions(refreshing: false)
+        model.armedID = nil
+        model.clearPlan()
+        model.claudeAnswer = "About 384,400 km."
+    }
+    defer { model.clearPlan() }
+    let card = try readLabels(in: PlanSection(model: model), text: true)
+    #expect(card.contains("About 384,400 km."))
+    #expect(card.contains("Copy the answer"))
     #expect(!hasKeyHint(card))
 }
