@@ -404,3 +404,19 @@ private func hasKeyHint(_ texts: [String]) -> Bool {
     #expect(!hasKeyHint(answer))
     model.clearPlan()
 }
+
+@Test(.enabled(if: AXIsProcessTrusted())) @MainActor func theRewriteCardSpeaksItsReplaceAction() {
+    let model = sharedModel
+    _ = spoken {
+        model.closeActions(refreshing: false)
+        model.armedID = nil
+        model.clearPlan()
+        model.rewritten = "A tidier sentence."
+    }
+    defer { model.clearPlan() }
+    // A sleeping display hides the window from every AX client; there is nothing to read then, so don't fail.
+    guard let card = labels(in: PlanSection(model: model), text: true) else { return }
+    #expect(card.contains("A tidier sentence."))
+    #expect(card.contains("Replace the selection"))
+    #expect(!hasKeyHint(card))
+}

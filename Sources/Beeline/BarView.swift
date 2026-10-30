@@ -1012,14 +1012,22 @@ struct PlanSection: View {
                 .background(Theme.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.yellow, lineWidth: 1.5))
                 HStack {
-                    Text(model.rewritten == nil ? "↩ copy" : "↩ replace the selection").foregroundStyle(.secondary)
+                    if model.rewritten == nil {
+                        Text("↩ copy").foregroundStyle(.secondary).accessibilityHidden(true)
+                    } else {
+                        // The one hint VoiceOver keeps: replacing is the card's action, so it reads as a button.
+                        Text("↩ replace the selection").foregroundStyle(.secondary)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("Replace the selection")
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityAction { model.runSelected() }
+                    }
                     Spacer()
-                    Text("esc back").foregroundStyle(.secondary)
+                    Text("esc back").foregroundStyle(.secondary).accessibilityHidden(true)
                 }
                 .font(.system(size: 11))
                 .padding(.horizontal, 12)
                 .padding(.top, 8)
-                .accessibilityHidden(true)
             } else if let plan = model.plan {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Ready when you are")
