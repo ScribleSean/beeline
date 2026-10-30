@@ -1,15 +1,18 @@
 #!/bin/bash
 # Generate speech and check the real voice path, without a microphone or keyboard input.
-# Usage: bash scripts/voice-check.sh "open TextEdit" [--run] [--installed | --app /path/Beeline.app]
+# Usage: bash scripts/voice-check.sh "open TextEdit" [--expect "<action title>"] [--run] [--installed | --app /path/Beeline.app]
 set -euo pipefail
 cd "$(dirname "$0")/.."
-[ $# -gt 0 ] || { echo "Usage: $0 <phrase> [--run] [--installed | --app path]" >&2; exit 2; }
+[ $# -gt 0 ] || { echo "Usage: $0 <phrase> [--expect title] [--run] [--installed | --app path]" >&2; exit 2; }
 phrase="$1"
 shift
 app="${BEELINE_APP:-$PWD/build/Beeline.app}"
 run=0
+expect=""
+has_expect=0
 while [ $# -gt 0 ]; do
     case "$1" in
+        --expect) [ $# -ge 2 ] || exit 2; expect="$2"; has_expect=1; shift 2 ;;
         --run) run=1; shift ;;
         --installed) app="$HOME/Applications/Beeline.app"; shift ;;
         --app) [ $# -ge 2 ] || exit 2; app="$2"; shift 2 ;;
@@ -56,6 +59,10 @@ echo "Plan: $plan"
 echo "Log: $log"
 if [ ! -s "$log" ]; then echo "FAIL: Beeline never reached test mode (see $out/app.log)"; exit 1; fi
 if [ -z "$result" ]; then echo "FAIL: no result before exit or timeout"; exit 1; fi
+if [ "$has_expect" = 1 ] && [ "$plan" != "$expect" ]; then
+    echo "FAIL: expected plan '$expect', got '$plan'"
+    exit 1
+fi
 if [ "$(field "$result" pass)" = true ]; then
     echo "PASS: $(field "$result" why)"
 else

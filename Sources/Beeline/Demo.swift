@@ -99,15 +99,17 @@ enum Demo {
             guard let finalAt = DemoLog.shared?.lastIndex("voice-final"), finalAt > eof else {
                 return (false, "no final transcript after the audio file ended")
             }
-            // Search and accessibility announcements settle after the final recognition callback.
-            try? await Task.sleep(nanoseconds: 700_000_000)
+            guard bar.model.prepareVoiceResults(for: text) else {
+                return (false, "the final transcript no longer owns the query")
+            }
+            DemoLog.note("voice-results", ["text": text, "query": bar.model.resultsQuery])
             if DemoLog.shared?.last("voice-plan") == nil { bar.heard(text) }
             if DemoLog.shared?.last("voice-plan") == nil {
                 if let plan = bar.model.plan {
-                    DemoLog.note("voice-plan", ["action": Announce.plan(plan), "steps": plan.steps.count])
+                    DemoLog.note("voice-plan", ["action": Announce.plan(plan), "steps": plan.steps.count, "query": bar.model.resultsQuery])
                 } else if !bar.model.isShowingPlan, bar.model.results.indices.contains(bar.model.selected) {
                     let item = bar.model.results[bar.model.selected]
-                    DemoLog.note("voice-plan", ["id": item.id, "action": Announce.action(item)])
+                    DemoLog.note("voice-plan", ["id": item.id, "action": Announce.action(item), "query": bar.model.resultsQuery])
                 } else {
                     return (false, bar.model.planProblem ?? "the transcript produced no action")
                 }

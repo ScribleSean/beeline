@@ -62,6 +62,7 @@ final class BarModel: ObservableObject {
         }
     }
     @Published var results: [Item] = []
+    private(set) var resultsQuery = ""
     @Published var selected = 0
     @Published var focusTick = 0
 
@@ -86,7 +87,9 @@ final class BarModel: ObservableObject {
             if let self, self.query == typed { self.refreshInBackground() }
         }
         let started = Date()
-        let found = catalogue.search(query)
+        let found = catalogue.search(typed)
+        guard query == typed else { return }
+        resultsQuery = typed
         searchMilliseconds = Date().timeIntervalSince(started) * 1000
         if query != askedQuery { armedID = nil }
 
@@ -125,6 +128,15 @@ final class BarModel: ObservableObject {
                 self.speakSelectionSoon()
             }
         }
+    }
+
+    /// Recognition callbacks and the demo must resolve the final words before choosing a row.
+    /// Refresh even when the text is unchanged: a partial's results must never supply the action.
+    @discardableResult
+    func prepareVoiceResults(for text: String) -> Bool {
+        guard query == text else { return false }
+        refresh()
+        return query == text && resultsQuery == text
     }
 
     func refreshInBackground() {
@@ -167,7 +179,7 @@ final class BarModel: ObservableObject {
     func speakSelection() {
         pendingSpeech?.invalidate()
         pendingSpeech = nil
-        guard isOpen, voiceLevel == nil, !showsActions else { return }
+        guard isOpen, voiceLevel == nil, !showsActions, resultsQuery == query else { return }
         let text: String
         if isShowingPlan || armedID != nil || query.isEmpty {
             spokenRow = nil
