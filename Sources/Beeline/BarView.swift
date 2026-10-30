@@ -477,8 +477,8 @@ final class BarModel: ObservableObject {
     static func markdownLink(_ item: Item) -> String? {
         guard item.kind == .tab, let link = item.link?.absoluteString else { return nil }
         // A blank line in a title would end the link, so whitespace runs become one space.
-        var text = (item.title.isEmpty ? link : item.title)
-            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let title = item.title.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        var text = title.isEmpty ? link : title
         for mark in ["\\", "[", "]", "`", "<"] { text = text.replacingOccurrences(of: mark, with: "\\" + mark) }
         let target = link.replacingOccurrences(of: "(", with: "%28").replacingOccurrences(of: ")", with: "%29")
         return "[\(text)](\(target))"
@@ -515,8 +515,13 @@ final class BarModel: ObservableObject {
     @discardableResult
     func pasteIntoActionFilter() -> Bool {
         guard showsActions else { return false }
-        let line = pasteboard.string(forType: .string)?.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
-        typeInActions(line.filter { !$0.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) } })
+        let line = pasteboard.string(forType: .string)?.split(whereSeparator: \.isNewline).first ?? ""
+        // Tabs part words; control and private-use characters go; a long line is cut to what a filter needs.
+        let words = line.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let clean = String(String.UnicodeScalarView(words.unicodeScalars.filter {
+            !CharacterSet.controlCharacters.contains($0) && !(0xF700...0xF8FF).contains($0.value)
+        }).prefix(64))
+        typeInActions(clean)
         return true
     }
 

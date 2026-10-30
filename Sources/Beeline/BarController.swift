@@ -71,7 +71,9 @@ final class BarController: NSObject, NSWindowDelegate {
             if self.model.showsActions {
                 self.cancelPendingAct()
                 switch Int(event.keyCode) {
-                case kVK_Escape: self.model.escapeInActions(); return nil
+                case kVK_Escape:
+                    if !event.isARepeat { self.model.escapeInActions() }
+                    return nil
                 case kVK_DownArrow: self.model.moveAction(1); return nil
                 case kVK_UpArrow: self.model.moveAction(-1); return nil
                 case kVK_Return, kVK_ANSI_KeypadEnter:
@@ -80,8 +82,8 @@ final class BarController: NSObject, NSWindowDelegate {
                 default:
                     // Typing narrows the panel instead of changing the search, which would close it.
                     let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
-                    if Int(event.keyCode) == kVK_Delete, modifiers.isSubset(of: [.command, .option]) {
-                        self.model.deleteActionFilter(all: !modifiers.isEmpty)
+                    if Int(event.keyCode) == kVK_Delete, modifiers.isSubset(of: [.command, .option, .shift]) {
+                        self.model.deleteActionFilter(all: !modifiers.isSubset(of: .shift))
                         return nil
                     }
                     if modifiers == .command, event.charactersIgnoringModifiers?.lowercased() == "v" {
@@ -91,6 +93,8 @@ final class BarController: NSObject, NSWindowDelegate {
                     // Cut and undo would change the search under the panel and close it.
                     if modifiers.contains(.command), modifiers.isSubset(of: [.command, .shift]),
                        ["x", "z"].contains(event.charactersIgnoringModifiers?.lowercased()) { return nil }
+                    // ⌃H, ⌃D, ⌃K and the rest edit the search field the same way.
+                    if modifiers.contains(.control) { return nil }
                     if modifiers.isDisjoint(with: [.command, .control]) {
                         if self.model.typeInActions(event.characters ?? "") { return nil }
                         // A dead key (´ then e) would start composing in the search field and close the panel.

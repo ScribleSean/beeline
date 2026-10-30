@@ -66,6 +66,9 @@ private func tab() -> Item {
     var odd = Item(id: "tab:y", kind: .tab, verb: "", title: "A\n\n`B` <i>", subtitle: "", keywords: "", icon: nil, run: {})
     odd.link = URL(string: "https://example.com/")
     #expect(BarModel.markdownLink(odd) == #"[A \`B\` \<i>](https://example.com/)"#)
+    var blank = Item(id: "tab:z", kind: .tab, verb: "", title: " \n ", subtitle: "", keywords: "", icon: nil, run: {})
+    blank.link = URL(string: "https://example.com/")
+    #expect(BarModel.markdownLink(blank) == "[https://example.com/](https://example.com/)")
 }
 
 @Test @MainActor func typingInThePanelNarrowsItsActions() {
@@ -242,6 +245,12 @@ private func tab() -> Item {
     #expect(model.query == "calc")
     model.deleteActionFilter(all: true)
     #expect(model.actionFilter.isEmpty)
+    model.pasteboard.clearContents()
+    model.pasteboard.setString("show\tfinder\u{F8FF}" + String(repeating: "x", count: 5000), forType: .string)
+    #expect(model.pasteIntoActionFilter())
+    #expect(model.actionFilter.hasPrefix("show finder"))
+    #expect(model.actionFilter.count == 64)
+    model.deleteActionFilter(all: true)
     #expect(model.showsActions)
     model.closeActions(refreshing: false)
 }
