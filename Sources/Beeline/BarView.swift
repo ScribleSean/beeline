@@ -576,34 +576,37 @@ private struct LevelMeter: View {
 }
 
 /// The key glyphs under the list. VoiceOver skips them: "up arrow down arrow move" says nothing its own
-/// keys don't, and what each key does is spoken as it happens.
+/// keys don't, and what each key does is spoken as it happens. The global shortcut is news, so it stays.
 struct KeyHints: View {
     @ObservedObject var model: BarModel
 
     var body: some View {
         HStack(spacing: 16) {
-            if model.showsActions {
-                Text("↑↓ move")
-                Text("↩ choose")
-            } else if model.results.count == 1, model.results.first?.kind == .calculation {
-                Text("↩ copy")
-            } else if !model.results.isEmpty {
-                Text("↑↓ move")
-                Text("↩ open")
-                if !model.focusedActions.isEmpty {
-                    Text("⌘K actions")
+            Group {
+                if model.showsActions {
+                    Text("↑↓ move")
+                    Text("↩ choose")
+                } else if model.results.count == 1, model.results.first?.kind == .calculation {
+                    Text("↩ copy")
+                } else if !model.results.isEmpty {
+                    Text("↑↓ move")
+                    Text("↩ open")
+                    if !model.focusedActions.isEmpty {
+                        Text("⌘K actions")
+                    }
                 }
-            } else {
+            }
+            .accessibilityHidden(true)
+            if !model.showsActions, model.results.isEmpty {
                 Text("\(Settings.activeShortcutLabel) opens Beeline anywhere")
             }
             Spacer()
-            Text(model.showsActions ? "esc back" : "esc close")
+            Text(model.showsActions ? "esc back" : "esc close").accessibilityHidden(true)
         }
         .font(.system(size: 11))
         .foregroundStyle(.tertiary)
         .padding(.horizontal, 12)
         .padding(.top, 8)
-        .accessibilityHidden(true)
     }
 }
 

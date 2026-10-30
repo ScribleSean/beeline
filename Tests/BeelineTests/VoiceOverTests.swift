@@ -328,9 +328,12 @@ private final class Box: @unchecked Sendable {
 }
 
 @Test func aVoiceResultWaitsLongerWithVoiceOver() {
-    #expect(AutoAct.window(voiceOver: false) == 0.7)
-    // Long enough to hear "Open Safari. Escape to cancel." and then press Escape.
-    #expect(AutoAct.window(voiceOver: true) >= 2.5)
+    let short = "Open Safari. Escape to cancel."
+    #expect(AutoAct.window(voiceOver: false, spoken: short) == 0.7)
+    // Long enough to hear the line and then press Escape, and longer for a longer line.
+    #expect(AutoAct.window(voiceOver: true, spoken: short) >= 3.5)
+    let long = "Open Microsoft Teams (work or school). Escape to cancel."
+    #expect(AutoAct.window(voiceOver: true, spoken: long) > AutoAct.window(voiceOver: true, spoken: short) + 1.5)
 }
 
 @Test @MainActor func aStepIsSpokenWhenTheBeeDoesNotFly() async {
@@ -344,8 +347,23 @@ private final class Box: @unchecked Sendable {
     let nowhere = await bee.guide(to: nil, saying: "Notes", speaking: "Open Notes", from: nil, enabled: true)
     let gone = await bee.guide(to: { nil }, saying: "Mail", speaking: "Open Mail", from: nil, enabled: true)
     let empty = await bee.guide(to: { .zero }, saying: "Maps", speaking: "Open Maps", from: nil, enabled: true)
-    #expect([off, nowhere, gone, empty].allSatisfy { $0 == nil })
-    #expect(heard == ["Turn Wi-Fi Off", "Open Notes", "Open Mail", "Open Maps"])
+    // A window left on a display that's no longer connected.
+    let offScreen = await bee.guide(to: { CGRect(x: -90_000, y: -90_000, width: 60, height: 20) }, saying: "Music",
+                                    speaking: "Open Music", from: nil, enabled: true)
+    #expect([off, nowhere, gone, empty, offScreen].allSatisfy { $0 == nil })
+    #expect(heard == ["Turn Wi-Fi Off", "Open Notes", "Open Mail", "Open Maps", "Open Music"])
+}
+
+@Test func theBeeOnlyFliesToARealRectangleOnAScreen() {
+    let screens = [CGRect(x: 0, y: 0, width: 1440, height: 900)]
+    #expect(Bee.canReach(CGRect(x: 100, y: 100, width: 60, height: 20), screens: screens))
+    #expect(!Bee.canReach(.zero, screens: screens))
+    #expect(!Bee.canReach(CGRect(x: 5000, y: 100, width: 60, height: 20), screens: screens))
+    #expect(!Bee.canReach(CGRect(x: 100, y: 100, width: 60, height: 20), screens: []))
+}
+
+private func hasKeyHint(_ texts: [String]) -> Bool {
+    texts.contains { text in ["↑", "↩", "⌘K", "esc"].contains { text.hasPrefix($0) } }
 }
 
 @Test(.enabled(if: AXIsProcessTrusted())) @MainActor func keyHintsAreHiddenFromVoiceOver() {
@@ -356,21 +374,28 @@ private final class Box: @unchecked Sendable {
         model.clearPlan()
         model.results = [row("Safari"), row("Notes")]
     }
-    // The heading proves the walk reads plain text; the hints under it should not be there.
+    // A sleeping display hides the window from every AX client; there is nothing to read then, so don't fail.
+    // The heading proves the walk reads plain text.
     guard let footer = labels(in: VStack { Text("Results"); KeyHints(model: model) }, text: true) else { return }
-    #expect(footer == ["Results"])
+    #expect(footer.contains("Results"))
+    #expect(!hasKeyHint(footer))
+
+    _ = spoken { model.results = [] }
+    guard let empty = labels(in: KeyHints(model: model), text: true) else { return }
+    #expect(empty.contains { $0.hasSuffix("opens Beeline anywhere") })
+    #expect(!hasKeyHint(empty))
 
     _ = spoken { model.planProblem = "Claude is not signed in." }
-    let problem = labels(in: PlanSection(model: model), text: true) ?? []
+    guard let problem = labels(in: PlanSection(model: model), text: true) else { return model.clearPlan() }
     #expect(problem.contains("Claude is not signed in."))
-    #expect(!problem.contains { $0.hasPrefix("esc") })
+    #expect(!hasKeyHint(problem))
 
     _ = spoken {
         model.clearPlan()
         model.claudeAnswer = "About 384,400 km."
     }
-    let answer = labels(in: PlanSection(model: model), text: true) ?? []
+    guard let answer = labels(in: PlanSection(model: model), text: true) else { return model.clearPlan() }
     #expect(answer.contains("About 384,400 km."))
-    #expect(!answer.contains { $0.hasPrefix("esc") || $0.hasPrefix("↩") })
+    #expect(!hasKeyHint(answer))
     model.clearPlan()
 }

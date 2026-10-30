@@ -16,11 +16,18 @@ final class Bee {
     @MainActor
     func guide(to target: (() -> CGRect?)?, saying text: String, speaking: String, from origin: CGPoint?,
                enabled: Bool = Bee.isEnabled) async -> Bool? {
-        guard enabled, let rect = target?(), rect.width > 0, rect.height > 0 else {
+        guard enabled, let rect = target?(), Self.canReach(rect) else {
             Announce.say(speaking)
             return nil
         }
         return await fly(to: rect, saying: text, speaking: speaking, from: origin)
+    }
+
+    /// The checks `fly` makes before it shows anything: a real rectangle on a connected screen.
+    static func canReach(_ axTarget: CGRect, screens: [CGRect] = NSScreen.screens.map(\.frame)) -> Bool {
+        guard let primary = screens.first, axTarget.width > 0, axTarget.height > 0 else { return false }
+        let target = BeeFlight.appKitRect(fromAX: axTarget, primaryHeight: primary.height)
+        return BeeFlight.screen(for: target, among: screens) != nil
     }
 
     @MainActor
