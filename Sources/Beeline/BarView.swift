@@ -1012,10 +1012,14 @@ struct PlanSection: View {
                 .background(Theme.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.yellow, lineWidth: 1.5))
                 HStack {
+                    // The one hint VoiceOver keeps: copying or replacing is the card's action, so it reads as a button.
                     if model.rewritten == nil {
-                        Text("↩ copy").foregroundStyle(.secondary).accessibilityHidden(true)
+                        Text("↩ copy").foregroundStyle(.secondary)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("Copy the answer")
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityAction { model.runSelected() }
                     } else {
-                        // The one hint VoiceOver keeps: replacing is the card's action, so it reads as a button.
                         Text("↩ replace the selection").foregroundStyle(.secondary)
                             .accessibilityElement(children: .ignore)
                             .accessibilityLabel("Replace the selection")
