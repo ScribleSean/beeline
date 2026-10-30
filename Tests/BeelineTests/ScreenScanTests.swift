@@ -3,22 +3,20 @@ import Foundation
 import Testing
 @testable import Beeline
 
-@Test func requestsDuringAScanWaitForTheNextOne() {
+// Both scans hop through the main queue, which other main-actor tests share, so this waits for them in turn
+// rather than on a fixed clock.
+@Test(.timeLimit(.minutes(1))) func requestsDuringAScanWaitForTheNextOne() async {
     TestEnvironment.prepare()
     let catalogue = Catalogue()
-    let done = DispatchSemaphore(value: 0)
-    nonisolated(unsafe) var firstAnsweredBy = 0
-    nonisolated(unsafe) var secondAnsweredBy = 0
-    DispatchQueue.main.async {
-        catalogue.refreshScreen { firstAnsweredBy = catalogue.scansCompleted }
-        catalogue.refreshScreen {
-            secondAnsweredBy = catalogue.scansCompleted
-            done.signal()
+    let answeredBy: (first: Int, second: Int) = await withCheckedContinuation { done in
+        DispatchQueue.main.async {
+            var first = 0
+            catalogue.refreshScreen { first = catalogue.scansCompleted }
+            catalogue.refreshScreen { done.resume(returning: (first, catalogue.scansCompleted)) }
         }
     }
-    #expect(done.wait(timeout: .now() + 5) == .success)
-    #expect(firstAnsweredBy == 1)
-    #expect(secondAnsweredBy == 2)
+    #expect(answeredBy.first == 1)
+    #expect(answeredBy.second == 2)
 }
 
 // Nothing is asked of the other app, so this needs no Accessibility permission.
