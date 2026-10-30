@@ -10,7 +10,7 @@ final class Aliases {
 
     private var stored: [String: Entry] = [:]
     private let lock = NSLock()
-    private let file: URL
+    let file: URL
 
     var entries: [String: Entry] {
         lock.lock()
@@ -20,10 +20,8 @@ final class Aliases {
     private let saveQueue = DispatchQueue(label: "beeline.aliases", qos: .userInitiated)
 
     convenience init() {
-        let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Beeline", isDirectory: true)
         self.init(file: ProcessInfo.processInfo.environment["BEELINE_ALIASES_FILE"].map { URL(fileURLWithPath: $0) }
-            ?? folder.appendingPathComponent("aliases.json"))
+            ?? TestRun.supportFolder.appendingPathComponent("aliases.json"))
     }
 
     init(file: URL) {

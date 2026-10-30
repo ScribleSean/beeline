@@ -164,6 +164,20 @@ final class Catalogue {
 
     private var scannedApp: pid_t?
 
+    /// What a screen scan asks other apps for. Tests swap in one that asks them nothing.
+    struct ScreenReader {
+        var windows: ([NSRunningApplication], NSRunningApplication?) -> [Item]
+        var menus: (NSRunningApplication) -> [Item]
+        var controls: (NSRunningApplication) -> [Item]
+
+        static let live = ScreenReader(windows: { Accessibility.windows(of: $0, front: $1) },
+                                       menus: { Accessibility.menuCommands(of: $0) },
+                                       controls: { Accessibility.controls(of: $0) })
+    }
+
+    /// Live even under test until `TestEnvironment.prepare()` swaps it, so a test that scans must call that first.
+    static var screenReader = ScreenReader.live
+
     func refreshScreen(full: Bool = true, done: @escaping () -> Void) {
         guard !scanning else {
             nextScanWaiters.append(done)
@@ -179,10 +193,11 @@ final class Catalogue {
         let sameApp = front?.processIdentifier == scannedApp
         let browserNames = Set(Browser.all.map(\.name))
         let windowed = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular && $0 != own }
+        let reader = Self.screenReader
         scanQueue.async {
-            let found = Accessibility.windows(of: windowed, front: front)
-            let menus = full ? front.map { Accessibility.menuCommands(of: $0) } ?? [] : nil
-            let controls = full ? front.map { Accessibility.controls(of: $0) } ?? [] : nil
+            let found = reader.windows(windowed, front)
+            let menus = full ? front.map(reader.menus) ?? [] : nil
+            let controls = full ? front.map(reader.controls) ?? [] : nil
             let isPlanOnly = { (window: Item) in browserNames.contains(window.subtitle) || window.title == window.subtitle }
             let searchable = found.filter { !isPlanOnly($0) }
             let tiles = found.first(where: \.isCurrentWindow).map(Self.tileItems) ?? []

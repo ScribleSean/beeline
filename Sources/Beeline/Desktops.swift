@@ -23,8 +23,8 @@ enum Desktops {
         var apps: [App]
     }
 
-    private static let file = ProcessInfo.processInfo.environment["BEELINE_DESKTOPS_FILE"].map { URL(fileURLWithPath: $0) }
-        ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Beeline/desktops.json")
+    static let file = ProcessInfo.processInfo.environment["BEELINE_DESKTOPS_FILE"].map { URL(fileURLWithPath: $0) }
+        ?? TestRun.supportFolder.appendingPathComponent("desktops.json")
 
     private static var cache: [Desktop]?
 
