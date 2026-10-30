@@ -118,6 +118,7 @@ build/Beeline.app/Contents/MacOS/Beeline --query "night shift"       # ranked re
 build/Beeline.app/Contents/MacOS/Beeline --ai "make my mac quieter"  # the on-device model's pick
 build/Beeline.app/Contents/MacOS/Beeline --plan "mute and dark mode"  # Claude's plan, runs nothing
 build/Beeline.app/Contents/MacOS/Beeline --preview "wifi" bar.png    # render the bar to an image
+build/Beeline.app/Contents/MacOS/Beeline --preview-settings settings.png  # render Settings to an image
 build/Beeline.app/Contents/MacOS/Beeline --rewrite "more formal" "hey u free?"  # a rewrite, replaces nothing
 ```
 

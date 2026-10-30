@@ -65,6 +65,15 @@ final class BarModel: ObservableObject {
     @Published var focusTick = 0
 
     @Published var needsAccess = false
+    @Published var showsShortcutHint = true
+
+    static let shortcutHintOpens = 5
+
+    func countOpen(_ defaults: UserDefaults = .standard) {
+        let opens = defaults.integer(forKey: Settings.barOpens) + 1
+        defaults.set(opens, forKey: Settings.barOpens)
+        showsShortcutHint = opens <= Self.shortcutHintOpens || Settings.activeShortcut == nil
+    }
 
     let catalogue = Catalogue()
     var onRun: (Item) -> Void = { _ in }
@@ -246,7 +255,7 @@ final class BarModel: ObservableObject {
         guard Self.offersClaude(for: query), Settings.isOn(Settings.offerClaude), items.first?.kind != .calculation else { return items }
         let question = Self.isPlainQuestion(query, catalogue.isQuestion(query))
         let row = Item(id: Self.claudeRowID, kind: .action, verb: "", title: question ? "Ask Claude" : "Ask Claude to work it out",
-                       subtitle: question ? "answers here in a few seconds" : "takes a few seconds", keywords: "",
+                       subtitle: "", keywords: "",
                        icon: NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil), run: {})
         let leads = Self.claudeLeads(question: question, words: words, top: items.first, followUp: LastRun.shared.isFollowUp(query),
                                      strong: LastRun.shared.isFollowUp(query, strong: true))
@@ -640,7 +649,7 @@ struct KeyHints: View {
                 }
             }
             .accessibilityHidden(true)
-            if !model.showsActions, model.results.isEmpty {
+            if !model.showsActions, model.results.isEmpty, model.showsShortcutHint {
                 Text("\(Settings.activeShortcutLabel) opens Beeline anywhere")
             }
             Spacer()
@@ -773,7 +782,6 @@ struct BarView: View {
                         }
                     }
                     Text("Thinking…").foregroundStyle(.primary)
-                    Text("on your Mac").foregroundStyle(.secondary)
                 }
                 .font(.system(size: 12))
                 .frame(maxWidth: .infinity)
@@ -898,11 +906,13 @@ struct ResultRow: View {
             } else if item.isLearned {
                 Text("learned").foregroundStyle(.tertiary)
             }
-            Text(item.subtitle)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.head)
-                .frame(maxWidth: 180, alignment: .trailing)
+            if !item.subtitle.isEmpty {
+                Text(item.subtitle)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                    .frame(maxWidth: 180, alignment: .trailing)
+            }
             if isSelected {
                 Text(isArmed ? "↩ again" : "↩")
                     .foregroundStyle(isArmed ? Color.red : Theme.accent)

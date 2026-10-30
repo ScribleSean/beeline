@@ -450,6 +450,7 @@ final class BarController: NSObject, NSWindowDelegate {
     func show() {
         isShown = true
         model.isOpen = true
+        model.countOpen()
         voice.cancel()
         model.clearPlan()
         model.newTip()

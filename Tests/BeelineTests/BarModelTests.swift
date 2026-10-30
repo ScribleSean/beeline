@@ -51,3 +51,24 @@ private func item(_ id: String, confirm: Bool = false) -> Item {
     #expect(model.armedID == "Empty Trash")
     model.armedID = nil
 }
+
+@Test @MainActor func theShortcutHintShowsOnlyOnTheFirstOpens() throws {
+    let model = sharedModel
+    let defaults = try #require(UserDefaults(suiteName: "beeline-test-bar-opens-\(UUID().uuidString)"))
+    let active = Settings.activeShortcut
+    defer {
+        Settings.activeShortcut = active
+        model.showsShortcutHint = true
+    }
+    Settings.activeShortcut = "command"
+    for _ in 1...BarModel.shortcutHintOpens {
+        model.countOpen(defaults)
+        #expect(model.showsShortcutHint)
+    }
+    model.countOpen(defaults)
+    #expect(!model.showsShortcutHint)
+
+    Settings.activeShortcut = nil
+    model.countOpen(defaults)
+    #expect(model.showsShortcutHint)
+}
