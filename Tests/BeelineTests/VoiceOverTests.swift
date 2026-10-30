@@ -112,6 +112,8 @@ private func row(_ id: String, verb: String = "Open", subtitle: String = "Apps",
     let title = UUID().uuidString
     window.title = title
     window.contentView = host
+    // Fully transparent: still in the accessibility tree, but nothing flashes on screen while tests run.
+    window.alphaValue = 0
     window.orderFrontRegardless()
     defer { window.orderOut(nil) }
     // Let SwiftUI draw the window before asking for its tree.
@@ -398,4 +400,20 @@ private func hasKeyHint(_ texts: [String]) -> Bool {
     #expect(answer.contains("About 384,400 km."))
     #expect(!hasKeyHint(answer))
     model.clearPlan()
+}
+
+@Test(.enabled(if: AXIsProcessTrusted())) @MainActor func theRewriteCardSpeaksItsReplaceAction() {
+    let model = sharedModel
+    _ = spoken {
+        model.closeActions(refreshing: false)
+        model.armedID = nil
+        model.clearPlan()
+        model.rewritten = "A tidier sentence."
+    }
+    defer { model.clearPlan() }
+    // A sleeping display hides the window from every AX client; there is nothing to read then, so don't fail.
+    guard let card = labels(in: PlanSection(model: model), text: true) else { return }
+    #expect(card.contains("A tidier sentence."))
+    #expect(card.contains("Replace the selection"))
+    #expect(!hasKeyHint(card))
 }
