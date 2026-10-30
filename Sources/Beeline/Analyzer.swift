@@ -51,6 +51,7 @@ final class SpeechRouter {
         generation += 1
         released = false
         let session = generation
+        DemoLog.note("voice-engine", ["engine": engine == .analyzer ? "analyzer" : "recognizer"])
         guard engine == .analyzer, let analyzer else {
             current = recognizer
             return recognizer.begin(words, update: update, level: level, failed: {})
@@ -67,6 +68,7 @@ final class SpeechRouter {
             // After release the press is over: never reopen the microphone for it.
             guard !heardWords, !self.released else { return update(nil, false, true) }
             // The recognizer owns the press before it starts, so a failed start is still cleaned up by stop.
+            DemoLog.note("voice-engine", ["engine": "recognizer", "fallback": true])
             self.current = self.recognizer
             if self.recognizer.begin(words, update: update, level: level, failed: {}) != nil { update(nil, false, true) }
         })
@@ -108,14 +110,16 @@ struct Transcript {
 final class AnalyzerSession: SpeechBackend {
     let engine: AVAudioEngine
     let locale: Locale
+    let file: FileSpeechBackend.Audio?
     private var generation = 0
     private var input: AsyncStream<AVAudioPCMBuffer>.Continuation?
     private var work: Task<Void, Never>?
     private var analyzer: SpeechAnalyzer?
 
-    init(engine: AVAudioEngine, locale: Locale) {
+    init(engine: AVAudioEngine, locale: Locale, file: FileSpeechBackend.Audio? = nil) {
         self.engine = engine
         self.locale = locale
+        self.file = file
     }
 
     /// The installed locale to use, or nil when the model isn't on this Mac. Never starts a download.
@@ -132,21 +136,27 @@ final class AnalyzerSession: SpeechBackend {
                level: @escaping (Double) -> Void, failed: @escaping () -> Void) -> String? {
         cancel()
         let session = generation
-        let mic = engine.inputNode
-        mic.removeTap(onBus: 0)
-        let format = mic.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else { return "No microphone found." }
         let (audio, input) = AsyncStream.makeStream(of: AVAudioPCMBuffer.self)
         self.input = input
-        mic.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-            input.yield(buffer)
-            let value = Voice.level(of: buffer)
-            DispatchQueue.main.async { level(value) }
-        }
-        engine.prepare()
-        do { try engine.start() } catch {
-            finishAudio()
-            return "The microphone couldn't start."
+        let format: AVAudioFormat
+        if let file {
+            do { format = try file.start(consume: { input.yield($0) }, level: level) }
+            catch { finishAudio(); return "Couldn't read voice file: \(error.localizedDescription)" }
+        } else {
+            let mic = engine.inputNode
+            mic.removeTap(onBus: 0)
+            format = mic.outputFormat(forBus: 0)
+            guard format.sampleRate > 0, format.channelCount > 0 else { finishAudio(); return "No microphone found." }
+            mic.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+                input.yield(buffer)
+                let value = Voice.level(of: buffer)
+                DispatchQueue.main.async { level(value) }
+            }
+            engine.prepare()
+            do { try engine.start() } catch {
+                finishAudio()
+                return "The microphone couldn't start."
+            }
         }
         let pipeline = Self.Pipeline(locale: locale, words: words)
         analyzer = pipeline.analyzer
@@ -183,8 +193,10 @@ final class AnalyzerSession: SpeechBackend {
     /// not tear down a tap the recognizer installed for a newer press.
     private func finishAudio() {
         guard let input else { return }
-        if engine.isRunning { engine.stop() }
-        engine.inputNode.removeTap(onBus: 0)
+        if let file { file.stop() } else {
+            if engine.isRunning { engine.stop() }
+            engine.inputNode.removeTap(onBus: 0)
+        }
         input.finish()
         self.input = nil
     }

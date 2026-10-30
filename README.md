@@ -132,3 +132,28 @@ How the bee and the stop rules came about is in [docs/VOICE-MERGE.md](docs/VOICE
 ## License
 
 [MIT](LICENSE)
+
+To test voice without a microphone, build the app and run:
+
+```sh
+bash scripts/voice-check.sh "open TextEdit"
+bash scripts/voice-check.sh "open TextEdit" --run
+bash scripts/voice-check.sh "open TextEdit" --installed
+```
+
+The default uses `build/Beeline.app`; `--installed` uses `~/Applications/Beeline.app`,
+while `--app /path/Beeline.app` selects another copy. The script generates an AIFF
+with `say`, opens the bar as a held shortcut, feeds the recording through the same
+recognition sessions as the microphone, and releases at the end. It prints the
+transcript, chosen action and result, exits nonzero on failure, and leaves a JSONL
+log with partial/final text, engine, action and accessibility announcements.
+Actions run only with `--run` (`BEELINE_VOICE_RUN=1`). This checks recognition and
+selection; a run result records Beeline dispatching the action, not independent
+verification of the target app's state.
+
+File input is enabled only by both `BEELINE_DEMO=voice` and
+`BEELINE_VOICE_FILE=/path/to/audio`. It uses an installed macOS 26 dictation model
+when available, otherwise the on-device recognizer. It never downloads a model
+or requests microphone permission. The recognizer fallback needs existing Speech
+Recognition permission; missing permission or a model is a failure with a reason.
+The normal `swift test` file tests need no permissions and never show windows.

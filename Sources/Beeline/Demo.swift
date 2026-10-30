@@ -7,7 +7,10 @@ import Speech
 import EventKit
 
 enum Demo {
-    static let scenarios = ["press", "plan", "escape", "click", "welcome", "release", "open", "rewrite", "tab", "permissions"]
+    static let scenarios = ["press", "plan", "escape", "click", "welcome", "release", "open", "rewrite", "tab", "permissions", "voice"]
+
+    static var isVoice: Bool { FileSpeechBackend.path() != nil }
+    static var voiceRun: Bool { FileSpeechBackend.shouldRun() }
 
     static var requested: String? {
         guard let name = ProcessInfo.processInfo.environment["BEELINE_DEMO"], scenarios.contains(name) else { return nil }
@@ -52,6 +55,7 @@ enum Demo {
         }
 
         func run(_ scenario: String, welcome: WelcomeWindowController) async -> (Bool, String) {
+            if scenario == "voice" { return await voice() }
             if scenario == "welcome" {
                 Settings.forceSpotlightCard = true
                 welcome.show()
@@ -74,6 +78,54 @@ enum Demo {
             case "escape": return await plan(interrupt: .escape)
             default: return await plan(interrupt: .takeover)
             }
+        }
+
+        private func voice() async -> (Bool, String) {
+            guard Demo.isVoice else { return (false, "BEELINE_VOICE_FILE is required") }
+            bar.shortcutPressed()
+            await waitFor(seconds: 45) {
+                (DemoLog.shared?.last("voice-final") != nil && DemoLog.shared?.last("voice-eof") != nil)
+                    || DemoLog.shared?.last("voice-error") != nil
+            }
+            bar.shortcutReleased()
+            if let error = DemoLog.shared?.last("voice-error")?["why"] as? String { return (false, error) }
+            guard let text = DemoLog.shared?.last("voice-final")?["text"] as? String, !text.isEmpty else {
+                return (false, "no final transcript within 45 seconds")
+            }
+            // A final from the middle of the file doesn't count: the whole file must play, then finish.
+            guard let eof = DemoLog.shared?.lastIndex("voice-eof") else {
+                return (false, "the audio file didn't finish playing within 45 seconds")
+            }
+            guard let finalAt = DemoLog.shared?.lastIndex("voice-final"), finalAt > eof else {
+                return (false, "no final transcript after the audio file ended")
+            }
+            // Search and accessibility announcements settle after the final recognition callback.
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            if DemoLog.shared?.last("voice-plan") == nil { bar.heard(text) }
+            if DemoLog.shared?.last("voice-plan") == nil {
+                if let plan = bar.model.plan {
+                    DemoLog.note("voice-plan", ["action": Announce.plan(plan), "steps": plan.steps.count])
+                } else if !bar.model.isShowingPlan, bar.model.results.indices.contains(bar.model.selected) {
+                    let item = bar.model.results[bar.model.selected]
+                    DemoLog.note("voice-plan", ["id": item.id, "action": Announce.action(item)])
+                } else {
+                    return (false, bar.model.planProblem ?? "the transcript produced no action")
+                }
+                if Demo.voiceRun { bar.model.runSelected() }
+            }
+            if Demo.voiceRun {
+                let isPlan = DemoLog.shared?.last("voice-plan")?["steps"] != nil
+                func completed() -> Bool {
+                    isPlan ? DemoLog.shared?.last("plan-finished") != nil : DemoLog.shared?.last("pressed") != nil
+                }
+                await waitFor(seconds: 30) {
+                    completed() || DemoLog.shared?.last("stopped") != nil || DemoLog.shared?.last("plan-stopped") != nil
+                }
+                guard completed() else {
+                    return (false, "the chosen action didn't complete (stopped, needs confirmation, or timed out)")
+                }
+            }
+            return (true, Demo.voiceRun ? "file transcribed and chosen action ran" : "file transcribed and action chosen; plan only")
         }
 
         /// Checks that this signed copy can still use what Beeline relies on. Hardened runtime blocks the

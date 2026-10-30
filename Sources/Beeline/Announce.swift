@@ -4,6 +4,7 @@ import AppKit
 /// so changes are spoken as they happen rather than waiting to be found.
 enum Announce {
     static var post: (String, NSAccessibilityPriorityLevel) -> Void = { text, priority in
+        DemoLog.note("announcement", ["text": text, "priority": priority.rawValue])
         NSAccessibility.post(element: NSApplication.shared, notification: .announcementRequested,
                              userInfo: [.announcement: text, .priority: priority.rawValue])
     }
