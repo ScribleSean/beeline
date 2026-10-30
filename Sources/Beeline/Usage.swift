@@ -19,7 +19,7 @@ final class Usage {
     static let pickLifetime: TimeInterval = 28 * 86_400
 
     private var store = Store()
-    private let file: URL
+    let file: URL
     private let saveQueue: DispatchQueue
     struct IO {
         var read: (URL) -> Data? = { try? Data(contentsOf: $0) }
@@ -32,9 +32,7 @@ final class Usage {
     private let io: IO
 
     convenience init() {
-        let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Beeline", isDirectory: true)
-        self.init(file: Self.historyFile(in: folder))
+        self.init(file: Self.historyFile(in: TestRun.supportFolder))
     }
 
     static func historyFile(in folder: URL, override: URL? = fileOverride) -> URL {

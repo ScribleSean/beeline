@@ -253,7 +253,7 @@ final class Rates {
     }
 
     private var saved: Saved?
-    private let file: URL
+    let file: URL
     private let download: (URL, @escaping (Data?, URLResponse?, Error?) -> Void) -> Void
     private let write: (Data, URL) -> Void
     private let lock = NSLock()
@@ -263,8 +263,7 @@ final class Rates {
     var current: [String: Double]? { lock.lock(); defer { lock.unlock() }; return saved?.rates }
     var day: String? { lock.lock(); defer { lock.unlock() }; return saved?.day }
 
-    init(file: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Beeline/rates.json"),
+    init(file: URL = TestRun.supportFolder.appendingPathComponent("rates.json"),
          download: @escaping (URL, @escaping (Data?, URLResponse?, Error?) -> Void) -> Void = { url, done in
              URLSession.shared.dataTask(with: url, completionHandler: done).resume()
          },

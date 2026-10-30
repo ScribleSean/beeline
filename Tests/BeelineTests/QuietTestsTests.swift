@@ -48,3 +48,23 @@ import Testing
     #expect(shown.isEmpty, "on screen: \(shown.map { $0.title.isEmpty ? String(describing: type(of: $0)) : $0.title })")
     bee.hide()
 }
+
+@Test func everyStoreUnderTestLivesInATempFolder() {
+    // No prepare() first: a store made before a test sets its own file must still miss the real one.
+    let real = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].path
+    let temp = FileManager.default.temporaryDirectory.path
+    for file in [TestRun.supportFolder, Aliases().file, Aliases.shared.file, Usage().file, Desktops.file, Rates.shared.file] {
+        #expect(file.path.hasPrefix(temp), "\(file.path)")
+        #expect(!file.path.hasPrefix(real), "\(file.path)")
+    }
+}
+
+@Test(.timeLimit(.minutes(1))) func aScreenScanUnderTestAsksNoOtherApp() async {
+    TestEnvironment.prepare()
+    let before = TestEnvironment.screenReads.value
+    let catalogue = Catalogue()
+    await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+        DispatchQueue.main.async { catalogue.refreshScreen { done.resume() } }
+    }
+    #expect(TestEnvironment.screenReads.value > before, "the scan went to the real apps, not the offline reader")
+}
