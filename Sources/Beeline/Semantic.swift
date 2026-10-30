@@ -15,7 +15,7 @@ final class Semantic {
         return sentence?.vector(for: text)
     }
 
-    /// On sample requests, nonsense input scored up to 0.63 and correct matches from 0.62 to 0.79.
+    /// On sample requests, nonsense scored up to 0.63 and correct matches 0.62 to 0.79.
     private let cutoff = 0.75
 
     static func text(for item: Item) -> String {

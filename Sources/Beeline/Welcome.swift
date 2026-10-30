@@ -59,7 +59,7 @@ private final class WelcomeState: ObservableObject {
                     "\(fallback) In Keyboard Shortcuts › \(holder.section), turn off “\(holder.name)”, and ⌘Space is Beeline's.")
         }
         return ("Another app has ⌘Space",
-                "\(fallback) A launcher such as Alfred or Raycast may hold it: free it in that app's settings, and ⌘Space is Beeline's.")
+                "\(fallback) A launcher such as Alfred or Raycast may hold it. Free it in that app's settings, and ⌘Space is Beeline's.")
     }
     var wasTrustedBefore: Bool { UserDefaults.standard.bool(forKey: Settings.wasTrusted) }
     private var timer: Timer?
@@ -99,7 +99,6 @@ private struct WelcomeView: View {
                 .padding(.top, 10)
             VStack(spacing: 6) {
                 Text("Welcome to Beeline").font(.system(size: 26, weight: .semibold))
-                Text("Your Mac, a few words away.").font(.system(size: 14)).foregroundStyle(.secondary)
             }
             HStack(spacing: 6) {
                 ForEach(Array((Settings.activeShortcut.map { Settings.label(for: $0) } ?? "⌘Space").replacingOccurrences(of: "Space", with: "").map(String.init)) + ["Space"], id: \.self) { key in
@@ -164,7 +163,7 @@ private struct WelcomeView: View {
                         Text("2.  Switch on Beeline in the list").font(.system(size: 12))
                         if state.wasTrustedBefore {
                             // An ad hoc rebuild is a new app to macOS: the old grant shows as on but no longer counts.
-                            Text("If Beeline is already listed and on, this build isn't the one that was allowed: select it, remove it with −, then add it again with +.")
+                            Text("If Beeline is already listed and on, macOS allowed an earlier build, not this one. Select it, remove it with −, then add it again with +.")
                                 .font(.system(size: 12))
                                 .fixedSize(horizontal: false, vertical: true)
                         }

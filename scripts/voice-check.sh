@@ -1,6 +1,4 @@
 #!/bin/bash
-# Generate speech and check the real voice path, without a microphone or keyboard input.
-# Usage: bash scripts/voice-check.sh "open TextEdit" [--expect "<action title>"] [--run] [--installed | --app /path/Beeline.app]
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [ $# -gt 0 ] || { echo "Usage: $0 <phrase> [--expect title] [--run] [--installed | --app path]" >&2; exit 2; }

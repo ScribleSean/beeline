@@ -1,4 +1,3 @@
-// Turn VoiceOver on, run Beeline's test modes, and check that VoiceOver actually spoke what Beeline announced.
 // Usage: PATH=$PATH:~/Developer/tools/bin node scripts/voiceover-check.mjs [--installed | --app /path/Beeline.app]
 // Needs ~/Developer/tools/guidepup and VoiceOver's "Allow VoiceOver to be controlled with AppleScript".
 // It takes over the keyboard and speakers: run it only when nobody is using the Mac.
@@ -63,7 +62,7 @@ try {
       }
     })();
     const logPath = await runScenario(s, i);
-    await new Promise((r) => setTimeout(r, 2500)); // let VoiceOver finish the last announcement
+    await new Promise((r) => setTimeout(r, 2500));
     polling = false;
     await poll;
     const events = existsSync(logPath)

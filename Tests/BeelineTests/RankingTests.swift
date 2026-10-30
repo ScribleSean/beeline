@@ -101,7 +101,6 @@ private func titles(_ query: String) -> [String] {
     #expect(titles("finder").contains("Finder"))
 }
 
-/// Safari's window is not the current one (voice is used from another app), and browsers' windows are plan-only.
 private func catalogueWithSafariWindow(placed: @escaping (Accessibility.Side) -> Void) -> Catalogue {
     TestEnvironment.prepare()
     let app = Item(id: "/Applications/Safari.app", kind: .app, verb: "Open", title: "Safari",

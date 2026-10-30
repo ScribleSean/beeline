@@ -39,7 +39,7 @@ final class RunGuard {
         guard isCurrent(run) else { return }
         running = false
         pendingCancel = cancel
-        // Slow app launches may still be waiting for their first window. Keep Escape/takeover active.
+        // A slow app launch may still be waiting for its first window, so Escape and takeover stay active.
         if cancel == nil { uninstall() }
     }
 

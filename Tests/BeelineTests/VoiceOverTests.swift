@@ -10,9 +10,6 @@ private func row(_ id: String, verb: String = "Open", subtitle: String = "Apps",
     return item
 }
 
-/// Swaps the announcer for a recorder while `body` runs.
-/// The bar speaks rows only for a typed query and only while open, and not while the ⌘K panel is up; this also
-/// drops a timer, remembered row or open panel left by an earlier test.
 @MainActor private func readyShared() {
     sharedModel.catalogue.includeFiles = false
     sharedModel.closeActions(refreshing: false)
@@ -120,7 +117,6 @@ private func row(_ id: String, verb: String = "Open", subtitle: String = "Apps",
     window.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
     window.orderFrontRegardless()
     defer { window.orderOut(nil) }
-    // Let SwiftUI draw the window before asking for its tree.
     host.layoutSubtreeIfNeeded()
     RunLoop.main.run(until: Date().addingTimeInterval(0.15))
     let box = Box()
@@ -151,8 +147,6 @@ private func row(_ id: String, verb: String = "Open", subtitle: String = "Apps",
     return box.result
 }
 
-/// `labels(in:text:)`, or skips the test when the window isn't in the AX tree (display asleep, screen locked):
-/// there is nothing to read then, and passing would claim a check that never ran.
 @MainActor private func readLabels(in view: some View, text: Bool = false) throws -> [String] {
     guard let found = labels(in: view, text: text) else {
         try Test.cancel("The test window isn't in the accessibility tree; the display is probably asleep or locked.")
@@ -160,7 +154,6 @@ private func row(_ id: String, verb: String = "Open", subtitle: String = "Apps",
     return found
 }
 
-/// Handed over once, under a lock, when the reading thread is done.
 private final class Box: @unchecked Sendable {
     private let lock = NSLock()
     private var found: [String]?
@@ -344,7 +337,6 @@ private final class Box: @unchecked Sendable {
 @Test func aVoiceResultWaitsLongerWithVoiceOver() {
     let short = "Open Safari. Escape to cancel."
     #expect(AutoAct.window(voiceOver: false, spoken: short) == 0.7)
-    // Long enough to hear the line and then press Escape, and longer for a longer line.
     #expect(AutoAct.window(voiceOver: true, spoken: short) >= 3.5)
     let long = "Open Microsoft Teams (work or school). Escape to cancel."
     #expect(AutoAct.window(voiceOver: true, spoken: long) > AutoAct.window(voiceOver: true, spoken: short) + 1.5)
@@ -361,7 +353,6 @@ private final class Box: @unchecked Sendable {
     let nowhere = await bee.guide(to: nil, saying: "Notes", speaking: "Open Notes", from: nil, enabled: true)
     let gone = await bee.guide(to: { nil }, saying: "Mail", speaking: "Open Mail", from: nil, enabled: true)
     let empty = await bee.guide(to: { .zero }, saying: "Maps", speaking: "Open Maps", from: nil, enabled: true)
-    // A window left on a display that's no longer connected.
     let offScreen = await bee.guide(to: { CGRect(x: -90_000, y: -90_000, width: 60, height: 20) }, saying: "Music",
                                     speaking: "Open Music", from: nil, enabled: true)
     #expect([off, nowhere, gone, empty, offScreen].allSatisfy { $0 == nil })
@@ -389,7 +380,6 @@ private func hasKeyHint(_ texts: [String]) -> Bool {
         model.results = [row("Safari"), row("Notes")]
     }
     defer { model.clearPlan() }
-    // The heading proves the walk reads plain text.
     let footer = try readLabels(in: VStack { Text("Results"); KeyHints(model: model) }, text: true)
     #expect(footer.contains("Results"))
     #expect(!hasKeyHint(footer))

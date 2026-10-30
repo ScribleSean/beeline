@@ -21,7 +21,7 @@ enum ScreenText {
             if scalar == " " {
                 if result.last != " " { result.append(scalar) }
             } else if scalar.value == 0x200C || scalar.value == 0x200D {
-                // Check original neighbours so stripping hidden text cannot legitimise a joiner.
+                // Check the original neighbours, so stripping hidden text can't legitimise a joiner.
                 if index > 0, index + 1 < scalars.count,
                    isVisible(scalars[index - 1]), isVisible(scalars[index + 1]) {
                     result.append(scalar)
@@ -36,7 +36,6 @@ enum ScreenText {
         return String(result)
     }
 
-    /// Undo only the planner's quote/backslash escapes for the confirmation card.
     static func display(_ text: String) -> String {
         var result = ""
         var characters = text.makeIterator()
@@ -51,7 +50,6 @@ enum ScreenText {
         return result
     }
 
-    /// A quoted string literal: escape backslashes before escaping its delimiters.
     static func quote(_ text: String) -> String {
         "\"" + sanitize(text)
             .replacingOccurrences(of: "\\", with: "\\\\")

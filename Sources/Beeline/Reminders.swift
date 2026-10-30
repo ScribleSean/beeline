@@ -82,7 +82,7 @@ enum Reminders {
         store.requestFullAccessToReminders { granted, _ in
             guard granted else {
                 Log.append("reminders: access not granted")
-                Actions.report("Reminders access was not given. Allow Reminders for Beeline in Privacy & Security.")
+                Actions.report("Allow Reminders for Beeline in Privacy & Security to add reminders and goals.")
                 return
             }
             guard let list = kind == .goal ? goalsList() : store.defaultCalendarForNewReminders() else {

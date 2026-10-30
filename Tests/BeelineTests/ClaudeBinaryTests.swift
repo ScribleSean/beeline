@@ -58,6 +58,9 @@ private func executable(_ scratch: Scratch, _ name: String, _ contents: String =
     let toSigned = scratch.url.appendingPathComponent("signed")
     try FileManager.default.createSymbolicLink(at: toSigned, withDestinationURL: URL(fileURLWithPath: "/bin/ls"))
     #expect(ClaudeBinary.verified(toSigned, requirement: apple)?.path == "/bin/ls")
+    if case .success(let launched) = Planner.launchable(toSigned, requirement: apple) {
+        #expect(launched.path == "/bin/ls")
+    } else { Issue.record("refused a symlink to a binary that meets the requirement") }
 
     let script = try executable(scratch, "script")
     let toScript = scratch.url.appendingPathComponent("claude")
@@ -80,14 +83,12 @@ private func executable(_ scratch: Scratch, _ name: String, _ contents: String =
     } else { Issue.record("refused a binary that meets the requirement") }
 }
 
-/// Only on a Mac with Claude Code installed the usual way.
 @Test func theInstalledClaudeMeetsTheAnthropicRequirement() {
     let installed = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/claude")
     guard FileManager.default.isExecutableFile(atPath: installed.path) else { return }
     #expect(ClaudeBinary.verified(installed) != nil)
 }
 
-/// A real Developer ID binary from another team, so only the team clause can refuse it.
 @Test func aDeveloperIDBinaryFromAnotherTeamIsRefused() throws {
     let otherTeam = "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists"
         + " and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and ! certificate leaf[subject.OU] = \"Q6L2SF6YDW\""

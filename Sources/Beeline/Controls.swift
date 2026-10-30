@@ -132,9 +132,8 @@ extension Accessibility {
                 item.confirmNote = "In “\(windowTitle)” (\(appName)). This can't be undone."
             }
             let expected = control.label, role = control.role
-            // Only a confirm card quotes the window title or dialog text, so only those
-            // controls re-check them; titles like "Inbox (3)" change on their own.
             let confirms = item.needsConfirm
+            // Only a confirm card quotes the window title or dialog text; titles like "Inbox (3)" change on their own.
             let context = ControlContext(label: expected, windowTitle: confirms ? windowTitle : "",
                                          dialogMessage: confirms ? dialogMessage : nil)
             item.stillValid = controlValidator(expected: context) {
@@ -164,7 +163,6 @@ extension Accessibility {
         { read() == expected }
     }
 
-    /// Keep the full text for validation even when the card only shows a shortened summary.
     private static func dialogMessage(in window: AXUIElement) -> String? {
         let subrole: String = attribute(window, kAXSubroleAttribute) ?? ""
         let deadline = Date().addingTimeInterval(0.6)

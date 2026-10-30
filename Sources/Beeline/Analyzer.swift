@@ -1,8 +1,6 @@
 import AVFoundation
 import Speech
 
-/// One way of turning microphone audio into words. `failed` reports a session that broke after `begin`
-/// returned, so the router can hand the press to the other engine.
 protocol SpeechBackend: AnyObject {
     func begin(_ words: [String], update: @escaping (String?, Bool, Bool) -> Void,
                level: @escaping (Double) -> Void, failed: @escaping () -> Void) -> String?
@@ -22,11 +20,7 @@ enum SpeechEngine: Equatable {
     }
 }
 
-/// Sends each press to SpeechAnalyzer when it is ready and to SFSpeechRecognizer otherwise. A failed
-/// analyzer is not used again until Beeline restarts; if it failed before any words, the same press
-/// carries on with the recognizer.
 final class SpeechRouter {
-    /// Set once the dictation model is known to be on this Mac (macOS 26 and later only).
     var analyzer: SpeechBackend?
     private let recognizer: SpeechBackend
     var preference: () -> String?
@@ -65,14 +59,11 @@ final class SpeechRouter {
             guard let self, session == self.generation else { return }
             self.analyzerFailed = true
             DemoLog.note("voice-engine-failed", ["heard": heardWords])
-            // After release the press is over: never reopen the microphone for it.
             guard !heardWords, !self.released else {
-                // Logged so the voice test mode reports the failure instead of waiting for a final transcript.
                 DemoLog.note("voice-error", ["why": heardWords ? "The speech analyzer failed after hearing words."
                                                               : "The speech analyzer failed after the press ended."])
                 return update(nil, false, true)
             }
-            // The recognizer owns the press before it starts, so a failed start is still cleaned up by stop.
             DemoLog.note("voice-engine", ["engine": "recognizer", "fallback": true])
             self.current = self.recognizer
             if let problem = self.recognizer.begin(words, update: update, level: level, failed: {}) {
@@ -93,7 +84,7 @@ final class SpeechRouter {
     }
 }
 
-/// Finished segments plus the latest guess. DictationTranscriber keeps revising one guess and may never
+/// DictationTranscriber keeps revising one guess and may never
 /// mark it final, so the end of the results stream is what makes the text final.
 struct Transcript {
     private(set) var settled = ""
@@ -113,7 +104,6 @@ struct Transcript {
     }
 }
 
-/// SpeechAnalyzer with DictationTranscriber (macOS 26 and later), fed from the shared audio engine.
 @available(macOS 26, *)
 final class AnalyzerSession: SpeechBackend {
     let engine: AVAudioEngine
@@ -130,7 +120,6 @@ final class AnalyzerSession: SpeechBackend {
         self.file = file
     }
 
-    /// The installed locale to use, or nil when the model isn't on this Mac. Never starts a download.
     static func readyLocale(for wanted: Locale = .current) async -> Locale? {
         let installed = await DictationTranscriber.installedLocales.map { $0.identifier(.bcp47) }
         for candidate in [wanted, Locale(identifier: "en-US")] {
@@ -197,8 +186,7 @@ final class AnalyzerSession: SpeechBackend {
         analyzer = nil
     }
 
-    /// Releases the engine only while this session still holds it: after `stop`, a late completion must
-    /// not tear down a tap the recognizer installed for a newer press.
+    /// Only while this session holds the engine: after `stop`, a late completion must not remove a newer press's tap.
     private func finishAudio() {
         guard let input else { return }
         if let file { file.stop() } else {
@@ -209,8 +197,6 @@ final class AnalyzerSession: SpeechBackend {
         self.input = nil
     }
 
-    /// Everything after the microphone: conversion, custom words, analysis and the running transcript.
-    /// Tests feed it a recorded file instead of the microphone.
     struct Pipeline {
         let transcriber: DictationTranscriber
         let analyzer: SpeechAnalyzer
@@ -223,7 +209,6 @@ final class AnalyzerSession: SpeechBackend {
             self.words = words
         }
 
-        /// Returns the final text once `audio` ends; `partial` gets the running text on the main actor.
         @MainActor
         func run(_ audio: AsyncStream<AVAudioPCMBuffer>, format: AVAudioFormat,
                  partial: @escaping (String) -> Void) async throws -> String {
@@ -264,12 +249,10 @@ final class AnalyzerSession: SpeechBackend {
         }
     }
 
-    /// Resamples microphone buffers to the analyzer's format; passes them through when they already match.
     final class Converter: @unchecked Sendable {
         private let target: AVAudioFormat
         private let converter: AVAudioConverter?
 
-        /// Nil when the formats differ and no converter can be made between them.
         init?(from source: AVAudioFormat, to target: AVAudioFormat) {
             self.target = target
             if source == target {
@@ -281,7 +264,6 @@ final class AnalyzerSession: SpeechBackend {
             }
         }
 
-        /// Nil when a buffer yields no frames yet; throws when conversion fails, so the press can fall back.
         func convert(_ buffer: AVAudioPCMBuffer) throws -> AVAudioPCMBuffer? {
             guard let converter else { return buffer }
             let ratio = target.sampleRate / buffer.format.sampleRate

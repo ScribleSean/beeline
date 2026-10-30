@@ -174,10 +174,10 @@ private struct SettingsView: View {
                     label("Use the on-device model", "Rewrites loose requests as search words. Nothing leaves your Mac.")
                 }
                 Toggle(isOn: $offerClaude) {
-                    label("Offer Ask Claude", "Sends multi-step requests to Claude. Its plan is always shown first.")
+                    label("Offer Ask Claude", "Sends multi-step requests to Claude. You see its plan before anything runs.")
                 }
                 Toggle(isOn: $showDetails) {
-                    label("Show details", "Shows why a result was chosen and how long it took.")
+                    label("Show details", "Shows why Beeline chose a result and how long the search took.")
                 }
             }
 
@@ -205,7 +205,7 @@ private struct SettingsView: View {
 
             Section {
                 if aliasList.entries.isEmpty {
-                    Text("Type a few letters, select a result, and press ⇧⌘A: those letters open it from then on.")
+                    Text("Type a few letters, select a result, and press ⇧⌘A. Those letters open it from then on.")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 } else {

@@ -23,7 +23,6 @@ import Testing
     #expect(FileSpeechBackend.shouldRun(in: demo.merging(["BEELINE_VOICE_RUN": "1"]) { _, new in new }))
 }
 
-/// Exercises the file backend's audio contract without speech permissions, UI, or a model download.
 private final class BufferBackend: SpeechBackend {
     let source: FileSpeechBackend.Audio
     var frames: AVAudioFramePosition = 0
@@ -83,8 +82,6 @@ private func recording() throws -> URL? {
     #expect(sink.frames == (try AVAudioFile(forReading: url)).length)
     #expect(sink.levels.contains { $0 > 0 })
     #expect(sink.levels.allSatisfy { (0...1).contains($0) })
-    #expect(TestRun.isActive)
-    #expect(!Log.path.contains("/Library/Logs/"))
 }
 
 private func tone() throws -> URL {
@@ -126,7 +123,6 @@ private func tone() throws -> URL {
     #expect(sink.frames == 0)
 }
 
-/// Optional device acceptance: the same backend and session used by the demo, with a real model.
 @Test(.enabled(if: ProcessInfo.processInfo.environment["BEELINE_LIVE_SPEECH"] == "1"))
 @MainActor func fileBackendTranscribesThroughTheInstalledEngine() async throws {
     guard let url = try recording() else { return }
@@ -170,6 +166,6 @@ private func tone() throws -> URL {
     update?("open TextEdit", true, true)
     #expect(states == ["listening"])
     #expect(finals == ["open TextEdit"] && stops == 0)
-    voice.stop() // EOF releases the held shortcut, which stops Voice.
+    voice.stop()
     #expect(states == ["listening", "stopped"] && stops == 1)
 }

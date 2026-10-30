@@ -26,12 +26,10 @@ final class BarController: NSObject, NSWindowDelegate {
         return panel
     }()
 
-    /// The voice test mode (BEELINE_DEMO=voice) and whether it may run what it picks (BEELINE_VOICE_RUN=1).
     private let isVoiceTest: Bool
     private let voiceTestRuns: Bool
     private var voiceTestPlansOnly: Bool { isVoiceTest && !voiceTestRuns }
 
-    /// Tests pass their own environment, and `watching: false` so nothing reads the screen or clipboard.
     init(environment: [String: String] = ProcessInfo.processInfo.environment, watching: Bool = true) {
         isVoiceTest = FileSpeechBackend.path(in: environment) != nil
         voiceTestRuns = FileSpeechBackend.shouldRun(in: environment)
@@ -84,7 +82,6 @@ final class BarController: NSObject, NSWindowDelegate {
             guard let self, self.panel.isKeyWindow else { return event }
             // While an input method is composing (Japanese, Chinese, Korean), Return and Escape belong to it.
             if let editor = self.panel.firstResponder as? NSTextView, editor.hasMarkedText() { return event }
-            // Like any other key, these stop a voice result that is about to run on its own.
             if self.handleActionShortcut(event) { self.cancelPendingAct(); return nil }
             if self.model.showsActions {
                 self.cancelPendingAct()
@@ -98,26 +95,21 @@ final class BarController: NSObject, NSWindowDelegate {
                     if !event.isARepeat { self.model.performSelectedAction() }
                     return nil
                 default:
-                    // Typing narrows the panel instead of changing the search, which would close it.
                     let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
                     if Int(event.keyCode) == kVK_Delete, modifiers.isSubset(of: [.command, .option, .shift]) {
                         self.model.deleteActionFilter(all: !modifiers.isSubset(of: .shift))
                         return nil
                     }
-                    // Forward Delete has nothing after the filter to remove, and in the search it closes the panel.
                     if Int(event.keyCode) == kVK_ForwardDelete { return nil }
                     if modifiers == .command, event.charactersIgnoringModifiers?.lowercased() == "v" {
                         self.model.pasteIntoActionFilter()
                         return nil
                     }
-                    // Cut and undo would change the search under the panel and close it.
                     if modifiers.contains(.command), modifiers.isSubset(of: [.command, .shift]),
                        ["x", "z"].contains(event.charactersIgnoringModifiers?.lowercased()) { return nil }
-                    // ⌃H, ⌃D, ⌃K and the rest edit the search field the same way.
                     if modifiers.contains(.control) { return nil }
                     if modifiers.isDisjoint(with: [.command, .control]) {
                         if self.model.typeInActions(event.characters ?? "") { return nil }
-                        // A dead key (´ then e) would start composing in the search field and close the panel.
                         if event.characters?.isEmpty == true { return nil }
                     }
                 }
@@ -130,7 +122,7 @@ final class BarController: NSObject, NSWindowDelegate {
                 if self.isListening {
                     self.cancelListening()
                 } else if self.cancelPendingAct() {
-                    // Empty on purpose: Escape in the beat after letting go keeps the words but runs nothing.
+                    return nil
                 } else if self.runGuard.isRunning {
                     self.runGuard.stop(.escape)
                 } else if self.model.isShowingPlan {
@@ -151,7 +143,6 @@ final class BarController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// Internal so a test can stand in for a shown bar without putting it on screen.
     var isShown = false
     var isOpen: Bool { isShown }
     private let bee = Bee()
@@ -166,7 +157,6 @@ final class BarController: NSObject, NSWindowDelegate {
     }
 
     private func perform(_ item: Item, from origin: CGPoint?, asked: String) {
-        // Handled here without Claude, so it stays here: no follow-up reads it, and the plan before it is gone.
         LastRun.shared.clear()
         guard Bee.isEnabled, let find = item.target, item.stillValid?() ?? true, let target = find() else {
             runGuard.stop(.replaced)
@@ -203,16 +193,17 @@ final class BarController: NSObject, NSWindowDelegate {
         return true
     }
 
+    static let planStartPause: TimeInterval = 0.15
+
     private func execute(_ plan: Plan, from origin: CGPoint?, asked: String) {
         let run = runGuard.begin()
         LastRun.shared.begin(run: run)
-        // Only an undo entry made from here on is this plan's own.
         let began = Date()
         let cancel = CancelToken()
         placementCancel = cancel
         runIsPlan = true
         runTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 150_000_000)
+            try? await Task.sleep(nanoseconds: UInt64(Self.planStartPause * 1_000_000_000))
             for (index, step) in plan.steps.enumerated() {
                 guard let self, self.runGuard.isCurrent(run) else { return }
                 if let stillValid = step.stillValid, !stillValid() {
@@ -228,11 +219,8 @@ final class BarController: NSObject, NSWindowDelegate {
                 step.run(cancel: cancel)
                 DemoLog.note("pressed", ["title": step.text, "step": index + 1])
                 try? await Task.sleep(nanoseconds: UInt64(step.settleTime * 1_000_000_000))
-                // Same grace after a stop, so an undo that lands late is still recorded.
                 let outcome = await step.outcome(within: step.grace)
                 let tookEffect = outcome == .tookEffect
-                // A stop during the wait still keeps a step that landed. Only this run may write, and a
-                // stopped one never reads as finished.
                 let current = self.runGuard.isCurrent(run)
                 if tookEffect {
                     LastRun.shared.record(run: run, request: asked, steps: plan.steps.prefix(index + 1).map(\.text),
@@ -273,7 +261,7 @@ final class BarController: NSObject, NSWindowDelegate {
             }
         }
         if runIsPlan, isShown {
-            model.planProblem = "Stopped. Steps still to come didn't run."
+            model.planProblem = "Stopped. The remaining steps didn't run."
         }
     }
 
@@ -281,8 +269,6 @@ final class BarController: NSObject, NSWindowDelegate {
         placementCancel?.cancel()
         placementCancel = nil
         Log.append("plan stopped at step \(index + 1) of \(plan.steps.count)")
-        // The record was emptied when this plan began and lists only steps that took effect, each marked
-        // unfinished until the last, so it is empty when step 1 failed and nothing older looks current.
         DemoLog.note("plan-stopped", ["step": index + 1, "reason": reason])
         runGuard.end(run)
         runTask = nil
@@ -292,26 +278,22 @@ final class BarController: NSObject, NSWindowDelegate {
         model.planProblem = "Stopped at step \(index + 1), “\(plan.steps[index].text)”, because \(reason). Later steps didn't run."
     }
 
-    /// ⌘K and the panel's own keys. A key the focused row doesn't offer goes on as usual (⌘↩ then opens).
     private func handleActionShortcut(_ event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
-        // Letters by what they type, like handleEditShortcut, so ⌘K is K on Dvorak; a layout that types no
-        // Latin letter (Russian, Greek) falls back to the key's QWERTY position.
         let typed = event.charactersIgnoringModifiers?.lowercased()
+        // Letters by what they type, so ⌘K is K on Dvorak; a layout with no Latin letters falls back to the QWERTY key.
         let letter = typed.map { $0.allSatisfy(\.isASCII) } == true ? typed
             : [kVK_ANSI_K: "k", kVK_ANSI_C: "c", kVK_ANSI_A: "a"][Int(event.keyCode)]
         let isReturn = [kVK_Return, kVK_ANSI_KeypadEnter].contains(Int(event.keyCode))
-        // A held key acts once: a repeat of ⇧⌘⌫ would forget the next pick too. A key the row doesn't
-        // offer goes on to the text field.
         func act(_ action: BarAction.ID) -> Bool {
             guard model.focusedActions.contains(where: { $0.id == action }) else { return false }
+            // A held key acts once: a repeat of ⇧⌘⌫ would forget the next pick too.
             return event.isARepeat || model.perform(action)
         }
         if modifiers == .command, letter == "k" {
             if !event.isARepeat { model.toggleActions() }
             return true
         }
-        // Inside the panel ⌘↩ is only Show in Finder; on the list it falls back to open.
         if modifiers == .command, isReturn { return act(.reveal) || model.showsActions }
         if modifiers == [.command, .shift, .option], letter == "c" { return act(.copyMarkdown) }
         guard modifiers == [.command, .shift] else { return false }
@@ -368,7 +350,6 @@ final class BarController: NSObject, NSWindowDelegate {
     private func startListening() {
         cancelPendingAct()
         isListening = true
-        // A completed recognition session still counts as a hold when the shortcut is released.
         openedByPress = true
         model.query = ""
         model.voiceNote = "Listening…"
@@ -420,7 +401,6 @@ final class BarController: NSObject, NSWindowDelegate {
         model.selected = model.results.firstIndex { $0.id == item.id } ?? 0
         DemoLog.note("auto-act", ["title": item.title])
         if isVoiceTest { DemoLog.note("voice-plan", ["id": item.id, "action": Announce.action(item)]) }
-        // Plan only: say what voice chose, but nothing is coming that Escape could cancel.
         if voiceTestPlansOnly { return model.say(Announce.action(item)) }
         let verb = item.verb.isEmpty ? "Running" : item.verb == "Open" ? "Opening" : item.verb
         model.voiceNote = "\(verb) \(item.title) · esc to cancel"

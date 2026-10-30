@@ -1,7 +1,6 @@
 import AVFoundation
 import Speech
 
-/// A demo-only audio source. Recognition stays in the same sessions used by the microphone.
 final class FileSpeechBackend: SpeechBackend {
     let source: Audio
     private let backend: SpeechBackend
@@ -36,8 +35,6 @@ final class FileSpeechBackend: SpeechBackend {
 
         init(url: URL) { self.url = url }
 
-        /// Each buffer owns its storage, just like a microphone tap. Pace at real time to avoid an
-        /// unbounded stream and give recognition time to publish partial results before release.
         func start(consume: @escaping (AVAudioPCMBuffer) -> Void,
                    level: @escaping (Double) -> Void) throws -> AVAudioFormat {
             stop()
@@ -56,6 +53,7 @@ final class FileSpeechBackend: SpeechBackend {
                         guard buffer.frameLength > 0 else { break }
                         consume(buffer)
                         level(Voice.level(of: buffer))
+                        // Real time, so recognition can publish partial results before release.
                         try await Task.sleep(nanoseconds: UInt64(Double(buffer.frameLength) / format.sampleRate * 1_000_000_000))
                     }
                     guard !Task.isCancelled else { return }

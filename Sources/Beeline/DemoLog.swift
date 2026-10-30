@@ -37,7 +37,6 @@ final class DemoLog {
         return events.filter { $0.name == name }.count
     }
 
-    /// Position of the latest event with this name, for checking what happened after what.
     func lastIndex(_ name: String) -> Int? {
         lock.lock()
         defer { lock.unlock() }

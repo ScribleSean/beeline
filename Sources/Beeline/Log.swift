@@ -11,13 +11,10 @@ enum TestRun {
             || Bundle.allBundles.contains { $0.bundlePath.hasSuffix(".xctest") }
     }()
 
-    /// Where Beeline keeps its files. Under test it's a fresh temp folder, so a store made before a test sets
-    /// its own file still never reads or writes the real one.
     static let supportFolder: URL = isActive
         ? FileManager.default.temporaryDirectory.appendingPathComponent("beeline-tests-support-" + UUID().uuidString, isDirectory: true)
         : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Beeline", isDirectory: true)
 
-    /// Brings a window front, except under test, where it's built but never put on screen.
     static func orderFront(_ window: NSWindow?, key: Bool = true, activating: Bool = false) {
         guard let window, !isActive else { return }
         if activating { NSApp.activate(ignoringOtherApps: true) }
@@ -47,6 +44,5 @@ enum Log {
         }
     }
 
-    /// Waits for queued lines to land; tests use it to read what was written.
     static func flush() { queue.sync {} }
 }

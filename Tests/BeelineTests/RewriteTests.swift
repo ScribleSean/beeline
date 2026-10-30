@@ -20,7 +20,6 @@ func rewriteRefusesAChangedTarget(change: String) {
                              paste: { pastes += 1; return true }, later: { scheduled.append($0) },
                              report: { reports.append($0) })
     Rewrite.replace(with: "rewritten", in: captured, io: io)
-    // Change after scheduling, just before the queued paste, including identical text in another field.
     switch change {
     case "field": current?.element = AXUIElementCreateApplication(99)
     case "window": current?.window = AXUIElementCreateApplication(99)
@@ -48,7 +47,6 @@ func rewriteRefusesAChangedTarget(change: String) {
                              later: { scheduled.append($0) }, report: { _ in Issue.record("Unexpected refusal") })
     Rewrite.replace(with: "rewritten", in: captured, io: io)
     scheduled.removeFirst()()
-    // Drain every scheduled callback before the app finally reads its paste. A timed restore would leak.
     while !scheduled.isEmpty { scheduled.removeFirst()() }
     #expect(appRead?() == "rewritten")
     clipboard = "user copied something else"

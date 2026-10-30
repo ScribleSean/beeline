@@ -89,7 +89,6 @@ final class Catalogue {
         refreshAppsIfChanged()
     }
 
-    /// Construct a catalogue from a supplied snapshot without scanning other apps.
     init(apps: [Item], windows: [Item], planOnlyWindows: [Item] = [], quits: [Item], controls: [Item]) {
         self.aliases = .shared
         self.apps = apps
@@ -165,7 +164,6 @@ final class Catalogue {
 
     private var scannedApp: pid_t?
 
-    /// What a screen scan asks other apps for. Tests swap in one that asks them nothing.
     struct ScreenReader {
         var windows: ([NSRunningApplication], NSRunningApplication?) -> [Item]
         var menus: (NSRunningApplication) -> [Item]
@@ -174,10 +172,10 @@ final class Catalogue {
         static let live = ScreenReader(windows: { Accessibility.windows(of: $0, front: $1) },
                                        menus: { Accessibility.menuCommands(of: $0) },
                                        controls: { Accessibility.controls(of: $0) })
+        static let offline = ScreenReader(windows: { _, _ in [] }, menus: { _ in [] }, controls: { _ in [] })
     }
 
-    /// Live even under test until `TestEnvironment.prepare()` swaps it, so a test that scans must call that first.
-    static var screenReader = ScreenReader.live
+    static var screenReader = TestRun.isActive ? ScreenReader.offline : .live
 
     func refreshScreen(full: Bool = true, done: @escaping () -> Void) {
         guard !scanning else {
@@ -264,9 +262,6 @@ final class Catalogue {
         }
     }
 
-    /// "Move Safari to the left half" names the app, so that app's front window gets a direct move whether or
-    /// not it is the current window. Browsers count too, though their windows are otherwise plan-only.
-    /// The focused window comes first, then the lowest Accessibility index (ids end in it), front to back.
     private func namedTiles(for parsed: Matcher.Parsed) -> [Item] {
         func rank(_ window: Item) -> (Int, Int) {
             (window.isCurrentWindow ? 0 : 1, window.id.split(separator: ":").last.flatMap { Int($0) } ?? .max)

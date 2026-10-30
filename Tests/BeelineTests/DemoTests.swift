@@ -7,7 +7,7 @@ import Testing
         .appendingPathComponent("scripts/live-check.sh")
     let text = try String(contentsOf: script, encoding: .utf8)
     let known = try #require(text.split(separator: "\n").first { $0.hasPrefix("known=") })
-    let scenarios = Demo.scenarios.filter { $0 != "voice" } // File speech has its own phrase-taking script.
+    let scenarios = Demo.scenarios.filter { $0 != "voice" }
     #expect(known.dropFirst(6).trimmingCharacters(in: CharacterSet(charactersIn: "\" ")).split(separator: " ").map(String.init) == scenarios)
     #expect(text.contains("scenarios=(\(scenarios.joined(separator: " ")))"), "running with no names must run them all")
 }

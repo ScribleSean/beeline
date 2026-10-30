@@ -92,7 +92,6 @@ enum Demo {
             guard let text = DemoLog.shared?.last("voice-final")?["text"] as? String, !text.isEmpty else {
                 return (false, "no final transcript within 45 seconds")
             }
-            // A final from the middle of the file doesn't count: the whole file must play, then finish.
             guard let eof = DemoLog.shared?.lastIndex("voice-eof") else {
                 return (false, "the audio file didn't finish playing within 45 seconds")
             }
@@ -105,7 +104,6 @@ enum Demo {
                     DemoLog.note("voice-plan", ["action": Announce.plan(plan), "steps": plan.steps.count, "query": bar.model.query])
                     if Demo.voiceRun { bar.model.runSelected() }
                 } else {
-                    // Real voice declined to act (not an exact, safe match), so the test mode doesn't act either.
                     if bar.model.results.indices.contains(bar.model.selected) {
                         let top = bar.model.results[bar.model.selected]
                         DemoLog.note("voice-top", ["id": top.id, "action": Announce.action(top), "query": bar.model.query])
@@ -129,7 +127,7 @@ enum Demo {
             return (true, Demo.voiceRun ? "file transcribed and chosen action ran" : "file transcribed and action chosen; plan only")
         }
 
-        /// Checks that this signed copy can still use what Beeline relies on. Hardened runtime blocks the
+        /// Hardened runtime blocks the
         /// microphone and Apple Events without their entitlements: the mic then reads pure silence even
         /// though its permission says allowed, so this records two seconds and reports only the peak level.
         private func permissions() async -> (Bool, String) {
@@ -557,13 +555,11 @@ enum Demo {
     }
 }
 
-/// A tiny http server on 127.0.0.1 for the live check's test pages. It answers each GET with the page for
-/// its path (or 404) and closes the connection.
 private final class PageServer: @unchecked Sendable {
     private let pages: [String: String]
     private let queue = DispatchQueue(label: "beeline.live-check.pages")
     private var listener: NWListener?
-    private var answered = false  // touched only on `queue`
+    private var answered = false
 
     init(pages: [String: String]) { self.pages = pages }
 
@@ -575,6 +571,7 @@ private final class PageServer: @unchecked Sendable {
         listener.newConnectionHandler = { [weak self] connection in self?.serve(connection) }
         return await withCheckedContinuation { continuation in
             listener.stateUpdateHandler = { [self] state in
+                dispatchPrecondition(condition: .onQueue(queue))
                 guard !answered else { return }
                 switch state {
                 case .ready: answered = true; continuation.resume(returning: listener.port?.rawValue)

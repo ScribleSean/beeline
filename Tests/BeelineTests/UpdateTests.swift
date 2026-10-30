@@ -2,7 +2,6 @@ import Foundation
 import Testing
 @testable import Beeline
 
-/// Every repo here lives in a temp folder; nothing touches Beeline's own checkout or install.
 private struct Repos {
     let scratch: Scratch
     var origin: String { scratch.url.appendingPathComponent("origin").path }

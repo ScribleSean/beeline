@@ -24,7 +24,7 @@ private final class FakeSpeech {
 }
 
 @Test func recognitionCompletionStopsCaptureAndAllowsRestart() {
-    for final in [true, false] { // A final result and an error both end recognition.
+    for final in [true, false] {
         let speech = FakeSpeech()
         let voice = Voice(io: speech.io)
         var states: [String] = []
@@ -97,7 +97,7 @@ private let cleanupItem = Item(id: "cleanup", kind: .app, verb: "", title: "Clea
     var placed = false
     Accessibility.waitToPlace(cancel: cancel, find: { 42 }, place: { _ in placed = true },
                               deliver: { delivered = $0 }, pause: {})
-    cancel.cancel() // Window found, but its main-queue placement has not run yet.
+    cancel.cancel()
     delivered?()
     #expect(!placed)
 
@@ -137,7 +137,7 @@ private final class FakeClaudeProcess: PlannerProcess {
     #expect(try !registry.start(early))
     let registered = registry.reserve()
     #expect(registry.register(process, for: registered))
-    registry.cancel(registered) // Registered, but run() hasn't happened.
+    registry.cancel(registered)
     #expect(try !registry.start(registered))
     #expect(process.starts == 0)
 }

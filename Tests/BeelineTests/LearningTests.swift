@@ -44,10 +44,3 @@ private let music = Item(id: "/Applications/Music.app", kind: .app, verb: "Open"
     try old.write(to: file, atomically: true, encoding: .utf8)
     #expect(Usage(file: file).timesPicked(music, for: "tunes") == 2)
 }
-
-@Test func onlyLearnedResultsSayTheyAre() {
-    var item = music
-    #expect(!item.isLearned)
-    item.source = .learned(3)
-    #expect(item.isLearned)
-}

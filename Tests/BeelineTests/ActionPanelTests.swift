@@ -17,7 +17,6 @@ private func tab() -> Item {
     return item
 }
 
-/// The shared model with hand-set rows, no panel, nothing armed and a private pasteboard.
 @MainActor private func ready(_ query: String, _ rows: [Item]) -> BarModel {
     let model = sharedModel
     model.closeActions(refreshing: false)
@@ -85,7 +84,6 @@ private func tab() -> Item {
     model.deleteActionFilter()
     model.deleteActionFilter()
     #expect(model.visibleActions == model.panelActions)
-    // Words match from their start, in any order, ignoring case.
     #expect(model.typeInActions("PATH c"))
     #expect(model.visibleActions.map(\.title) == ["Copy path"])
     model.performSelectedAction()

@@ -15,7 +15,6 @@ private func step(_ text: String) -> PlanStep { PlanStep(text: text, icon: nil, 
 
 @Test func aStoppedPlanKeepsOnlyTheStepsThatRan() {
     let log = LastRun()
-    // As the controller does: record again after each step that took effect.
     log.begin(run: 1)
     log.record(run: 1, request: "tidy up", steps: ["one"], finished: false)
     #expect(log.latest()?.steps == ["one"], "while it runs, steps still to come aren't listed")
@@ -57,7 +56,6 @@ private func settled(_ step: PlanStep) -> Bool? {
     return step.succeeded?()
 }
 
-/// A last run whose plan left the given undo entry.
 private func ran(leaving undo: UndoLog.Entry?) -> LastRun.Entry {
     LastRun.Entry(request: "safari left", steps: ["Move Safari to the left half"], finished: true, at: Date(), undoID: undo?.id)
 }
@@ -220,7 +218,6 @@ private func ran(leaving undo: UndoLog.Entry?) -> LastRun.Entry {
 @MainActor @Test func aPlanKnowsWhenAnAsyncUndoFinished() async {
     let log = UndoLog()
     let release = DispatchSemaphore(value: 0)
-    // As mute, volume and dark mode now do: the undo returns only once its script has run.
     log.record("Mute") { release.wait() }
     guard let undo = log.planStep(for: ran(leaving: log.latest())) else { Issue.record("no undo step"); return }
     #expect(undo.settleTime == 0, "no fixed guess at how long it takes")
@@ -239,7 +236,6 @@ private func ran(leaving undo: UndoLog.Entry?) -> LastRun.Entry {
     let log = UndoLog { last.adopt(undo: $0.id, at: $0.at) }
     let then = Date()
     last.begin(run: 1)
-    // The step's wait ended before the mute's script recorded its undo.
     last.record(run: 1, request: "mute", steps: ["Mute"], undoID: log.latestID(since: then), now: then)
     #expect(last.latest()?.undoID == nil)
     log.record("Mute", now: then.addingTimeInterval(1.5)) {}
@@ -276,7 +272,6 @@ private func ran(leaving undo: UndoLog.Entry?) -> LastRun.Entry {
     var done = false
     var step = PlanStep(text: "Undo Mute", icon: nil, run: {})
     step.succeeded = { done }
-    // The undo finishes in the instant between the wait timing out and the running check.
     step.stillRunning = { done = true; return false }
     #expect(await step.outcome(within: 0.1) == .tookEffect)
 }

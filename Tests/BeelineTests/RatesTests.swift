@@ -2,7 +2,6 @@ import Foundation
 import Testing
 @testable import Beeline
 
-// Hand-written Frankfurter-shaped response; these tests never download rates.
 @Test func currencyRatesParseSavedResponse() throws {
     let fixture = try #require(Bundle.module.url(forResource: "currency-rates", withExtension: "json", subdirectory: "Fixtures"))
     let parsed = try #require(Rates.parse(Data(contentsOf: fixture)))

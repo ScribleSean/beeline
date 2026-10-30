@@ -13,7 +13,6 @@ final class Usage {
         var queryLast: [String: [String: Date]]?
     }
 
-    /// Set by main for explicit demo/CLI modes, never from the normal launch environment.
     static var fileOverride: URL?
 
     static let pickLifetime: TimeInterval = 28 * 86_400
@@ -137,7 +136,7 @@ final class Usage {
 
     func habitBoost(for item: Item) -> Int {
         guard Settings.isOn(Settings.learnFromUse), let entry = store.items[Self.key(for: item)] else { return 0 }
-        // A pick dated in the future (the clock was set back since) counts as fresh, never as a value Int can't hold.
+        // A pick dated in the future (the clock was set back) counts as fresh, never as a value Int can't hold.
         let days = max(0, Date().timeIntervalSince(entry.last) / 86_400)
         let freshness = pow(0.5, days / 14)
         return Int(min(40, 12 * log2(1 + Double(entry.count))) * freshness)

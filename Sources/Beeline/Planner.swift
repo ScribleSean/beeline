@@ -15,9 +15,7 @@ struct PlanStep: Identifiable {
     }
     var stillValid: (() -> Bool)?
     var succeeded: (() -> Bool)?
-    /// True while the step's work is still going, so a check that hasn't passed yet isn't a failure.
     var stillRunning: (() -> Bool)?
-    /// How long the plan waits for `succeeded` after the settle time.
     var grace: TimeInterval = 2
     var target: (() -> CGRect?)?
 
@@ -32,16 +30,14 @@ struct PlanStep: Identifiable {
         }
     }
 
-    /// Like `tookEffect`, but tells a step still at work (an app that's hung) from one that failed.
     @MainActor func outcome(within grace: TimeInterval) async -> Outcome {
         if await tookEffect(within: grace) { return .tookEffect }
-        // Read "still running" first, then check once more: work that finished in between counts as done.
         let running = stillRunning?() == true
         if succeeded?() == true { return .tookEffect }
         return running ? .stillRunning : .didNotTakeEffect
     }
 
-    /// Whether it took effect, waiting up to `grace` for its check. A stopped plan's task is cancelled, which
+    /// A stopped plan's task is cancelled, which
     /// would end Task.sleep at once, so this waits on the main queue instead and a late landing still counts.
     @MainActor func tookEffect(within grace: TimeInterval) async -> Bool {
         guard let succeeded else { return true }
@@ -135,7 +131,6 @@ enum Planner {
         return (previous.map { context($0, now: now) } ?? "") + "Request: \(request)\nOptions:\n\(list)"
     }
 
-    /// The previous request's own text and step names can hold screen text, so each stays on one line.
     private static func context(_ previous: LastRun.Entry, now: Date) -> String {
         let minutes = Int((now.timeIntervalSince(previous.at) / 60).rounded(.down))
         let ago = minutes < 1 ? "just now" : minutes == 1 ? "1 minute ago" : "\(minutes) minutes ago"
@@ -144,8 +139,6 @@ enum Planner {
             + (previous.finished ? "" : "It stopped before finishing.\n")
     }
 
-    /// Reads Claude's reply as option numbers, 1-based. Anything that isn't a short list of distinct
-    /// whole numbers from the list is refused, so Claude can only pick from what Beeline offered.
     static func read(_ reply: String, optionCount: Int) -> Result<(steps: [Int], note: String), Failure> {
         guard reply.utf8.count < 20_000, let start = reply.firstIndex(of: "{"), let end = reply.lastIndex(of: "}"), start < end,
               let object = try? JSONSerialization.jsonObject(with: Data(reply[start...end].utf8)) as? [String: Any],
@@ -245,7 +238,6 @@ enum Planner {
         process.standardInput = input
         process.standardOutput = output
         process.standardError = errors
-        // Register before run, and serialize launch with cancellation.
         guard processes.register(process, for: requestID) else { return .failure(.message("Cancelled.")) }
         do {
             guard try processes.start(requestID) else { return .failure(.message("Cancelled.")) }
@@ -296,7 +288,6 @@ protocol PlannerProcess: AnyObject {
 
 extension Process: PlannerProcess {}
 
-/// A reservation exists even while the executable is being resolved, so an early cancel is retained.
 final class PlannerProcesses {
     private struct Request { var process: PlannerProcess? }
     private var requests: [UUID: Request] = [:]

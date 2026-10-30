@@ -148,7 +148,6 @@ enum Actions {
         DispatchQueue.global(qos: .userInitiated).async {
             let before = runScript("output muted of (get volume settings)", what: "read the sound") == "true"
             guard runScript("set volume output muted \(muted)", what: muted ? "mute" : "unmute") != nil, before != muted else { return }
-            // Undos run off the main thread and wait for the script, so a plan knows when it finished.
             UndoLog.shared.record(title) {
                 _ = runScript("set volume output muted \(before)", what: before ? "mute" : "unmute")
             }

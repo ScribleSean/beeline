@@ -1,28 +1,23 @@
 import Foundation
 
-/// The last plan Claude made and ran, kept a few minutes so Claude can read a follow-up such as
-/// "now the other window" against it. A request handled locally is never kept: Claude never saw it.
 final class LastRun {
     struct Entry {
         let request: String
         let steps: [String]
         let finished: Bool
         let at: Date
-        /// The undo entry this plan left, the only one a follow-up's "undo that" may take back.
         var undoID: UUID? = nil
     }
 
     static let shared = LastRun()
     static let lifetime: TimeInterval = 300
-    /// How long after a plan's last recorded step an undo it set off may still arrive (scripts time out at 15 s).
+    /// How long after a plan's last step an undo it set off may still arrive (scripts time out at 15 s).
     static let lateUndo: TimeInterval = 20
 
     private let lock = NSLock()
     private var entry: Entry?
-    /// The one run allowed to write, so a stopped or replaced plan can't overwrite what came after it.
     private var owner: Int?
 
-    /// A plan starts: the run before it no longer reads as "that", even if this one fails before step 1.
     func begin(run: Int) {
         lock.lock()
         entry = nil
@@ -30,7 +25,6 @@ final class LastRun {
         lock.unlock()
     }
 
-    /// A plan records again after each step that took effect, so the record never lists one still to come.
     func record(run: Int, request: String, steps: [String], finished: Bool = true, undoID: UUID? = nil, now: Date = Date()) {
         let request = request.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !request.isEmpty, !steps.isEmpty else { return }
@@ -39,8 +33,6 @@ final class LastRun {
         lock.unlock()
     }
 
-    /// An undo recorded after its step's wait, as a slow mute or dark-mode change does, still belongs to the
-    /// plan. Only while that plan still owns the record, so a local action or a newer plan never lends it one.
     func adopt(undo id: UUID, at: Date) {
         lock.lock()
         if owner != nil, var current = entry, at >= current.at, at <= current.at.addingTimeInterval(Self.lateUndo) {
@@ -57,7 +49,6 @@ final class LastRun {
         return entry
     }
 
-    /// Something ran that Claude didn't plan, so nothing is kept and no earlier plan may write.
     func clear() {
         lock.lock()
         entry = nil
@@ -69,8 +60,6 @@ final class LastRun {
     private static let phrases = ["the other", "the same", "again", "instead"]
     private static let pronouns = ["it", "that", "them"]
 
-    /// Wording that leans on what just ran, so the Claude row should come first. Strong wording also
-    /// turns a question ("again?") into a request to act; a pronoun alone doesn't ("is it raining?").
     func isFollowUp(_ query: String, strong: Bool = false, now: Date = Date()) -> Bool {
         guard latest(now: now) != nil else { return false }
         let words = Usage.normalise(query.trimmingCharacters(in: .punctuationCharacters)).split(separator: " ").map(String.init)

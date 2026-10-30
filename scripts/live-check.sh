@@ -1,7 +1,4 @@
 #!/bin/bash
-# Hands-free live check of the bee, the stop keys, the welcome card, the shortcut, rewriting, browser tabs
-# and the permissions a signed build needs (mic audio, speech, Reminders, Accessibility, Automation).
-#
 #   bash scripts/live-check.sh                 # every scenario
 #   bash scripts/live-check.sh press escape    # some of them
 #

@@ -55,7 +55,6 @@ struct Browser {
         return items(from: output, icon: icon)
     }
 
-    /// One tab per line: window id, tab id, title and address, split by tabs.
     func items(from output: String, icon: NSImage?) -> [Item] {
         var seen = 0
         return output.split(separator: "\n").compactMap { line in
@@ -170,7 +169,6 @@ struct Browser {
         }
     }
 
-    // This handler is also exercised with plain lists, without contacting Safari.
     static let safariMatchHandler = """
     script safariResolver
     on uniqueSafariMatch(exactMatches, addressMatches)

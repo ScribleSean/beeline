@@ -70,7 +70,7 @@ private func voice(_ router: SpeechRouter) -> Voice {
     #expect(finals == ["open xcode"])
     #expect(states == ["listening", "stopped"])
     voice.start()
-    #expect(new.begins == 1 && old.begins == 2) // A failed analyzer isn't tried again.
+    #expect(new.begins == 1 && old.begins == 2)
 }
 
 @Test func emptyGuessDoesNotCountAsWords() {
@@ -106,7 +106,7 @@ private func voice(_ router: SpeechRouter) -> Voice {
     voice.stop()
     new.failed?()
     #expect(old.begins == 0)
-    #expect(router.analyzerFailed) // The next press still skips the broken analyzer.
+    #expect(router.analyzerFailed)
     voice.start()
     #expect(old.begins == 1 && new.begins == 1)
 }
@@ -133,7 +133,7 @@ private func voice(_ router: SpeechRouter) -> Voice {
     voice.start()
     new.failed?()
     #expect(states == ["listening", "stopped"])
-    #expect(old.stops >= 1 && new.stops == 0) // The recognizer's half-started tap is torn down.
+    #expect(old.stops >= 1 && new.stops == 0)
 }
 
 @Test func aPressAfterANormalAnalyzerPressCanStillFallBack() {
@@ -193,7 +193,6 @@ func analyzerTranscribesARecordedRequest() async throws {
 }
 
 @Test func analyzerFailingAfterWordsIsLoggedAsAVoiceError() throws {
-    // The voice test mode reads this log; without the error it waits out its timeout as "no final transcript".
     let path = TestEnvironment.scratch.appendingPathComponent("voice-error-\(UUID().uuidString).jsonl").path
     let log = try #require(DemoLog(path: path))
     let before = DemoLog.shared

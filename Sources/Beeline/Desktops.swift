@@ -23,8 +23,7 @@ enum Desktops {
         var apps: [App]
     }
 
-    static let file = ProcessInfo.processInfo.environment["BEELINE_DESKTOPS_FILE"].map { URL(fileURLWithPath: $0) }
-        ?? TestRun.supportFolder.appendingPathComponent("desktops.json")
+    static let file = TestRun.supportFolder.appendingPathComponent("desktops.json")
 
     private static var cache: [Desktop]?
 
@@ -152,7 +151,7 @@ enum Desktops {
             }
             DispatchQueue.main.async {
                 guard problems.isEmpty else {
-                    Actions.report("Couldn't read \(problems.joined(separator: " or "))'s tabs, so the desktop wasn't saved. "
+                    Actions.report("Couldn't read \(problems.joined(separator: " or "))'s tabs, so Beeline didn't save the desktop. "
                         + "Allow Beeline to control it in Privacy & Security › Automation, then try again.")
                     return
                 }

@@ -3,8 +3,6 @@ import Foundation
 import Testing
 @testable import Beeline
 
-// Both scans hop through the main queue, which other main-actor tests share, so this waits for them in turn
-// rather than on a fixed clock.
 @Test(.timeLimit(.minutes(1))) func requestsDuringAScanWaitForTheNextOne() async {
     TestEnvironment.prepare()
     let catalogue = Catalogue()
@@ -19,7 +17,6 @@ import Testing
     #expect(answeredBy.second == 2)
 }
 
-// Nothing is asked of the other app, so this needs no Accessibility permission.
 @Test func aWindowOfAnAppNotInFrontIsNotTheFrontWindow() {
     let launchd: pid_t = 1
     #expect(!Accessibility.isFrontWindow(AXUIElementCreateApplication(launchd), of: launchd))

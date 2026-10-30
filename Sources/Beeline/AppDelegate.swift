@@ -130,7 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .refused(let why):
                 return finish("Can't update", why)
             case .upToDate(let head, let reachedGitHub):
-                let note = reachedGitHub ? "" : "\n\nCouldn't reach GitHub, so this was checked against the copy on this Mac only."
+                let note = reachedGitHub ? "" : "\n\nCouldn't reach GitHub, so Beeline checked only the copy on this Mac."
                 return finish("Beeline is up to date", "You're on the newest version (\(head.prefix(7))).\(note)")
             case .offer(let commits, let hasLocalEdits, let head):
                 incoming = commits
@@ -141,7 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let listed = incoming.prefix(8).joined(separator: "\n")
                     let more = incoming.count > 8 ? "\n…and \(incoming.count - 8) more" : ""
                     what = "\(incoming.count) new \(incoming.count == 1 ? "commit" : "commits") on GitHub:\n\n\(listed)\(more)"
-                        + (hasLocalEdits ? "\n\nThe source folder also has uncommitted edits, which will be built in." : "")
+                        + (hasLocalEdits ? "\n\nThe build also includes the source folder's uncommitted edits." : "")
                 }
             }
             guard self.confirm("Update Beeline?", what, action: "Update") else {
@@ -149,7 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             if !incoming.isEmpty, let reason = Update.fastForward(root: root) {
-                return finish("Couldn't update", "The copy on this Mac couldn't simply move to the newest version: \(reason)")
+                return finish("Couldn't update", "The copy on this Mac couldn't move straight to the newest version: \(reason)")
             }
 
             DispatchQueue.main.async { self.updateItem.title = "Updating…" }

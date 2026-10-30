@@ -23,7 +23,6 @@ enum Theme {
     static let panelEdge = adaptive(light: NSColor(white: 1, alpha: 0.7), dark: NSColor(white: 1, alpha: 0.1))
 }
 
-/// One row of the ⌘K panel. Each key also works straight from the result list.
 struct BarAction: Identifiable, Equatable {
     enum ID { case open, copy, copyMarkdown, reveal, forget, alias }
     let id: ID
@@ -139,7 +138,6 @@ final class BarModel: ObservableObject {
         speakSelectionSoon()
     }
 
-    /// Set by the bar controller; nothing is spoken for a bar that is not on screen.
     var isOpen = true {
         didSet {
             spokenRow = nil
@@ -150,12 +148,10 @@ final class BarModel: ObservableObject {
     private var spokenRow: String?
     private var pendingSpeech: Timer?
 
-    /// Spoken at once and at high priority, but only while the bar is on screen.
     func say(_ text: String) {
         if isOpen { Announce.say(text, priority: .high) }
     }
 
-    /// Typing refreshes on every key, so the top hit is spoken once the typing pauses.
     private func speakSelectionSoon() {
         pendingSpeech?.invalidate()
         let timer = Timer(timeInterval: 0.4, repeats: false) { [weak self] _ in self?.speakSelection() }
@@ -163,7 +159,6 @@ final class BarModel: ObservableObject {
         pendingSpeech = timer
     }
 
-    /// Speaks the selected row only when it changes, so a refresh with the same top hit stays quiet.
     func speakSelection() {
         pendingSpeech?.invalidate()
         pendingSpeech = nil
@@ -222,7 +217,6 @@ final class BarModel: ObservableObject {
 
     var isShowingPlan: Bool { plan != nil || isAskingClaude || planProblem != nil || claudeAnswer != nil || rewritten != nil }
 
-    /// Not spoken on its own: "Listening" must stay silent so the mic doesn't hear VoiceOver; callers announce the rest.
     @Published var voiceNote: String?
     /// Set while the microphone listens; rows wait until it stops so the mic never hears VoiceOver.
     @Published var voiceLevel: Double? {
@@ -259,26 +253,19 @@ final class BarModel: ObservableObject {
         return leads ? [row] + items : items + [row]
     }
 
-    /// One word is still being typed ("it" on the way to iTerm), except "again" right after a plan.
     static func offersClaude(for query: String, last: LastRun = .shared) -> Bool {
         query.split(separator: " ").count >= 2 || (Usage.normalise(query.trimmingCharacters(in: .punctuationCharacters)) == "again" && last.isFollowUp(query))
     }
 
-    /// The exact Undo row is the answer to "undo that" and keeps Return. Strong follow-up wording ("now",
-    /// "the other") puts Claude first; a pronoun alone does only when nothing on the list clearly matched.
     static func claudeLeads(question: Bool, words: Int, top: Item?, followUp: Bool, strong: Bool = false) -> Bool {
         question || (words >= 5 && (top?.isGuess ?? true))
             || (followUp && words >= 2 && top?.id != "undo" && (strong || (top?.isGuess ?? true)))
     }
 
-    /// "Again?", "now the other window?" or "put it on the right?" right after a plan asks to act, so it goes
-    /// to the planner. Anything that opens like a question ("what was that song again?") stays one.
     static func isPlainQuestion(_ query: String, _ isQuestion: Bool, last: LastRun = .shared) -> Bool {
         guard isQuestion else { return false }
         let asked = query.trimmingCharacters(in: CharacterSet(charactersIn: "?"))
         let words = Usage.normalise(asked).split(separator: " ")
-        // "Do the same in Mail" is an order; "do I need a coat again?" is a question. So is a polite ask
-        // ("can you do that again?", "what about the other window?") that leans on what just ran.
         let opener = words.prefix(2).joined(separator: " ")
         let polite = ["can you", "could you", "would you", "will you", "what about", "how about"].contains(opener)
         let orders = (words.first == "do" && !["i", "you", "we", "they"].contains(words.dropFirst().first ?? ""))
@@ -384,7 +371,6 @@ final class BarModel: ObservableObject {
             return
         }
         armedID = nil
-        // Test phrases from the voice test mode must not change the user's real ranking.
         if !Demo.isVoice { catalogue.recordUse(of: item, query: query) }
         onRun(item)
     }
@@ -411,14 +397,10 @@ final class BarModel: ObservableObject {
         speakSelection()
     }
 
-    /// The result the ⌘K panel was opened on. It stays put while the list underneath refreshes.
     @Published private(set) var actionTarget: Item?
     @Published var actionSelected = 0
-    /// The panel's rows as they were when it opened, so a row that stops applying can't shift the others.
     @Published private(set) var panelActions: [BarAction] = []
-    /// What was typed while the panel is open. It narrows the panel and never reaches the search field.
     @Published private(set) var actionFilter = ""
-    /// The panel's rows whose title has a word starting with each typed word, in any order.
     var visibleActions: [BarAction] {
         let words = Self.words(actionFilter)
         guard !words.isEmpty else { return panelActions }
@@ -431,14 +413,12 @@ final class BarModel: ObservableObject {
     var pasteboard = NSPasteboard.general
     var revealInFinder: (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
 
-    /// What ⌘K and the action shortcuts act on: the panel's row, else the selected one.
     var focusedItem: Item? {
         if showsActions, let actionTarget { return actionTarget }
         guard !isShowingPlan, armedID == nil, results.indices.contains(selected) else { return nil }
         return results[selected]
     }
 
-    /// Open first, then the rest in a fixed order. Empty when Open would be the only choice.
     func actions(for item: Item) -> [BarAction] {
         guard item.id != Self.claudeRowID, item.id != Self.rewriteRowID, item.kind != .calculation else { return [] }
         var list = [BarAction(id: .open, title: item.verb.isEmpty ? "Run" : item.verb, symbol: "return")]
@@ -460,21 +440,18 @@ final class BarModel: ObservableObject {
 
     var focusedActions: [BarAction] { focusedItem.map(actions(for:)) ?? [] }
 
-    /// Apps and files carry their path as their id.
     static func path(of item: Item) -> String? {
         guard [.app, .file].contains(item.kind), item.id.hasPrefix("/"), FileManager.default.fileExists(atPath: item.id) else { return nil }
         return item.id
     }
 
     static func copyable(_ item: Item) -> (title: String, text: String)? {
-        // A path is still worth copying after the file moves, so only Show in Finder checks it exists.
         if [.app, .file].contains(item.kind), item.id.hasPrefix("/") { return ("Copy path", item.id) }
         if let link = item.link { return ("Copy link", link.absoluteString) }
         guard item.kind != .clipboard, !item.title.isEmpty else { return nil }
         return ("Copy name", item.title)
     }
 
-    /// A browser tab as [Title](link), with the characters that would end either part early escaped.
     static func markdownLink(_ item: Item) -> String? {
         guard item.kind == .tab, let link = item.link?.absoluteString else { return nil }
         // A blank line in a title would end the link, so whitespace runs become one space.
@@ -490,8 +467,6 @@ final class BarModel: ObservableObject {
             .components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }
     }
 
-    /// Typed characters go to the panel's filter. False for keys that type nothing (Tab, arrows, Escape),
-    /// and when the panel is closed, so those go on as usual.
     @discardableResult
     func typeInActions(_ characters: String) -> Bool {
         guard showsActions, !characters.isEmpty,
@@ -501,23 +476,19 @@ final class BarModel: ObservableObject {
         return true
     }
 
-    /// Esc clears a filter before it closes the panel.
     func escapeInActions() {
         if actionFilter.isEmpty { closeActions() } else { setActionFilter("") }
     }
 
-    /// ⌫ drops a character; ⌥⌫ and ⌘⌫ clear the filter.
     func deleteActionFilter(all: Bool = false) {
         guard showsActions, !actionFilter.isEmpty else { return }
         setActionFilter(all ? "" : String(actionFilter.dropLast()))
     }
 
-    /// ⌘V while the panel is open pastes the clipboard's first line into the filter, not the search.
     @discardableResult
     func pasteIntoActionFilter() -> Bool {
         guard showsActions else { return false }
         let line = pasteboard.string(forType: .string)?.split(whereSeparator: \.isNewline).first ?? ""
-        // Tabs part words; control and private-use characters go; a long line is cut to what a filter needs.
         let words = line.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         let clean = String(String.UnicodeScalarView(words.unicodeScalars.filter {
             !CharacterSet.controlCharacters.contains($0) && !(0xF700...0xF8FF).contains($0.value)
@@ -553,7 +524,7 @@ final class BarModel: ObservableObject {
     func closeActions(refreshing: Bool = true) {
         guard actionTarget != nil else { return }
         actionTarget = nil
-        spokenRow = nil  // back on the list, so its row is spoken again
+        spokenRow = nil
         if refreshing { refreshInBackground() }
     }
 
@@ -565,19 +536,15 @@ final class BarModel: ObservableObject {
         say("\(action.title), \(action.spokenKeys)")
     }
 
-    /// The highlighted row runs only if it still applies (a file can vanish while the panel is open).
     func performSelectedAction() {
         let visible = visibleActions
         guard showsActions, visible.indices.contains(actionSelected) else { return }
         perform(visible[actionSelected].id)
     }
 
-    /// Runs one action on the focused row, from the panel or straight from its shortcut. False when that
-    /// row doesn't offer it, so the key goes on to the text field.
     @discardableResult
     func perform(_ action: BarAction.ID) -> Bool {
         guard let item = focusedItem, actions(for: item).contains(where: { $0.id == action }) else { return false }
-        // Read once, before the panel closes, so a check can't fail halfway.
         let text = action == .copyMarkdown ? Self.markdownLink(item) : Self.copyable(item)?.text
         let path = Self.path(of: item)
         if [.copy, .copyMarkdown].contains(action), text == nil { return false }
@@ -653,8 +620,6 @@ private struct LevelMeter: View {
     }
 }
 
-/// The key glyphs under the list. VoiceOver skips them: "up arrow down arrow move" says nothing its own
-/// keys don't, and what each key does is spoken as it happens. The global shortcut is news, so it stays.
 struct KeyHints: View {
     @ObservedObject var model: BarModel
 
@@ -690,7 +655,6 @@ struct KeyHints: View {
 
 struct BarView: View {
     @ObservedObject var model: BarModel
-    /// Lets the offscreen preview draw the solid surface without changing system settings.
     var solidOverride: Bool?
     @FocusState private var focused: Bool
     @AppStorage(Settings.showDetails) private var showDetails = false
@@ -1013,7 +977,6 @@ struct PlanSection: View {
                 .background(Theme.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.yellow, lineWidth: 1.5))
                 HStack {
-                    // The one hint VoiceOver keeps: copying or replacing is the card's action, so it reads as a button.
                     if model.rewritten == nil {
                         Text("↩ copy").foregroundStyle(.secondary)
                             .accessibilityElement(children: .ignore)
@@ -1035,7 +998,7 @@ struct PlanSection: View {
                 .padding(.top, 8)
             } else if let plan = model.plan {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Ready when you are")
+                    Text("Claude's plan")
                         .font(.system(size: 15, weight: .semibold))
                     if !plan.note.isEmpty {
                         Text(plan.note).font(.system(size: 12)).foregroundStyle(.secondary)
@@ -1296,7 +1259,7 @@ private struct DetailStrip: View {
         case .words: return "every word you typed matches"
         case .partial: return "only some of your words match, so this is a guess"
         case .learned(let times): return "you picked this \(times == 1 ? "once" : "\(times) times") before for these words"
-        case .model(let keywords): return "on-device model read your request as: " + keywords.joined(separator: " ")
+        case .model(let keywords): return "the on-device model read your request as: " + keywords.joined(separator: " ")
         case .meaning: return "closest in meaning, a weak guess"
         case .alias: return "your alias for it"
         }

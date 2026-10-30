@@ -1,8 +1,6 @@
 import CoreGraphics
 import Foundation
 
-/// Rects in AppKit screen coordinates (origin bottom left of the primary screen) unless named `ax`:
-/// Accessibility measures from the top left of the primary screen instead.
 enum BeeFlight {
     static let beeSize = CGSize(width: 30, height: 30)
 

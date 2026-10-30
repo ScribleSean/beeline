@@ -4,15 +4,18 @@ enum AutoAct {
     static let safeActions: Set<String> = ["action:Mute", "action:Unmute", "action:Volume Up", "action:Volume Down",
                                            "action:Toggle Dark Mode", "action:Mission Control"]
 
-    /// How long a voice result waits before running by itself. With VoiceOver on it covers saying `spoken`
-    /// (about 14 characters a second at the default rate, plus a beat to start) and a second and a half to
-    /// press Escape after hearing it.
+    private static let sightedWait: TimeInterval = 0.7
+    private static let shortestVoiceOverWait: TimeInterval = 3
+    private static let voiceOverLeadIn: TimeInterval = 0.4
+    private static let voiceOverCharactersPerSecond = 14.0
+    private static let timeToPressEscape: TimeInterval = 1.5
+
     static func window(voiceOver: Bool, spoken: String) -> TimeInterval {
-        guard voiceOver else { return 0.7 }
-        return max(3, 0.4 + Double(spoken.count) / 14 + 1.5)
+        guard voiceOver else { return sightedWait }
+        let speaking = voiceOverLeadIn + Double(spoken.count) / voiceOverCharactersPerSecond
+        return max(shortestVoiceOverWait, speaking + timeToPressEscape)
     }
 
-    /// Read when each voice result arrives, so turning VoiceOver on mid-session counts.
     static var voiceOverIsOn: () -> Bool = { NSWorkspace.shared.isVoiceOverEnabled }
 
     private static let leadIns = ["open", "launch", "start", "show", "go to", "switch to", "bring up", "show me", "turn on"]
@@ -30,7 +33,6 @@ enum AutoAct {
         guard !item.needsConfirm else { return false }
         switch item.kind {
         case .app, .setting: return true
-        // A move that names its app ("move Safari to the left half") is undoable; "this window" depends on focus.
         case .window: return item.id.hasPrefix("window:") || item.id.hasPrefix("tile-app:")
         case .action: return safeActions.contains(item.id)
         default: return false

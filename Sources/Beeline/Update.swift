@@ -7,7 +7,6 @@ enum Update {
         case offer(incoming: [String], hasLocalEdits: Bool, head: String)
     }
 
-    /// Never changes the source folder: it only fetches and looks.
     static func check(root: String, built: String) -> Check {
         let branch = shell("git rev-parse --abbrev-ref HEAD", in: root)
         guard branch.ok else {
@@ -28,7 +27,6 @@ enum Update {
         return .offer(incoming: incoming, hasLocalEdits: hasLocalEdits, head: head)
     }
 
-    /// Moves main forward only if that needs no merge. Returns why not, or nil when it moved.
     static func fastForward(root: String) -> String? {
         let merged = shell("git merge --ff-only --quiet origin/main", in: root)
         guard !merged.ok else { return nil }

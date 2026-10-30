@@ -2,14 +2,12 @@ import Foundation
 import Security
 
 /// macOS charges a child's permission checks to the app that launched it, so Beeline only runs a claude
-/// that Anthropic signed. Any Developer ID binary from Anthropic's team passes; the identifier isn't pinned,
-/// so a rename on Anthropic's side doesn't break the planner.
+/// that Anthropic signed.
+/// The team is checked, not the identifier, so a rename on Anthropic's side doesn't break the planner.
 enum ClaudeBinary {
     static let anthropic = "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists"
         + " and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"Q6L2SF6YDW\""
 
-    /// The real file behind `url` (symlinks followed), when its signature is intact and meets `requirement`.
-    /// Launch the returned path, not `url`, so swapping a symlink after the check doesn't change what runs.
     static func verified(_ url: URL, requirement: String = anthropic) -> URL? {
         guard let real = realpath(url.path, nil) else { return nil }
         defer { free(real) }

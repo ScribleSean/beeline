@@ -19,9 +19,11 @@ final class Aliases {
     }
     private let saveQueue = DispatchQueue(label: "beeline.aliases", qos: .userInitiated)
 
+    /// Set by main.swift for the live check, so its aliases stay out of the real store.
+    static var fileOverride: URL?
+
     convenience init() {
-        self.init(file: ProcessInfo.processInfo.environment["BEELINE_ALIASES_FILE"].map { URL(fileURLWithPath: $0) }
-            ?? TestRun.supportFolder.appendingPathComponent("aliases.json"))
+        self.init(file: Self.fileOverride ?? TestRun.supportFolder.appendingPathComponent("aliases.json"))
     }
 
     init(file: URL) {

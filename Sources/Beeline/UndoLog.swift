@@ -8,7 +8,6 @@ final class UndoLog {
         let undo: () -> Void
     }
 
-    // An undo that a plan's step records late (mute, volume and dark mode wait on a script) is still the plan's.
     static let shared = UndoLog { LastRun.shared.adopt(undo: $0.id, at: $0.at) }
     static let lifetime: TimeInterval = 600
     static let offerTime: TimeInterval = 120
@@ -68,19 +67,15 @@ final class UndoLog {
         return item
     }
 
-    /// Offered only when the latest undo is the one the last plan left, so "that" can't take back an
-    /// older or a local action. Bound to that entry, so it can't take back something newer either.
     func planStep(for last: LastRun.Entry?, now: Date = Date()) -> PlanStep? {
         guard let undoID = last?.undoID, let entry = latest(now: now), entry.id == undoID else { return nil }
         let id = entry.id
         let outcome = UndoOutcome()
-        // Off the main thread, as the Undo row does: moving windows or files back can block.
         var step = PlanStep(text: "Undo \(ScreenText.quote(entry.title))",
                             icon: NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: nil)) { [weak self] in
+            // Off the main thread, as the Undo row does: moving windows or files back can block.
             DispatchQueue.global(qos: .userInitiated).async { outcome.set(self?.undoLatest(id: id) != nil) }
         }
-        // The plan moves on as soon as it has finished, and stops if something newer replaced the entry.
-        // Still running after the grace (a hung app) reads as unknown, not as "didn't take effect".
         step.succeeded = { outcome.value == true }
         step.stillRunning = { outcome.value == nil }
         step.stillValid = { [weak self] in self?.latest()?.id == id }
@@ -89,7 +84,6 @@ final class UndoLog {
         return step
     }
 
-    /// The latest entry only if it was made at or after `start`, so a plan never claims an older undo as its own.
     func latestID(since start: Date) -> UUID? {
         latest().flatMap { $0.at >= start ? $0.id : nil }
     }
@@ -99,7 +93,6 @@ final class UndoLog {
     }
 }
 
-/// Whether a plan's undo has finished, and whether it took anything back.
 final class UndoOutcome {
     private let lock = NSLock()
     private var result: Bool?

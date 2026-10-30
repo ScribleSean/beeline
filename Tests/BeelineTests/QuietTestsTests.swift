@@ -3,8 +3,6 @@ import Foundation
 import Testing
 @testable import Beeline
 
-// Tests must leave the screen and ~/Library/Logs/Beeline.log of whoever runs them alone.
-
 @Test func theTestRunIsDetected() {
     #expect(TestRun.isActive)
 }

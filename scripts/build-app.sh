@@ -1,5 +1,4 @@
 #!/bin/bash
-# Builds build/Beeline.app from the Swift package and signs it.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p build

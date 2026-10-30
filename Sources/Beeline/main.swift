@@ -8,7 +8,7 @@ if Demo.requested != nil {
     Usage.fileOverride = ProcessInfo.processInfo.environment["BEELINE_USAGE_FILE"].map { URL(fileURLWithPath: $0) }
         ?? FileManager.default.temporaryDirectory.appendingPathComponent("beeline-live-check-usage.json")
     if ProcessInfo.processInfo.environment["BEELINE_USAGE_FILE"] == nil {
-        setenv("BEELINE_ALIASES_FILE", FileManager.default.temporaryDirectory.appendingPathComponent("beeline-live-check-aliases.json").path, 1)
+        Aliases.fileOverride = FileManager.default.temporaryDirectory.appendingPathComponent("beeline-live-check-aliases.json")
     }
 }
 

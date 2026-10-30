@@ -35,10 +35,6 @@ enum Rewrite {
         }
     }
 
-    static func useSelection(_ text: String) {
-        selection = Selection(text: text, app: 0)
-    }
-
     private static let cues: Set<String> = [
         "rewrite", "rephrase", "reword", "shorter", "longer", "shorten", "lengthen", "expand", "condense", "concise",
         "formal", "casual", "friendlier", "friendly", "polite", "professional", "simpler", "simplify", "clearer",
@@ -97,7 +93,7 @@ enum Rewrite {
                 return
             }
             guard io.contains(text) else {
-                io.report("The clipboard changed. Paste was cancelled; run the rewrite again when ready.")
+                io.report("The clipboard changed, so Beeline didn't paste. Run the rewrite again.")
                 return
             }
             guard io.paste() else {

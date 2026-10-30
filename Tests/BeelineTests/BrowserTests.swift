@@ -2,7 +2,6 @@ import Foundation
 import Testing
 @testable import Beeline
 
-/// No browser is touched here: the tab list is the text the browser's AppleScript would return.
 @Test func everyTabInTheListBecomesOneRow() {
     let chrome = Browser.all[0], safari = Browser.all[1]
     let listed = "11\t501\tInbox - Gmail\thttps://mail.google.com/mail/u/0/\n11\t502\t\thttps://news.ycombinator.com/\nnot a tab line\n"
@@ -17,7 +16,6 @@ import Testing
 }
 
 @Test func aPageTitleStaysTextInsideAppleScript() throws {
-    // Titles and addresses come from web pages, and the Safari close script puts them inside AppleScript.
     for title in [#"Say "hi""#, #"C:\Users\"#, #"x" & (do shell script "touch /tmp/beeline-pwned") & ""#,
                   "two\nlines", "ünïcødé 🐝", #"\""#, ""] {
         let echoed = try #require(Browser.osascript("return " + Browser.quoted(title)), "AppleScript didn't parse \(title)")
@@ -27,7 +25,6 @@ import Testing
 }
 
 @Test func safariResolutionRefusesDuplicateExactAndFallbackMatches() throws {
-    // Run the production AppleScript resolver against fake tab lists, without opening Safari.
     let cases = [("{1, 2}", "{1, 2}", "ambiguous"), ("{}", "{1, 2}", "ambiguous"),
                  ("{2}", "{1, 2}", "ok, 2"), ("{}", "{3}", "ok, 3"), ("{}", "{}", "missing")]
     for (exact, addresses, expected) in cases {
@@ -38,7 +35,6 @@ import Testing
 }
 
 @Test(.timeLimit(.minutes(1))) func ambiguousSafariCloseAndSwitchAskForASpecificTab() async {
-    // Both row actions must execute the guarded script and surface the refusal.
     await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
         let lock = NSLock()
         var reports = 0

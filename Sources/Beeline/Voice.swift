@@ -139,8 +139,6 @@ final class Voice {
 
 }
 
-/// SFSpeechRecognizer on the shared audio engine: the only engine on macOS 14 and 15, and the fallback on
-/// newer systems. Tests inject a session without hardware.
 final class SpeechSession: SpeechBackend {
     let engine: AVAudioEngine
     let file: FileSpeechBackend.Audio?
@@ -163,8 +161,7 @@ final class SpeechSession: SpeechBackend {
 
     func authorise(_ done: @escaping (String?) -> Void) {
         if file != nil {
-            // Demo automation never prompts or asks for microphone access.
-            done(SFSpeechRecognizer.authorizationStatus() == .authorized ? nil : "Speech Recognition permission is required for the file recognizer.")
+            done(SFSpeechRecognizer.authorizationStatus() == .authorized ? nil : "The file recognizer needs Speech Recognition permission.")
             return
         }
         if SFSpeechRecognizer.authorizationStatus() == .authorized,
