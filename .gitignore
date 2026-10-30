@@ -4,3 +4,11 @@ build/
 .signing-identity
 # Claude Code settings and worktrees are local to each machine.
 .claude/
+
+# Agent files stay local.
+CLAUDE.md
+AGENTS.md
+.codex/
+HANDOFF*
+*.local.md
+.worktrees/
