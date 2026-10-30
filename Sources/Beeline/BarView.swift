@@ -72,7 +72,7 @@ final class BarModel: ObservableObject {
     func countOpen(_ defaults: UserDefaults = .standard) {
         let opens = defaults.integer(forKey: Settings.barOpens) + 1
         defaults.set(opens, forKey: Settings.barOpens)
-        showsShortcutHint = opens <= Self.shortcutHintOpens || Settings.activeShortcut == nil
+        showsShortcutHint = opens <= Self.shortcutHintOpens
     }
 
     let catalogue = Catalogue()
