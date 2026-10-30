@@ -60,7 +60,7 @@ cd beeline
 bash scripts/build-app.sh && open build/Beeline.app
 ```
 
-The welcome screen walks you through Accessibility. **Update Beeline** in the menu bar pulls the newest version and rebuilds it. Ask Claude needs [Claude Code](https://claude.com/claude-code) signed in on the same Mac.
+The welcome screen walks you through Accessibility. **Update Beeline** in the menu bar pulls the newest version and rebuilds it. Ask Claude needs [Claude Code](https://claude.com/claude-code) signed in on the same Mac. Beeline only runs a `claude` that Anthropic signed, so an npm install won't work; use the native installer.
 
 ### ⌘Space and Spotlight
 

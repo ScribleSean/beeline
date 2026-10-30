@@ -190,8 +190,8 @@ enum Planner {
         }
     }
 
-    /// An app started by launchd gets a bare PATH, and a bash login shell never reads zsh's profile,
-    /// where Claude Code's installer and Homebrew add themselves.
+    /// An app started by launchd gets a bare PATH, so look where Claude Code's installer and Homebrew put it.
+    /// Beeline doesn't ask a login shell: that runs the user's startup files with Beeline's permissions.
     private static var cachedClaude: URL?
     private static let claudeLock = NSLock()
 
@@ -204,7 +204,7 @@ enum Planner {
                           URL(fileURLWithPath: "/usr/local/bin/claude")]
         candidates += (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":")
             .map { URL(fileURLWithPath: String($0)).appendingPathComponent("claude") }
-        let found = find(in: candidates) ?? askShellForClaude()
+        let found = find(in: candidates)
         cachedClaude = found
         return found
     }
@@ -213,29 +213,16 @@ enum Planner {
         candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }
     }
 
-    private static func askShellForClaude() -> URL? {
-        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: shell)
-        process.arguments = ["-lic", "command -v claude"]
-        process.standardInput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        do { try process.run() } catch { return nil }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 5) { if process.isRunning { process.terminate() } }
-        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        process.waitUntilExit()
-        let path = output.split(whereSeparator: \.isNewline).last.map { String($0).trimmingCharacters(in: .whitespaces) } ?? ""
-        guard path.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: path) else { return nil }
-        return URL(fileURLWithPath: path)
-    }
-
     static let notFoundMessage = "Claude Code isn't installed, or isn't in ~/.local/bin, Homebrew or /usr/local/bin."
 
     private static func askClaude(_ prompt: String, system: String, requestID: UUID) -> Result<String, Failure> {
         defer { processes.finish(requestID) }
-        guard let claude = claudePath() else { return .failure(.message(notFoundMessage)) }
+        let found = claudePath()
+        let claude: URL
+        switch launchable(found) {
+        case .success(let real): claude = real
+        case .failure(let failure): return .failure(failure)
+        }
         let process = Process()
         process.executableURL = claude
         process.arguments = ["-p", "--model", "sonnet", "--tools", "", "--strict-mcp-config", "--setting-sources", "",
@@ -248,7 +235,7 @@ enum Planner {
                      "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy", "NODE_EXTRA_CA_CERTS"] {
             if let value = inherited[name] { environment[name] = value }
         }
-        environment["PATH"] = [claude.deletingLastPathComponent().path, "/usr/bin", "/bin", "/usr/sbin", "/sbin"].joined(separator: ":")
+        environment["PATH"] = [(found ?? claude).deletingLastPathComponent().path, "/usr/bin", "/bin", "/usr/sbin", "/sbin"].joined(separator: ":")
         process.environment = environment
         process.currentDirectoryURL = FileManager.default.temporaryDirectory
 
