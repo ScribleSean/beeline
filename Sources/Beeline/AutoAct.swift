@@ -30,7 +30,8 @@ enum AutoAct {
         guard !item.needsConfirm else { return false }
         switch item.kind {
         case .app, .setting: return true
-        case .window: return item.id.hasPrefix("window:")
+        // A move that names its app ("move Safari to the left half") is undoable; "this window" depends on focus.
+        case .window: return item.id.hasPrefix("window:") || item.id.hasPrefix("tile-app:")
         case .action: return safeActions.contains(item.id)
         default: return false
         }
@@ -47,6 +48,7 @@ enum AutoAct {
         for suffix in [" settings", " app", " window"] where core.hasSuffix(suffix) && core != title {
             core = String(core.dropLast(suffix.count))
         }
-        return core == title
+        // The recognizer can hear "TextEdit" as "text edit".
+        return core == title || core.replacingOccurrences(of: " ", with: "") == title.replacingOccurrences(of: " ", with: "")
     }
 }
