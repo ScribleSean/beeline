@@ -90,10 +90,11 @@ final class Catalogue {
     }
 
     /// Construct a catalogue from a supplied snapshot without scanning other apps.
-    init(apps: [Item], windows: [Item], quits: [Item], controls: [Item]) {
+    init(apps: [Item], windows: [Item], planOnlyWindows: [Item] = [], quits: [Item], controls: [Item]) {
         self.aliases = .shared
         self.apps = apps
         self.windows = windows
+        self.planOnlyWindows = planOnlyWindows
         self.quits = quits
         self.controls = controls
     }
@@ -265,9 +266,13 @@ final class Catalogue {
 
     /// "Move Safari to the left half" names the app, so that app's front window gets a direct move whether or
     /// not it is the current window. Browsers count too, though their windows are otherwise plan-only.
+    /// The focused window comes first, then the lowest Accessibility index (ids end in it), front to back.
     private func namedTiles(for parsed: Matcher.Parsed) -> [Item] {
+        func rank(_ window: Item) -> (Int, Int) {
+            (window.isCurrentWindow ? 0 : 1, window.id.split(separator: ":").last.flatMap { Int($0) } ?? .max)
+        }
         var seen: Set<String> = []
-        return (windows + planOnlyWindows).flatMap { window -> [Item] in
+        return (windows + planOnlyWindows).sorted { rank($0) < rank($1) }.flatMap { window -> [Item] in
             guard let tile = window.tile, seen.insert(window.subtitle).inserted else { return [] }
             let name = Matcher.parse(window.subtitle).tokens
             guard !name.isEmpty, name.allSatisfy(parsed.tokens.contains) else { return [] }
