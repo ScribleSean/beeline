@@ -263,6 +263,28 @@ final class Catalogue {
         }
     }
 
+    /// "Move Safari to the left half" names the app, so that app's front window gets a direct move whether or
+    /// not it is the current window. Browsers count too, though their windows are otherwise plan-only.
+    private func namedTiles(for parsed: Matcher.Parsed) -> [Item] {
+        var seen: Set<String> = []
+        return (windows + planOnlyWindows).flatMap { window -> [Item] in
+            guard let tile = window.tile, seen.insert(window.subtitle).inserted else { return [] }
+            let name = Matcher.parse(window.subtitle).tokens
+            guard !name.isEmpty, name.allSatisfy(parsed.tokens.contains) else { return [] }
+            let choices: [(String, Accessibility.Side, String)] = [
+                ("Move \(window.subtitle) to the Left Half", .left, "side snap tile put window"),
+                ("Move \(window.subtitle) to the Right Half", .right, "side snap tile put window"),
+                ("Make \(window.subtitle) Fill the Screen", .full, "maximise maximize full big enlarge whole window"),
+            ]
+            return choices.map { title, side, keywords in
+                var item = Item(id: "tile-app:\(window.id):\(side)", kind: .window, verb: "", title: title, subtitle: window.subtitle,
+                                keywords: keywords, icon: window.icon) { tile(side) }
+                item.target = window.target
+                return item
+            }
+        }
+    }
+
     func refreshTabs(done: @escaping () -> Void) {
         let running = Set(NSWorkspace.shared.runningApplications.compactMap { $0.bundleIdentifier })
         DispatchQueue.global(qos: .userInitiated).async {
@@ -372,7 +394,8 @@ final class Catalogue {
             let closes = closeTabResults(matching: target, limit: limit)
             if !closes.isEmpty { return closes }
         }
-        let all = actions + Desktops.items() + apps + settings + shortcuts + tabs + windows + tiles + menus + controls + (wantsClose ? quitResults(for: target) : [])
+        let all = actions + Desktops.items() + apps + settings + shortcuts + tabs + windows + tiles + namedTiles(for: parsed) + menus + controls
+            + (wantsClose ? quitResults(for: target) : [])
             + (filesQuery == query ? files : [])
         let scored: [(Item, Matcher.Score)] = all.compactMap { item in
             if aliases.matches(query, item) {

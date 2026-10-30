@@ -100,3 +100,34 @@ private func titles(_ query: String) -> [String] {
 @Test func finderCanBeFound() {
     #expect(titles("finder").contains("Finder"))
 }
+
+/// Safari's window is not the current one (voice is used from another app), and browsers' windows are plan-only.
+private func catalogueWithSafariWindow(placed: @escaping (Accessibility.Side) -> Void) -> Catalogue {
+    TestEnvironment.prepare()
+    let app = Item(id: "/Applications/Safari.app", kind: .app, verb: "Open", title: "Safari",
+                   subtitle: "App", keywords: "", icon: nil, run: {})
+    var window = Item(id: "window:42:0", kind: .window, verb: "Switch to window", title: "Start Page",
+                      subtitle: "Safari", keywords: "Safari", icon: nil, run: {})
+    window.tile = placed
+    return Catalogue(apps: [app], windows: [window], quits: [], controls: [])
+}
+
+@Test func namingAnAppAndASideFindsTheDirectWindowMove() {
+    var placed: [Accessibility.Side] = []
+    let catalogue = catalogueWithSafariWindow { placed.append($0) }
+    let spoken = "Move Safari to the left half"
+    let top = catalogue.search(spoken).first
+    #expect(top?.title == "Move Safari to the Left Half")
+    #expect(top?.isGuess == false)
+    #expect(!BarModel.claudeLeads(question: false, words: 6, top: top, followUp: false))
+    let picked = AutoAct.pick(catalogue.search(spoken), spoken: spoken)
+    #expect(picked?.title == "Move Safari to the Left Half")
+    picked?.run()
+    #expect(placed == [.left])
+    #expect(catalogue.search("put safari on the right").first?.title == "Move Safari to the Right Half")
+}
+
+@Test func aSideAloneDoesNotOfferEveryAppsWindow() {
+    let catalogue = catalogueWithSafariWindow { _ in }
+    #expect(!catalogue.search("left half").contains { $0.title.contains("Safari") })
+}

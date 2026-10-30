@@ -47,3 +47,8 @@ private let nightShift = item("setting:night", .setting, "Night Shift")
     learnedSleep.source = .learned(4)
     #expect(AutoAct.pick([learnedSleep], spoken: "nap") == nil)
 }
+
+@Test func aNameHeardAsTwoWordsStillCounts() {
+    let textEdit = item("/System/Applications/TextEdit.app", .app, "TextEdit")
+    #expect(AutoAct.pick([textEdit], spoken: "Open text edit")?.id == textEdit.id)
+}

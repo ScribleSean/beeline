@@ -18,7 +18,7 @@ What a user can do, how they reach it, and what checks it today. Tests are in `T
 | Stop with Escape or by taking over | Escape or a click mid-run | RunGuardTests, live `escape` and `click` |
 | Mac controls (sleep, lock, mute, dark mode, Wi-Fi) | Type the action | RankingTests (ranking only), KeyboardTests (lock keys) |
 | Restart, Shut Down, Log Out, Eject | Type the action | RankingTests (confirm and ranking only) |
-| Move the front window to half or full | Type "left half" or similar | none |
+| Move the front window, or a named app's window, to half or full | Type "left half" or "move Safari to the left half" | RankingTests (named app), AutoActTests |
 | Sums, units, currencies, time zones | Type a sum or "5 km in miles" | ConverterTests, RankingTests (dates are not sums) |
 | Currency rates download | Twice a day, automatic | currencyRatesParseSavedResponse, currencyRatesRejectMalformedOrPartialResponses (parser only) |
 | Reminders and goals | "remind me to …" | TextMatchingTests (date parsing and title only) |
