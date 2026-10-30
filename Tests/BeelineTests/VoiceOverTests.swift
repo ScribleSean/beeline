@@ -11,10 +11,11 @@ private func row(_ id: String, verb: String = "Open", subtitle: String = "Apps",
 }
 
 /// Swaps the announcer for a recorder while `body` runs.
-/// The bar speaks rows only for a typed query and only while open; this also drops a timer or remembered row
-/// left by an earlier test.
+/// The bar speaks rows only for a typed query and only while open, and not while the ⌘K panel is up; this also
+/// drops a timer, remembered row or open panel left by an earlier test.
 @MainActor private func readyShared() {
     sharedModel.catalogue.includeFiles = false
+    sharedModel.closeActions(refreshing: false)
     if sharedModel.query.isEmpty { sharedModel.query = "zq" }
     sharedModel.isOpen = false
     sharedModel.isOpen = true

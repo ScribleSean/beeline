@@ -231,6 +231,7 @@ private func tab() -> Item {
     #expect(ran.isEmpty)
     #expect(!model.catalogue.aliases.matches("vfx", row))
     #expect(BarModel.copyable(row)?.text == file.path)
+    model.closeActions(refreshing: false)
 }
 
 @Test @MainActor func pastingAndClearingEditTheFilterNotTheSearch() {
