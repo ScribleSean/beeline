@@ -398,9 +398,14 @@ final class BarController: NSObject, NSWindowDelegate {
 
     func heard(_ text: String) {
         cancelPendingAct()
-        guard !isListening, isShown, (Demo.isVoice || Settings.isOn(Settings.actOnRelease)), (Demo.isVoice || Settings.isOn(Settings.holdToTalk)),
-              model.query == text, model.armedID == nil, !model.isShowingPlan,
-              let item = AutoAct.pick(model.results, spoken: text) else { return }
+        let declined: String? = isListening ? "still listening" : !isShown ? "bar hidden"
+            : !(Demo.isVoice || (Settings.isOn(Settings.actOnRelease) && Settings.isOn(Settings.holdToTalk))) ? "auto-act off in Settings"
+            : model.query != text ? "query changed" : model.armedID != nil ? "a row is armed"
+            : model.isShowingPlan ? "showing a plan" : nil
+        guard declined == nil, let item = AutoAct.pick(model.results, spoken: text) else {
+            DemoLog.note("auto-act-declined", ["why": declined ?? "no exact, safe top match", "top": model.results.first?.title ?? ""])
+            return
+        }
         model.selected = model.results.firstIndex { $0.id == item.id } ?? 0
         let verb = item.verb.isEmpty ? "Running" : item.verb == "Open" ? "Opening" : item.verb
         model.voiceNote = "\(verb) \(item.title) · esc to cancel"
