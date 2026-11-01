@@ -19,7 +19,6 @@ final class Aliases {
     }
     private let saveQueue = DispatchQueue(label: "beeline.aliases", qos: .userInitiated)
 
-    /// Set by main.swift for the live check, so its aliases stay out of the real store.
     static var fileOverride: URL?
 
     convenience init() {

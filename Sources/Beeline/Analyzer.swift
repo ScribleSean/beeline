@@ -12,7 +12,6 @@ enum SpeechEngine: Equatable {
     case analyzer
     case recognizer
 
-    /// `defaults write <bundle id> voiceEngine classic` keeps the macOS 14/15 recognizer on newer systems.
     static let preferenceKey = "voiceEngine"
 
     static func pick(analyzerReady: Bool, analyzerFailed: Bool, preference: String?) -> SpeechEngine {
@@ -186,7 +185,6 @@ final class AnalyzerSession: SpeechBackend {
         analyzer = nil
     }
 
-    /// Only while this session holds the engine: after `stop`, a late completion must not remove a newer press's tap.
     private func finishAudio() {
         guard let input else { return }
         if let file { file.stop() } else {

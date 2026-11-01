@@ -117,7 +117,6 @@ final class BarController: NSObject, NSWindowDelegate {
             if self.handleEditShortcut(event) { return nil }
             switch Int(event.keyCode) {
             case kVK_Escape:
-                // A held Esc acts once, so the repeat after closing the ⌘K panel doesn't also hide the bar.
                 if event.isARepeat { return nil }
                 if self.isListening {
                     self.cancelListening()

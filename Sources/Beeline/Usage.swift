@@ -9,7 +9,6 @@ final class Usage {
     private struct Store: Codable, Equatable {
         var items: [String: Entry] = [:]
         var queries: [String: [String: Int]] = [:]
-        /// Optional, so history saved before it existed still loads.
         var queryLast: [String: [String: Date]]?
     }
 

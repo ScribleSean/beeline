@@ -12,7 +12,6 @@ enum Announce {
         post(text, priority)
     }
 
-    /// Spoken without being asked, so it never reads out copied or selected text.
     static func spoken(_ item: Item, number: Int = 1) -> String {
         if item.kind == .clipboard {
             return ["Paste clipboard item \(number)", item.subtitle].filter { !$0.isEmpty }.joined(separator: ", ")

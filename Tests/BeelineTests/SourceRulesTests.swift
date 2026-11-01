@@ -1,8 +1,7 @@
 import Foundation
 import Testing
 
-// Source rules for mistakes that have already shipped more than once. Each failure lists the file and line
-// and names what to use instead. BEELINE_RULES_SOURCES points the rules at another copy of Sources/Beeline,
+// BEELINE_RULES_SOURCES points the rules at another copy of Sources/Beeline,
 // such as a checkout of an older commit.
 
 private let sourceFolder: URL = ProcessInfo.processInfo.environment["BEELINE_RULES_SOURCES"].map { URL(fileURLWithPath: $0) }
@@ -17,7 +16,6 @@ private let sources: [(name: String, lines: [String])] = {
     }
 }()
 
-/// Lines outside `allowed` files that match `pattern`, skipping comment lines.
 private func lines(matching pattern: String, outside allowed: Set<String>) -> [String] {
     let regex = try! NSRegularExpression(pattern: pattern)
     var found: [String] = []
@@ -41,9 +39,6 @@ private func report(_ found: [String], _ fix: String) -> Comment {
     #expect(sources.count > 20, "no sources at \(sourceFolder.path)")
 }
 
-// Tests run in the same process as the app's code, so anything that reaches the screen, the real log or the
-// real Application Support folder reaches the Mac of whoever runs `swift test`.
-
 @Test func windowsComeFrontOnlyThroughTestRun() {
     let found = lines(matching: #"makeKeyAndOrderFront|orderFrontRegardless|(?<!TestRun)\.orderFront\("#, outside: ["Log.swift"])
     #expect(found.isEmpty, report(found, "Bring a window front with TestRun.orderFront(_:key:activating:) (Log.swift): under test it builds the window but never shows it."))
@@ -53,10 +48,6 @@ private func report(_ found: [String], _ fix: String) -> Comment {
     let found = lines(matching: #"applicationSupportDirectory|Library/Logs"#, outside: ["Log.swift"])
     #expect(found.isEmpty, report(found, "Put a store's file under TestRun.supportFolder and log with Log.append (Log.swift): both are temp under test."))
 }
-
-// The shipped app once honored BEELINE_USAGE_FILE and BEELINE_FILES_TEST from any launch,
-// and BEELINE_ALIASES_FILE and BEELINE_DESKTOPS_FILE stayed after that fix: anything that could set Beeline's
-// environment could move its history or run its file chores.
 
 @Test func onlyTheTestModeReadsBeelineSwitches() {
     let found = lines(matching: #"(environment\[|getenv\(|setenv\()"BEELINE_"#,

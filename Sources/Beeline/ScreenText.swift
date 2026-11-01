@@ -1,7 +1,6 @@
 import Foundation
 
 enum ScreenText {
-    /// External app text must not hide characters or introduce prompt structure.
     static func sanitize(_ text: String) -> String {
         let scalars = Array(text.unicodeScalars.map { scalar -> Unicode.Scalar in
             switch scalar.value {
@@ -21,7 +20,6 @@ enum ScreenText {
             if scalar == " " {
                 if result.last != " " { result.append(scalar) }
             } else if scalar.value == 0x200C || scalar.value == 0x200D {
-                // Check the original neighbours, so stripping hidden text can't legitimise a joiner.
                 if index > 0, index + 1 < scalars.count,
                    isVisible(scalars[index - 1]), isVisible(scalars[index + 1]) {
                     result.append(scalar)
