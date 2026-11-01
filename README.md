@@ -5,7 +5,7 @@
 <p align="center"><b>Type, or hold ⌘Space and talk. A bee shows where Beeline acts.</b><br>
 A Mac assistant that finds the app, setting, window or command you mean and runs it.</p>
 
-<p align="center"><img src="docs/images/bar.png" width="640" alt="Beeline searching for wifi: Wi-Fi settings first, then the actions to turn Wi-Fi off or on"></p>
+<p align="center"><img src="docs/images/demo.gif" width="720" alt="Beeline: 'align center' typed in the bar; a bee flies to TextEdit's center button and the text centers, then it aligns left again"></p>
 
 ## What it does
 
@@ -30,9 +30,6 @@ A Mac assistant that finds the app, setting, window or command you mean and runs
 
 When Beeline is about to press something on screen, a small bee flies there first, a yellow ring settles on the target, and a label says what it is about to do. Then it acts. Your own pointer doesn't move.
 
-<p align="center"><img src="docs/images/live-bar.png" width="560" alt="The bar with 'show ruler' typed and TextEdit's Show Ruler command as the top hit"></p>
-<p align="center"><img src="docs/images/bee-flight.png" width="560" alt="The bee in flight over a TextEdit document"></p>
-<p align="center"><img src="docs/images/bee-landed.png" width="560" alt="The bee beside TextEdit's Format menu, ringed in yellow, with the label Run Show Ruler"></p>
 
 A run stops or skips its target in three cases:
 
