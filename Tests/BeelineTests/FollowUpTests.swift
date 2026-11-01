@@ -153,17 +153,6 @@ private func ran(leaving undo: UndoLog.Entry?) -> LastRun.Entry {
     #expect(log.latest()?.finished == false, "a step that landed before a stop is kept, marked unfinished")
 }
 
-@Test func realQuestionsStayQuestionsRightAfterAPlan() {
-    let log = LastRun()
-    log.begin(run: 1)
-    log.record(run: 1, request: "safari left", steps: ["Move Safari to the left half"])
-    #expect(BarModel.isPlainQuestion("what was that song again?", true, last: log))
-    #expect(BarModel.isPlainQuestion("how do I do the same in Mail?", true, last: log))
-    #expect(!BarModel.isPlainQuestion("do the same in Mail?", true, last: log), "still a request to act")
-    #expect(!BarModel.isPlainQuestion("do the same for Mail", true, last: log))
-    #expect(BarModel.isPlainQuestion("do I need a coat again?", true, last: log))
-}
-
 @Test func aLoneAgainGetsTheClaudeRow() {
     let log = LastRun()
     #expect(!BarModel.offersClaude(for: "again?", last: log), "nothing ran, so it's still being typed")
@@ -186,17 +175,18 @@ private func ran(leaving undo: UndoLog.Entry?) -> LastRun.Entry {
     #expect(log.planStep(for: ran(leaving: nil)) == nil)
 }
 
-@Test func politeFollowUpsPlanAndRealQuestionsDont() {
+@Test(arguments: [
+    ("can you do the same for Mail?", false), ("could you do that again?", false),
+    ("can you put it on the right again?", false), ("what about the other window?", false),
+    ("would you make it fill the screen instead?", false), ("do the same in Mail?", false), ("do the same for Mail", false),
+    ("what was that song again?", true), ("how do I do the same in Mail?", true), ("can you tell me a joke?", true),
+    ("what about lunch?", true), ("do I need a coat again?", true),
+])
+func followUpsPlanAndRealQuestionsStayQuestionsRightAfterAPlan(query: String, isQuestion: Bool) {
     let log = LastRun()
     log.begin(run: 1)
     log.record(run: 1, request: "safari left", steps: ["Move Safari to the left half"])
-    for query in ["can you do the same for Mail?", "could you do that again?", "can you put it on the right again?",
-                  "what about the other window?", "would you make it fill the screen instead?"] {
-        #expect(!BarModel.isPlainQuestion(query, true, last: log), "\(query)")
-    }
-    for query in ["what was that song again?", "how do I do the same in Mail?", "can you tell me a joke?", "what about lunch?"] {
-        #expect(BarModel.isPlainQuestion(query, true, last: log), "\(query)")
-    }
+    #expect(BarModel.isPlainQuestion(query, true, last: log) == isQuestion)
 }
 
 @MainActor @Test func aCheckedStepGetsItsGraceEvenAfterAStop() async {
