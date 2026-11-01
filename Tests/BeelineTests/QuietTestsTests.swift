@@ -3,11 +3,8 @@ import Foundation
 import Testing
 @testable import Beeline
 
-@Test func theTestRunIsDetected() {
-    #expect(TestRun.isActive)
-}
-
 @Test func logUnderTestWritesToATempFileNotTheRealLog() throws {
+    #expect(TestRun.isActive)
     let real = NSHomeDirectory() + "/Library/Logs/Beeline.log"
     #expect(Log.path != real)
     #expect(!Log.path.hasPrefix(NSHomeDirectory() + "/Library/Logs"))
