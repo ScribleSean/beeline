@@ -31,7 +31,3 @@ What a user can do, how they reach it, and what checks it. Live check means `scr
 | Settings toggles (bee, act on release, clipboard history, learn from use) | Settings | none for the off states |
 | Welcome and permissions | first launch | live check `welcome`, `permissions` |
 | Update Beeline | menu bar | UpdateTests |
-
-## Human-owned
-
-None yet.

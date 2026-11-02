@@ -185,6 +185,7 @@ final class AnalyzerSession: SpeechBackend {
         analyzer = nil
     }
 
+    /// Only while this session holds the engine: after `stop`, a late completion must not remove a newer press's tap.
     private func finishAudio() {
         guard let input else { return }
         if let file { file.stop() } else {

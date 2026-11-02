@@ -16,7 +16,7 @@ enum TestRun {
         : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Beeline", isDirectory: true)
 
     /// Under test, a private pasteboard: the system one is shared with every app and can stall a fresh test binary.
-    static let pasteboard: NSPasteboard = isActive ? NSPasteboard(name: NSPasteboard.Name("beeline-tests")) : .general
+    static let pasteboard: NSPasteboard = isActive ? NSPasteboard.withUniqueName() : .general
 
     static func orderFront(_ window: NSWindow?, key: Bool = true, activating: Bool = false) {
         guard let window, !isActive else { return }

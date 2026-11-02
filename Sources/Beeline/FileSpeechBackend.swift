@@ -53,6 +53,7 @@ final class FileSpeechBackend: SpeechBackend {
                         guard buffer.frameLength > 0 else { break }
                         consume(buffer)
                         level(Voice.level(of: buffer))
+                        // Real time, so recognition can publish partial results before release.
                         try await Task.sleep(nanoseconds: UInt64(Double(buffer.frameLength) / format.sampleRate * 1_000_000_000))
                     }
                     guard !Task.isCancelled else { return }

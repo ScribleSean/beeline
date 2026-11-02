@@ -78,6 +78,9 @@ private func executable(_ scratch: Scratch, _ name: String, _ contents: String =
     #expect(text.contains(script.path) && text.contains("isn't signed by Anthropic"))
     guard case .failure(.message(let missing)) = Planner.launchable(nil) else { Issue.record("no claude, no failure"); return }
     #expect(missing == Planner.notFoundMessage)
+    if case .success(let real) = Planner.launchable(URL(fileURLWithPath: "/bin/ls"), requirement: apple) {
+        #expect(real.path == "/bin/ls")
+    } else { Issue.record("refused a binary that meets the requirement") }
 }
 
 @Test func theInstalledClaudeMeetsTheAnthropicRequirement() {

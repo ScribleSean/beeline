@@ -227,6 +227,7 @@ final class BarModel: ObservableObject {
     var isShowingPlan: Bool { plan != nil || isAskingClaude || planProblem != nil || claudeAnswer != nil || rewritten != nil }
 
     @Published var voiceNote: String?
+    /// Set while the microphone listens; rows wait until it stops so the mic never hears VoiceOver.
     @Published var voiceLevel: Double? {
         didSet { if voiceLevel == nil, oldValue != nil { speakSelectionSoon() } }
     }

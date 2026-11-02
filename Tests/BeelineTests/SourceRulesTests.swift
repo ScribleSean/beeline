@@ -1,7 +1,8 @@
 import Foundation
 import Testing
 
-// BEELINE_RULES_SOURCES points the rules at another copy of Sources/Beeline,
+// Source rules for mistakes that have already shipped more than once. Each failure lists the file and line
+// and names what to use instead. BEELINE_RULES_SOURCES points the rules at another copy of Sources/Beeline,
 // such as a checkout of an older commit.
 
 private let sourceFolder: URL = ProcessInfo.processInfo.environment["BEELINE_RULES_SOURCES"].map { URL(fileURLWithPath: $0) }
@@ -39,13 +40,16 @@ private func report(_ found: [String], _ fix: String) -> Comment {
     #expect(sources.count > 20, "no sources at \(sourceFolder.path)")
 }
 
+// Tests run in the same process as the app's code, so anything that reaches the screen, the real log or the
+// real Application Support folder reaches the Mac of whoever runs `swift test`.
+
 @Test func windowsComeFrontOnlyThroughTestRun() {
     let found = lines(matching: #"makeKeyAndOrderFront|orderFrontRegardless|(?<!TestRun)\.orderFront\("#, outside: ["Log.swift"])
     #expect(found.isEmpty, report(found, "Bring a window front with TestRun.orderFront(_:key:activating:) (Log.swift): under test it builds the window but never shows it."))
 }
 
 @Test func theClipboardIsTestRunPasteboard() {
-    let found = lines(matching: #"NSPasteboard\.general|NSPasteboard = \.general"#, outside: ["Log.swift", "Demo.swift"])
+    let found = lines(matching: #"NSPasteboard\.general|(NSPasteboard =|board:) \.general"#, outside: ["Log.swift", "Demo.swift"])
     #expect(found.isEmpty, report(found, "Use TestRun.pasteboard (Log.swift): under test it is a private pasteboard, not the one every app shares."))
 }
 

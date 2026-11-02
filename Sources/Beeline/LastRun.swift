@@ -11,6 +11,7 @@ final class LastRun {
 
     static let shared = LastRun()
     static let lifetime: TimeInterval = 300
+    /// How long after a plan's last step an undo it set off may still arrive (scripts time out at 15 s).
     static let lateUndo: TimeInterval = 20
 
     private let lock = NSLock()
