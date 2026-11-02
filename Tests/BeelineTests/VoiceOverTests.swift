@@ -403,32 +403,21 @@ private func hasKeyHint(_ texts: [String]) -> Bool {
     #expect(!hasKeyHint(answer))
 }
 
-@Test(.enabled(if: AXIsProcessTrusted())) @MainActor func theRewriteCardSpeaksItsReplaceAction() throws {
+@Test(.enabled(if: AXIsProcessTrusted()), arguments: [
+    (false, "A tidier sentence.", "Replace the selection"),
+    (true, "About 384,400 km.", "Copy the answer"),
+])
+@MainActor func aResultCardSpeaksItsAction(isAnswer: Bool, text: String, action: String) throws {
     let model = sharedModel
     _ = spoken {
         model.closeActions(refreshing: false)
         model.armedID = nil
         model.clearPlan()
-        model.rewritten = "A tidier sentence."
+        if isAnswer { model.claudeAnswer = text } else { model.rewritten = text }
     }
     defer { model.clearPlan() }
     let card = try readLabels(in: PlanSection(model: model), text: true)
-    #expect(card.contains("A tidier sentence."))
-    #expect(card.contains("Replace the selection"))
-    #expect(!hasKeyHint(card))
-}
-
-@Test(.enabled(if: AXIsProcessTrusted())) @MainActor func claudesAnswerCardSpeaksItsCopyAction() throws {
-    let model = sharedModel
-    _ = spoken {
-        model.closeActions(refreshing: false)
-        model.armedID = nil
-        model.clearPlan()
-        model.claudeAnswer = "About 384,400 km."
-    }
-    defer { model.clearPlan() }
-    let card = try readLabels(in: PlanSection(model: model), text: true)
-    #expect(card.contains("About 384,400 km."))
-    #expect(card.contains("Copy the answer"))
+    #expect(card.contains(text))
+    #expect(card.contains(action))
     #expect(!hasKeyHint(card))
 }

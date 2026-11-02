@@ -18,30 +18,26 @@ private func titles(_ query: String) -> [String] {
     }
 }
 
-@Test func partOfAKeywordDoesNotSurfaceLogOut() {
-    #expect(!titles("logo").contains("Log Out"))
-    #expect(!titles("sign").contains("Log Out"))
-    #expect(!titles("reb").contains("Restart"))
-    #expect(titles("logout").first == "Log Out")
-    #expect(titles("log out").first == "Log Out")
+@Test(arguments: [
+    ("logo", "Log Out"), ("sign", "Log Out"), ("reb", "Restart"), ("restart chrome", "Restart"),
+    ("log out of slack", "Log Out"), ("sign out of chrome", "Log Out"), ("comp", "Sleep"), ("computer", "Sleep"),
+])
+func looseWordsNeverSurfaceADrasticAction(query: String, title: String) {
+    #expect(!titles(query).contains(title))
 }
 
-@Test func drasticActionsAreNeverPartialMatches() {
-    #expect(!titles("restart chrome").contains("Restart"))
-    #expect(!titles("log out of slack").contains("Log Out"))
-    #expect(!titles("sign out of chrome").contains("Log Out"))
+@Test(arguments: [
+    ("logout", "Log Out"), ("log out", "Log Out"), ("sleep", "Sleep"), ("turn wifi on", "Turn Wi-Fi On"),
+    ("turn wifi off", "Turn Wi-Fi Off"), ("turn off the computer", "Shut Down"), ("power off", "Shut Down"),
+])
+func plainWordsPickTheRightAction(query: String, title: String) {
+    #expect(titles(query).first == title)
 }
 
-@Test func genericWordsDoNotPutTheMacToSleep() {
-    #expect(!titles("comp").contains("Sleep"))
-    #expect(!titles("computer").contains("Sleep"))
-    #expect(titles("sleep").first == "Sleep")
-}
-
-@Test func oneLetterPrefersAnAppOverAnAction() {
+@Test(arguments: [("s", "Sleep"), ("t", "Turn Wi-Fi Off"), ("bluetooth power off", "Shut Down")])
+func aLooseQueryDoesNotLeadWithAnAction(query: String, title: String) {
     // Safari ships with macOS, so "s" has an app to prefer over Sleep.
-    #expect(titles("s").first != "Sleep")
-    #expect(titles("t").first != "Turn Wi-Fi Off")
+    #expect(titles(query).first != title)
 }
 
 @Test func plansNeverIncludeActionsThatNeedConfirming() {
@@ -66,17 +62,6 @@ private func titles(_ query: String) -> [String] {
     #expect(!sharedCatalogue.isQuestion("do not disturb"))
     #expect(sharedCatalogue.isQuestion("how far is the moon"))
     #expect(sharedCatalogue.isQuestion("is it raining?"))
-}
-
-@Test func onAndOffPickTheRightDirection() {
-    #expect(titles("turn wifi on").first == "Turn Wi-Fi On")
-    #expect(titles("turn wifi off").first == "Turn Wi-Fi Off")
-}
-
-@Test func turningOffTheComputerMeansShutDown() {
-    #expect(titles("turn off the computer").first == "Shut Down")
-    #expect(titles("power off").first == "Shut Down")
-    #expect(titles("bluetooth power off").first != "Shut Down")
 }
 
 @Test func datesAndPhoneNumbersAreNotSums() {

@@ -198,23 +198,14 @@ private final class FakeClaudeProcess: PlannerProcess {
     #expect(cancel.isCancelled)
 }
 
-@Test func existingUsageDirectoryGetsPrivatePermissions() throws {
+@Test(arguments: [false, true]) func usageDirectoryGetsPrivatePermissions(alreadyExists: Bool) throws {
     let scratch = try Scratch()
     defer { scratch.remove() }
     let folder = scratch.url.appendingPathComponent("Beeline")
-    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
-    let usage = Usage(file: folder.appendingPathComponent("usage.json"))
-    usage.record(cleanupItem, query: "cleanup")
-    usage.flush()
-    let attributes = try FileManager.default.attributesOfItem(atPath: folder.path)
-    #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o700)
-}
-
-@Test func usageDirectoryIsCreatedWithPrivatePermissions() throws {
-    let scratch = try Scratch()
-    defer { scratch.remove() }
-    let folder = scratch.url.appendingPathComponent("Beeline")
+    if alreadyExists {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+    }
     let usage = Usage(file: folder.appendingPathComponent("usage.json"))
     usage.record(cleanupItem, query: "cleanup")
     usage.flush()

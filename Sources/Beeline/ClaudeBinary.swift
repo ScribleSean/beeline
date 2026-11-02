@@ -3,7 +3,6 @@ import Security
 
 /// macOS charges a child's permission checks to the app that launched it, so Beeline only runs a claude
 /// that Anthropic signed.
-/// The team is checked, not the identifier, so a rename on Anthropic's side doesn't break the planner.
 enum ClaudeBinary {
     static let anthropic = "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists"
         + " and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"Q6L2SF6YDW\""

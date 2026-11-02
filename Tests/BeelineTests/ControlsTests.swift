@@ -4,10 +4,11 @@ import Testing
 @testable import Beeline
 
 @Test func destructiveButtonLabelsNeedConfirming() {
-    for label in ["Don't Save", "Don’t Save", "Replace", "Force Quit", "Empty Bin…", "Delete", "Send", "Move to Bin"] {
+    for label in ["Don't Save", "Don’t Save", "Replace", "Force Quit", "Empty Bin…", "Delete", "Send", "Move to Bin",
+                  "Close Other Tabs", "Close All Tabs", "Close All Windows", "Close Tabs to the Right", "Close Others"] {
         #expect(Accessibility.isIrreversible(label), Comment(rawValue: label))
     }
-    for label in ["Reorder", "Paint format", "Save", "Cancel", "Keep Both", "Archive"] {
+    for label in ["Reorder", "Paint format", "Save", "Cancel", "Keep Both", "Archive", "Close Tab", "Close Window", "Close"] {
         #expect(!Accessibility.isIrreversible(label), Comment(rawValue: label))
     }
 }
@@ -26,15 +27,6 @@ import Testing
     #expect(Accessibility.dialogSummary("Are you sure you want to\npermanently  delete these items?") == "Are you sure you want to permanently delete these items?")
     #expect(Accessibility.dialogSummary("   ") == nil)
     #expect(Accessibility.dialogSummary(String(repeating: "a", count: 300))?.count == 120)
-}
-
-@Test func closingManyTabsNeedsConfirming() {
-    for label in ["Close Other Tabs", "Close All Tabs", "Close All Windows", "Close Tabs to the Right", "Close Others"] {
-        #expect(Accessibility.isIrreversible(label), Comment(rawValue: label))
-    }
-    for label in ["Close Tab", "Close Window", "Close"] {
-        #expect(!Accessibility.isIrreversible(label), Comment(rawValue: label))
-    }
 }
 
 @Test func menuCommandsBelongToTheWindowTheyWereReadIn() {

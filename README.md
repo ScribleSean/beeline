@@ -137,6 +137,8 @@ bash scripts/voice-check.sh "open TextEdit" --installed
 
 The script uses `build/Beeline.app` by default. `--installed` uses `~/Applications/Beeline.app`, and `--app /path/Beeline.app` uses another copy. The script makes an AIFF recording with `say`, opens the bar as if you held the shortcut, feeds the recording through the same recognition sessions as the microphone, and lets go at the end. It prints the transcript, the chosen action and the result, and exits nonzero on failure. It also leaves a JSONL log with the partial and final text, the engine, the action and the accessibility announcements. Actions run only with `--run` (or `BEELINE_VOICE_RUN=1`). The check covers recognition and selection. With `--run`, a pass means Beeline dispatched the action, not that the target app changed.
 
+`defaults write com.scriblesean.beeline voiceEngine classic` keeps the macOS 14/15 recognizer on newer systems.
+
 Beeline reads voice from a file only when both `BEELINE_DEMO=voice` and `BEELINE_VOICE_FILE=/path/to/audio` are set. It uses an installed macOS 26 dictation model when there is one, and the on-device recognizer otherwise. It doesn't download a model or ask for microphone permission. The recognizer needs Speech Recognition permission that you already granted. If the permission or the model is missing, the check fails and says why. The `swift test` file tests need no permissions and don't show windows.
 
 ## Contributing

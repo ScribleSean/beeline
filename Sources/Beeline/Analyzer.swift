@@ -12,7 +12,6 @@ enum SpeechEngine: Equatable {
     case analyzer
     case recognizer
 
-    /// `defaults write <bundle id> voiceEngine classic` keeps the macOS 14/15 recognizer on newer systems.
     static let preferenceKey = "voiceEngine"
 
     static func pick(analyzerReady: Bool, analyzerFailed: Bool, preference: String?) -> SpeechEngine {

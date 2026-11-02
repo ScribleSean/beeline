@@ -3,11 +3,8 @@ import Foundation
 import Testing
 @testable import Beeline
 
-@Test func theTestRunIsDetected() {
-    #expect(TestRun.isActive)
-}
-
 @Test func logUnderTestWritesToATempFileNotTheRealLog() throws {
+    #expect(TestRun.isActive)
     let real = NSHomeDirectory() + "/Library/Logs/Beeline.log"
     #expect(Log.path != real)
     #expect(!Log.path.hasPrefix(NSHomeDirectory() + "/Library/Logs"))
@@ -65,4 +62,8 @@ import Testing
         DispatchQueue.main.async { catalogue.refreshScreen { done.resume() } }
     }
     #expect(TestEnvironment.screenReads.value > before, "the scan went to the real apps, not the offline reader")
+}
+
+@Test func theClipboardUnderTestIsPrivate() {
+    #expect(TestRun.pasteboard.name != .general)
 }

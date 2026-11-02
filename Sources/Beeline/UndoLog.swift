@@ -73,7 +73,7 @@ final class UndoLog {
         let outcome = UndoOutcome()
         var step = PlanStep(text: "Undo \(ScreenText.quote(entry.title))",
                             icon: NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: nil)) { [weak self] in
-            // Off the main thread, as the Undo row does: moving windows or files back can block.
+            // Off the main thread: moving windows or files back can block.
             DispatchQueue.global(qos: .userInitiated).async { outcome.set(self?.undoLatest(id: id) != nil) }
         }
         step.succeeded = { outcome.value == true }

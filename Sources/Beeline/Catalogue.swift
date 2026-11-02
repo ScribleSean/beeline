@@ -348,8 +348,8 @@ final class Catalogue {
         if let answer = Calculator.answer(query) ?? Converter.answer(query) {
             return [Item(id: "calculation", kind: .calculation, verb: "Copy", title: answer.value, subtitle: answer.label,
                          keywords: answer.detail, icon: NSImage(systemSymbolName: "equal.circle", accessibilityDescription: nil)) {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(answer.value, forType: .string)
+                TestRun.pasteboard.clearContents()
+                TestRun.pasteboard.setString(answer.value, forType: .string)
             }]
         }
         let found = search(words: query, limit: limit)

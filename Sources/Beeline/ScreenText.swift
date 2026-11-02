@@ -1,7 +1,6 @@
 import Foundation
 
 enum ScreenText {
-    /// External app text must not hide characters or introduce prompt structure.
     static func sanitize(_ text: String) -> String {
         let scalars = Array(text.unicodeScalars.map { scalar -> Unicode.Scalar in
             switch scalar.value {
