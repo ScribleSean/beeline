@@ -63,3 +63,7 @@ import Testing
     }
     #expect(TestEnvironment.screenReads.value > before, "the scan went to the real apps, not the offline reader")
 }
+
+@Test func theClipboardUnderTestIsPrivate() {
+    #expect(TestRun.pasteboard.name != .general)
+}

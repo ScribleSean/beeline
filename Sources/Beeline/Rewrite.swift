@@ -74,10 +74,10 @@ enum Rewrite {
     struct PasteIO {
         var read: (pid_t) -> Selection? = { readSelection(in: $0) }
         var write: (String) -> Bool = {
-            NSPasteboard.general.clearContents()
-            return NSPasteboard.general.setString($0, forType: .string)
+            TestRun.pasteboard.clearContents()
+            return TestRun.pasteboard.setString($0, forType: .string)
         }
-        var contains: (String) -> Bool = { NSPasteboard.general.string(forType: .string) == $0 }
+        var contains: (String) -> Bool = { TestRun.pasteboard.string(forType: .string) == $0 }
         var paste: () -> Bool = { Keyboard.press("v", flags: .maskCommand) }
         var later: (@escaping () -> Void) -> Void = { work in
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)

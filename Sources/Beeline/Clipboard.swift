@@ -15,7 +15,7 @@ final class Clipboard {
     private var timer: Timer?
     private var generation = 0
 
-    init(board: NSPasteboard = .general) {
+    init(board: NSPasteboard = TestRun.pasteboard) {
         self.board = board
         lastChange = board.changeCount
     }
@@ -110,8 +110,8 @@ final class Clipboard {
     }
 
     private static func paste(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        TestRun.pasteboard.clearContents()
+        TestRun.pasteboard.setString(text, forType: .string)
         let target = NSWorkspace.shared.frontmostApplication?.processIdentifier
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             guard NSWorkspace.shared.frontmostApplication?.processIdentifier == target else { return }

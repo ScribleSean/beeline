@@ -44,6 +44,11 @@ private func report(_ found: [String], _ fix: String) -> Comment {
     #expect(found.isEmpty, report(found, "Bring a window front with TestRun.orderFront(_:key:activating:) (Log.swift): under test it builds the window but never shows it."))
 }
 
+@Test func theClipboardIsTestRunPasteboard() {
+    let found = lines(matching: #"NSPasteboard\.general|NSPasteboard = \.general"#, outside: ["Log.swift", "Demo.swift"])
+    #expect(found.isEmpty, report(found, "Use TestRun.pasteboard (Log.swift): under test it is a private pasteboard, not the one every app shares."))
+}
+
 @Test func filesLiveUnderTestRunSupportFolder() {
     let found = lines(matching: #"applicationSupportDirectory|Library/Logs"#, outside: ["Log.swift"])
     #expect(found.isEmpty, report(found, "Put a store's file under TestRun.supportFolder and log with Log.append (Log.swift): both are temp under test."))

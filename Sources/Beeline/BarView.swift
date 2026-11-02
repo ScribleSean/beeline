@@ -418,7 +418,7 @@ final class BarModel: ObservableObject {
         }
     }
     var showsActions: Bool { actionTarget != nil && !isShowingPlan && armedID == nil }
-    var pasteboard = NSPasteboard.general
+    var pasteboard = TestRun.pasteboard
     var revealInFinder: (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
 
     var focusedItem: Item? {
@@ -598,8 +598,8 @@ final class BarModel: ObservableObject {
             return
         }
         if let claudeAnswer {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(claudeAnswer, forType: .string)
+            TestRun.pasteboard.clearContents()
+            TestRun.pasteboard.setString(claudeAnswer, forType: .string)
             onRun(Item(id: "copied", kind: .calculation, verb: "", title: "", subtitle: "", keywords: "", icon: nil, run: {}))
             return
         }
