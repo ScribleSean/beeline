@@ -61,13 +61,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func registerShortcut() {
         hotKey = nil
-        let preferred = UserDefaults.standard.string(forKey: Settings.shortcut) ?? "command"
-        let modifiers = ["command": cmdKey, "option": optionKey, "control": controlKey]
+        let candidates = Self.shortcutCandidates()
+        let preferred = candidates[0].name
         let pressed: () -> Void = { [weak self] in self?.bar.shortcutPressed() }
         let released: () -> Void = { [weak self] in self?.bar.shortcutReleased() }
         var active: String?
-        for name in [preferred] + ["command", "option", "control"].filter({ $0 != preferred }) {
-            hotKey = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(modifiers[name]!), pressed: pressed, released: released)
+        for (name, modifier) in candidates {
+            hotKey = HotKey(keyCode: UInt32(kVK_Space), modifiers: modifier, pressed: pressed, released: released)
             if hotKey != nil {
                 active = name
                 break
@@ -78,6 +78,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             : active == preferred ? Settings.shortcutLabel : "\(Settings.label(for: active!)), since \(Settings.shortcutLabel) is taken"
         openItem.title = "Open Beeline (\(label))"
         Log.append("shortcut: \(label)")
+    }
+
+    static func shortcutCandidates(defaults: UserDefaults = .standard) -> [(name: String, modifiers: UInt32)] {
+        let modifiers = ["command": cmdKey, "option": optionKey, "control": controlKey]
+        let stored = defaults.string(forKey: Settings.shortcut) ?? "command"
+        let preferred = modifiers[stored] == nil ? "command" : stored
+        return ([preferred] + ["command", "option", "control"].filter { $0 != preferred })
+            .map { ($0, UInt32(modifiers[$0]!)) }
     }
 
     private func retryShortcutIfNeeded() {

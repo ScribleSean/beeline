@@ -121,7 +121,7 @@ enum Actions {
     }
 
     @discardableResult
-    private static func runScript(_ source: String, what: String, app: String? = nil) -> String? {
+    static func runScript(_ source: String, what: String, app: String? = nil) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", source]
@@ -130,9 +130,15 @@ enum Actions {
         process.standardError = errors
         do { try process.run() } catch { report("Couldn't \(what): osascript didn't start."); return nil }
         DispatchQueue.global().asyncAfter(deadline: .now() + 15) { if process.isRunning { process.terminate() } }
+        var text = ""
+        let errorsRead = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            text = String(data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            errorsRead.signal()
+        }
         let printed = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let text = String(data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         process.waitUntilExit()
+        errorsRead.wait()
         guard process.terminationStatus != 0 else { return printed.trimmingCharacters(in: .whitespacesAndNewlines) }
         Log.append("action failed: \(what) (\(process.terminationStatus))")
         if text.contains("-1743"), let app {
