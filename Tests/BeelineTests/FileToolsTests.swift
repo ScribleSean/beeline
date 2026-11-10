@@ -344,3 +344,69 @@ private func entries(of archive: URL) -> [String] {
     #expect(folder == nil)
     #expect(items.isEmpty)
 }
+
+struct RenameChoreTests {
+    fileprivate func names(_ urls: [URL]) -> [String] { urls.map(\.lastPathComponent) }
+
+    @Test func renameIntoANameANotYetMovedSiblingHoldsStillRenamesEveryFile() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let first = try scratch.file("a.txt", "first")
+        let second = try scratch.file("doc 1.txt", "second")
+
+        let moved = FileTools.renameFiles([first, second], base: "doc")
+        #expect(names(moved).sorted() == ["doc 1.txt", "doc 2.txt"])
+        #expect(try String(contentsOf: scratch.url.appendingPathComponent("doc 1.txt"), encoding: .utf8) == "first")
+        #expect(try String(contentsOf: scratch.url.appendingPathComponent("doc 2.txt"), encoding: .utf8) == "second")
+        #expect(!scratch.exists("a.txt"))
+    }
+
+    @Test func numbersFollowNameOrderNotTheOrderGiven() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let ten = try scratch.file("pic 10.jpg", "ten")
+        let two = try scratch.file("pic 2.jpg", "two")
+        let one = try scratch.file("pic 1.jpg", "one")
+
+        let moved = FileTools.renameFiles([ten, two, one], base: "trip")
+        #expect(names(moved) == ["trip 1.jpg", "trip 2.jpg", "trip 3.jpg"])
+        #expect(try String(contentsOf: scratch.url.appendingPathComponent("trip 1.jpg"), encoding: .utf8) == "one")
+        #expect(try String(contentsOf: scratch.url.appendingPathComponent("trip 2.jpg"), encoding: .utf8) == "two")
+        #expect(try String(contentsOf: scratch.url.appendingPathComponent("trip 3.jpg"), encoding: .utf8) == "ten")
+    }
+
+    @Test func eachFileKeepsItsOwnExtension() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let a = try scratch.file("a.png"), b = try scratch.file("b.JPG"), c = try scratch.file("c")
+
+        let moved = FileTools.renameFiles([a, b, c], base: "shot")
+        #expect(names(moved) == ["shot 1.png", "shot 2.JPG", "shot 3"])
+    }
+
+    @Test func aSingleFileGetsNoNumber() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let only = try scratch.file("old.txt")
+
+        #expect(names(FileTools.renameFiles([only], base: "new")) == ["new.txt"])
+        #expect(scratch.exists("new.txt") && !scratch.exists("old.txt"))
+    }
+}
+
+extension RenameChoreTests {
+    @Test func aSiblingThatCannotReachItsNewNameIsNeverLeftHidden() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let first = try scratch.file("a.txt", "first")
+        let second = try scratch.file("doc 1.txt", "second")
+        try scratch.file("doc 2.txt", "outsider")
+
+        let moved = FileTools.renameFiles([first, second], base: "doc")
+        #expect(names(moved) == ["doc 1.txt"])
+        let left = try FileManager.default.contentsOfDirectory(atPath: scratch.url.path)
+        #expect(left.count == 3 && !left.contains { $0.hasPrefix(".") })
+        let contents = try left.map { try String(contentsOf: scratch.url.appendingPathComponent($0), encoding: .utf8) }
+        #expect(contents.sorted() == ["first", "outsider", "second"])
+    }
+}

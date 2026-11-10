@@ -492,8 +492,26 @@ enum FileTools {
     }
 
     private static func rename(_ files: [URL], base: String) {
+        finish(renameFiles(files, base: base), "rename")
+    }
+
+    static func renameFiles(_ files: [URL], base: String) -> [URL] {
         let ordered = files.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
-        finish(zip(ordered, renamed(files, base: base)).compactMap(move), "rename")
+        let targets = renamed(files, base: base)
+        // A target can be the current name of a sibling that has not moved yet. Move those siblings aside first,
+        // and put back any that still cannot reach their new name.
+        let taken = Set(targets.map(\.path))
+        let sources = zip(ordered, targets).map { url, target -> (from: URL, original: URL) in
+            guard url != target, taken.contains(url.path),
+                  let aside = move(url, unique(url.deletingLastPathComponent().appendingPathComponent(".beeline-" + UUID().uuidString)))
+            else { return (url, url) }
+            return (aside, url)
+        }
+        var moved: [URL] = []
+        for (source, target) in zip(sources, targets) {
+            if let done = move(source.from, target) { moved.append(done) } else if source.from != source.original { _ = move(source.from, unique(source.original)) }
+        }
+        return moved
     }
 
     private static func renameByDate(_ files: [URL]) {
