@@ -121,7 +121,12 @@ enum Planner {
         case .success(let text): reply = text
         case .failure(let failure): return .failure(failure)
         }
-        return read(reply, optionCount: options.count).map { picked in
+        return plan(from: reply, options: options)
+    }
+
+    /// Claude only names option numbers; every step is the option exactly as Beeline built it.
+    static func plan(from reply: String, options: [PlanStep]) -> Result<Plan, Failure> {
+        read(reply, optionCount: options.count).map { picked in
             Plan(steps: picked.steps.map { options[$0 - 1] }, note: picked.note)
         }
     }
@@ -158,10 +163,18 @@ enum Planner {
             }
             steps.append(index)
         }
-        return .success((steps, object["note"] as? String ?? ""))
+        return .success((steps, note(object["note"] as? String ?? "")))
+    }
+
+    /// The note is Claude's words after reading screen text, and it heads the plan Sean approves.
+    static func note(_ text: String) -> String {
+        let flat = ScreenText.sanitize(text).trimmingCharacters(in: .whitespaces)
+        guard flat.count > maxNoteLength else { return flat }
+        return flat.prefix(maxNoteLength - 1).trimmingCharacters(in: .whitespaces) + "…"
     }
 
     static let maxSteps = 8
+    static let maxNoteLength = 160
 
     private static let processes = PlannerProcesses()
 

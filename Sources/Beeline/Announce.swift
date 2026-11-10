@@ -59,7 +59,7 @@ enum BarSurface {
 }
 
 extension Item {
-    var confirmQuestion: String { "\(verb.isEmpty ? "" : verb + " ")\(title)?" }
+    var confirmQuestion: String { "\(verb.isEmpty ? "" : verb + " ")\(String(ScreenText.sanitize(title).prefix(120)))?" }
 
     var confirmSummary: String {
         if id == "action:Empty Trash",

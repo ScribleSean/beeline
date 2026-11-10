@@ -480,6 +480,10 @@ final class Catalogue {
         tabs = items
     }
 
+    func useMenus(_ items: [Item]) {
+        menus = items
+    }
+
     private func closeTabResults(matching target: [String], limit: Int) -> [Item] {
         var words = target.filter { !["browser", "browsers", "web"].contains($0) }
         var pool = tabs.filter { $0.close != nil }

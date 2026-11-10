@@ -25,24 +25,83 @@ extension Accessibility {
 
     private static let harmless: Set<String> = ["cancel", "save", "stop", "keep both", "dont replace", "not now", "later", "close"]
 
+    /// Labels come from other apps and web pages, so they are read closer to the way a person sees them:
+    /// hidden characters, accents, wide letters, small capitals and common lookalike letters don't hide a "Delete".
+    /// The lookalike list is not complete; the plan card still shows every step before it runs.
     static func isIrreversible(_ label: String) -> Bool {
-        let words = " " + labelWords(label) + " "
-        return irreversible.contains { words.contains(" \($0) ") }
+        if hidesCharacters(label) { return true }
+        let words = labelWords(label)
+        if mixesLookalikeScripts(words) || usesLookalikeOnlyScript(words) { return true }
+        let plain = " " + words + " ", skeleton = " " + latinSkeleton(words) + " "
+        return irreversible.contains { plain.contains(" \($0) ") || skeleton.contains(" \($0) ") }
     }
 
     static func needsConfirmInDialog(_ label: String) -> Bool {
-        !harmless.contains(labelWords(label))
+        hidesCharacters(label) || !harmless.contains(labelWords(label))
     }
 
-    static func dialogSummary(_ text: String) -> String? {
-        let flat = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        guard flat.contains(where: \.isLetter) else { return nil }
-        return flat.count <= 120 ? flat : String(flat.prefix(119)) + "…"
+    /// Joiners, direction marks, bidi isolates and emoji tags are routine (emoji, Persian, Arabic and Hebrew
+    /// labels, flags) and can't reorder letters inside a word; embeddings and overrides (U+202A–202E) can.
+    private static let routineFormats: [ClosedRange<UInt32>] = [0x200C...0x200F, 0x2066...0x2069, 0xE0020...0xE007F]
+
+    private static func hidesCharacters(_ label: String) -> Bool {
+        label.unicodeScalars.contains { scalar in
+            switch scalar.properties.generalCategory {
+            case .format: return !routineFormats.contains { $0.contains(scalar.value) }
+            // Hangul fillers are letters that draw nothing.
+            case .otherLetter: return [0x115F, 0x1160, 0x3164, 0xFFA0].contains(scalar.value)
+            case .control: return ![0x09, 0x0A, 0x0D].contains(scalar.value)
+            default: return false
+            }
+        }
+    }
+
+    /// A word that mixes Latin letters with Cyrillic, Greek, Armenian or Cherokee ones is built to look like something else.
+    private static func mixesLookalikeScripts(_ words: String) -> Bool {
+        words.split(separator: " ").contains { word in
+            let scalars = word.unicodeScalars
+            return scalars.contains { ("a"..."z").contains($0) } && scalars.contains { scalar in
+                [0x0370...0x03FF, 0x1F00...0x1FFF, 0x0400...0x052F, 0x0530...0x058F, 0x13A0...0x13FF, 0xAB70...0xABBF]
+                    .contains { $0.contains(Int(scalar.value)) }
+            }
+        }
+    }
+
+    /// Cherokee and Lisu letters are drawn like Latin capitals and are rare in Mac interfaces.
+    private static func usesLookalikeOnlyScript(_ words: String) -> Bool {
+        words.unicodeScalars.contains { scalar in
+            [0x13A0...0x13FF, 0xAB70...0xABBF, 0xA4D0...0xA4FF].contains { (range: ClosedRange<UInt32>) in range.contains(scalar.value) }
+        }
+    }
+
+    private static let lookalikes: [Character: Character] = [
+        "ı": "i", "ȷ": "j", "ᴀ": "a", "ʙ": "b", "ᴄ": "c", "ᴅ": "d", "ᴇ": "e", "ꜰ": "f", "ɢ": "g", "ʜ": "h", "ɪ": "i",
+        "ᴊ": "j", "ᴋ": "k", "ʟ": "l", "ᴍ": "m", "ɴ": "n", "ᴏ": "o", "ᴘ": "p", "ʀ": "r", "ꜱ": "s", "ᴛ": "t", "ᴜ": "u",
+        "ᴠ": "v", "ᴡ": "w", "ʏ": "y", "ᴢ": "z", "γ": "y", "ϲ": "c", "ϳ": "j", "ѵ": "v", "ѡ": "w", "ԍ": "g", "ɡ": "g", "ɑ": "a", "ɩ": "i",
+        "а": "a", "в": "b", "е": "e", "к": "k", "м": "m", "н": "h", "о": "o", "р": "p", "с": "c", "т": "t", "у": "y",
+        "х": "x", "ѕ": "s", "і": "i", "ј": "j", "ԁ": "d", "ӏ": "l", "һ": "h", "ԛ": "q", "ԝ": "w",
+        "α": "a", "β": "b", "ε": "e", "η": "n", "ι": "i", "κ": "k", "μ": "u", "ν": "v", "ο": "o", "ρ": "p", "τ": "t",
+        "υ": "u", "χ": "x", "ζ": "z",
+    ]
+
+    private static func latinSkeleton(_ words: String) -> String {
+        String(words.map { lookalikes[$0] ?? $0 })
     }
 
     private static func labelWords(_ label: String) -> String {
-        label.lowercased().replacingOccurrences(of: "['’]", with: "", options: .regularExpression)
+        let visible = String(String.UnicodeScalarView(label.unicodeScalars.filter { scalar in
+            ![.format, .control].contains(scalar.properties.generalCategory)
+        }))
+        return visible.precomposedStringWithCompatibilityMapping
+            .folding(options: [.diacriticInsensitive, .widthInsensitive, .caseInsensitive], locale: nil)
+            .lowercased().replacingOccurrences(of: "['’]", with: "", options: .regularExpression)
             .split(whereSeparator: { !$0.isLetter }).joined(separator: " ")
+    }
+
+    static func dialogSummary(_ text: String) -> String? {
+        let flat = ScreenText.sanitize(text).split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard flat.contains(where: \.isLetter) else { return nil }
+        return flat.count <= 120 ? flat : String(flat.prefix(119)) + "…"
     }
 
     private static let fieldRoles: Set<String> = ["AXTextField", "AXSearchField", "AXTextArea", "AXComboBox"]
@@ -127,9 +186,9 @@ extension Accessibility {
             }
             item.needsConfirm = !isField && (isIrreversible(control.label) || (control.inDialog && needsConfirmInDialog(control.label)))
             if item.needsConfirm, control.inDialog, let text = dialogMessage, let message = dialogSummary(text) {
-                item.confirmNote = "“\(message)” (\(appName)). This can't be undone."
+                item.confirmNote = "“\(message)” (\(ScreenText.sanitize(appName))). This can't be undone."
             } else if item.needsConfirm, !windowTitle.isEmpty {
-                item.confirmNote = "In “\(windowTitle)” (\(appName)). This can't be undone."
+                item.confirmNote = "In “\(String(ScreenText.sanitize(windowTitle).prefix(120)))” (\(ScreenText.sanitize(appName))). This can't be undone."
             }
             let expected = control.label, role = control.role
             let confirms = item.needsConfirm
