@@ -20,7 +20,8 @@ What a user can do, how they reach it, and what checks it. Live check means `scr
 | Talk while holding ⌘Space | hold the shortcut | SpeechEngineTests, FileSpeechBackendTests, VoiceLevelTests, live check `release`, `scripts/voice-check.sh` |
 | Act on release when plain and safe | let go of the shortcut | AutoActTests, VoiceOverTests, live check `release` |
 | macOS Shortcuts by name | type the shortcut name | AliasAndShortcutTests |
-| Undo the last toggle, window move or file move | type "undo" | UndoTests, FollowUpTests, FileToolsTests |
+| Undo the last toggle, window move or file move | type or say "undo" or "undo that" | UndoTests, FollowUpTests, FollowUpCommandTests, FileToolsTests |
+| Go back to the previously focused window | say "the other window" | FollowUpCommandTests |
 | Ask Claude or get a plan | pick the Claude row, Run | PlannerTests, ClaudeBinaryTests, ScreenTextTests, FollowUpTests, live check `plan` |
 | Stop a run (esc, click, key) | esc in any app, click | RunGuardTests, live check `escape`, `click` |
 | The bee | any on-screen action | BeeFlightTests, BeeLabelTests |

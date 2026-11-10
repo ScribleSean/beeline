@@ -24,6 +24,7 @@ enum AutoAct {
         let said = Usage.normalise(spoken.trimmingCharacters(in: .punctuationCharacters))
         guard !said.isEmpty, let top = results.first, isSafe(top), !top.isGuess else { return nil }
         if top.isAlias || top.isLearned { return top }
+        if top.id.hasPrefix("other-window:") { return FollowUpCommand.parse(said) == .otherWindow ? top : nil }
         guard names(said, top) else { return nil }
         if results.dropFirst().contains(where: { names(said, $0) }) { return nil }
         return top
@@ -33,7 +34,7 @@ enum AutoAct {
         guard !item.needsConfirm else { return false }
         switch item.kind {
         case .app, .setting: return true
-        case .window: return item.id.hasPrefix("window:") || item.id.hasPrefix("tile-app:")
+        case .window: return ["window:", "tile-app:", "other-window:"].contains { item.id.hasPrefix($0) }
         case .action: return safeActions.contains(item.id)
         default: return false
         }

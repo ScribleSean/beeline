@@ -16,7 +16,8 @@ A Mac assistant that finds the app, setting, window or command you mean and runs
 - Handles chores: reminders and goals, saved desktops of apps, windows and tabs, file moves and copies from Finder, compressing, renaming, converting and shrinking files, and rewriting selected text in any app.
 - Listens while you hold ⌘Space, and your words fill the bar as you talk. If you name an app, a setting or a window plainly, it opens when you let go unless you press esc.
 - Runs the shortcuts you built in the Shortcuts app, by name.
-- Undoes the last toggle, window move, or file copy or move when you type "undo", including a file it replaced.
+- Undoes the last toggle, window move, or file copy or move when you type or say "undo" or "undo that", including a file it replaced.
+- Goes back to the window you were in before when you say "the other window".
 - Asks Claude to answer a question or plan a multi-step request. You see the plan and approve it before anything runs.
 - Learns what you pick for a phrase and puts it first next time, marked "learned". ⇧⌘⌫ forgets a pick, and a pick you don't use for four weeks stops counting.
 - Makes aliases: type a few letters, select a result and press ⇧⌘A, and those letters open it from then on.

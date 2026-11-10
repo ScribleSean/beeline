@@ -56,8 +56,7 @@ final class UndoLog {
     }
 
     func item(for query: String, now: Date = Date()) -> Item? {
-        let asked = ["undo", "undo that", "undo it", "take that back", "put it back", "revert"].contains(Usage.normalise(query))
-        guard asked, let entry = latest(now: now) else { return nil }
+        guard FollowUpCommand.parse(query) == .undo, let entry = latest(now: now) else { return nil }
         let id = entry.id
         var item = Item(id: "undo", kind: .action, verb: "Undo", title: entry.title, subtitle: "Undo", keywords: "",
                         icon: NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: nil)) { [weak self] in

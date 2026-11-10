@@ -268,7 +268,12 @@ final class BarModel: ObservableObject {
 
     static func claudeLeads(question: Bool, words: Int, top: Item?, followUp: Bool, strong: Bool = false) -> Bool {
         question || (words >= 5 && (top?.isGuess ?? true))
-            || (followUp && words >= 2 && top?.id != "undo" && (strong || (top?.isGuess ?? true)))
+            || (followUp && words >= 2 && !isLocalFollowUp(top) && (strong || (top?.isGuess ?? true)))
+    }
+
+    private static func isLocalFollowUp(_ item: Item?) -> Bool {
+        guard let id = item?.id else { return false }
+        return id == "undo" || id.hasPrefix("other-window:")
     }
 
     static func isPlainQuestion(_ query: String, _ isQuestion: Bool, last: LastRun = .shared) -> Bool {

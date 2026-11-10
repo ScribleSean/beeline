@@ -48,6 +48,7 @@ struct Item: Identifiable {
 
 final class Catalogue {
     private var apps: [Item] = []
+    let windowHistory = WindowHistory()
     private var settings: [Item] = []
     private var tabs: [Item] = []
     private var windows: [Item] = []
@@ -125,7 +126,7 @@ final class Catalogue {
 
     func recordUse(of item: Item, query: String) {
         guard item.kind != .calculation, item.kind != .clipboard, Settings.isOn(Settings.learnFromUse) else { return }
-        let oneOff = ["reminder:", "web-search", "desktop-", "file-tool:", "close-tabs:", "close:", "undo"]
+        let oneOff = ["reminder:", "web-search", "desktop-", "file-tool:", "close-tabs:", "close:", "undo", "other-window:"]
         guard !oneOff.contains(where: { item.id.hasPrefix($0) }) else { return }
         usage.record(item, query: query)
     }
@@ -201,6 +202,7 @@ final class Catalogue {
             let searchable = found.filter { !isPlanOnly($0) }
             let tiles = found.first(where: \.isCurrentWindow).map(Self.tileItems) ?? []
             DispatchQueue.main.async {
+                self.windowHistory.saw(found)
                 self.windows = searchable
                 self.planOnlyWindows = found.filter(isPlanOnly)
                 self.tiles = tiles
@@ -327,9 +329,20 @@ final class Catalogue {
         filesQuery = query
     }
 
+    private func otherWindow() -> Item? {
+        guard let window = windowHistory.other(in: windows + planOnlyWindows) else { return nil }
+        var item = Item(id: "other-window:" + window.id, kind: .window, verb: window.verb, title: window.title,
+                        subtitle: window.subtitle, keywords: "", icon: window.icon, run: window.run)
+        item.target = window.target
+        return item
+    }
+
     func search(_ query: String, limit: Int = 6) -> [Item] {
         if let undo = UndoLog.shared.item(for: query) {
             return [undo]
+        }
+        if FollowUpCommand.parse(query) == .otherWindow, let other = otherWindow() {
+            return [other]
         }
         if query.trimmingCharacters(in: .whitespaces).isEmpty { return [] }
         if let clips = clipboard.results(for: query, limit: limit) {
