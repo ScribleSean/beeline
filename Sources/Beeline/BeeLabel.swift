@@ -16,6 +16,7 @@ enum BeeLabel {
             }
         }
         text = text.replacingOccurrences(of: #" the [a-z -]+ "([^"]*)"$"#, with: " $1", options: .regularExpression)
+        text = ScreenText.display(text)
         return shorten(text.prefix(1).uppercased() + text.dropFirst())
     }
 

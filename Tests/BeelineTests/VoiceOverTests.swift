@@ -67,7 +67,7 @@ private func row(_ id: String, verb: String = "Open", subtitle: String = "Apps",
                             PlanStep(text: "Open \\\"Notes\\\"", icon: nil, run: {})], note: "")
     let heard = spoken { model.plan = plan }
     model.clearPlan()
-    #expect(heard.last == "2 steps: Turn Wi-Fi Off. Open \"Notes\".")
+    #expect(heard.last == "2 steps: Turn Wi-Fi Off. Open 'Notes'.")
 }
 
 @Test @MainActor func claudesAnswerAndProblemsAreSpoken() {

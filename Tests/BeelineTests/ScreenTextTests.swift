@@ -95,9 +95,14 @@ func screenTextDropsHiddenAndControlCharactersAndKeepsTheRest(input: String, exp
 @Test func confirmationTextShowsNamesWithoutPlannerEscapes() {
     let name = #"My "notes" at C:\Documents\"#
     let step = PlanStep(text: "Switch to window \(ScreenText.quote(name))", icon: nil, run: {})
-    #expect(step.displayText == "Switch to window \"\(name)\"")
+    #expect(step.displayText == #"Switch to window "My 'notes' at C:\Documents\""#)
     #expect(step.text.contains(#"\""#))
     #expect(Planner.prompt(for: "go", options: [step]).contains(step.text))
     #expect(ScreenText.display("Turn Wi-Fi Off") == "Turn Wi-Fi Off")
     #expect(ScreenText.display(#"Keep \q and trailing \"#) == #"Keep \q and trailing \"#)
+}
+
+@Test func displayShowsQuotesInsideNamesAsStraightSingleQuotes() {
+    let step = PlanStep(text: "Open the app \(ScreenText.quote("Say \"hi\" \u{201C}there\u{201D}"))", icon: nil, run: {})
+    #expect(step.displayText == #"Open the app "Say 'hi' 'there'""#)
 }

@@ -40,8 +40,14 @@ enum ScreenText {
         var characters = text.makeIterator()
         while let character = characters.next() {
             if character == "\\", let next = characters.next() {
-                if next != "\\" && next != "\"" { result.append(character) }
-                result.append(next)
+                if next == "\"" {
+                    result.append("'")  // a quote inside a name never looks like the card's own quotes
+                } else {
+                    if next != "\\" { result.append(character) }
+                    result.append(next)
+                }
+            } else if "\u{201C}\u{201D}".contains(character) {
+                result.append("'")
             } else {
                 result.append(character)
             }

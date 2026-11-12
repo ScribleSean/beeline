@@ -275,7 +275,7 @@ final class BarController: NSObject, NSWindowDelegate {
         bee.hide()
         if !isShown { show() }
         model.clearPlan()
-        model.planProblem = "Stopped at step \(index + 1), “\(plan.steps[index].text)”, because \(reason). Later steps didn't run."
+        model.planProblem = "Stopped at step \(index + 1), “\(plan.steps[index].displayText)”, because \(reason). Later steps didn't run."
     }
 
     private func handleActionShortcut(_ event: NSEvent) -> Bool {
