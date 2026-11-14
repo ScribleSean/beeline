@@ -18,6 +18,7 @@ What a user can do, how they reach it, and what checks it. Live check means `scr
 | Rewrite selected text | select text, "make it formal" | RewriteTests, live check `rewrite` |
 | Clipboard history | type "clipboard" | ClipboardTests |
 | Talk while holding ⌘Space | hold the shortcut | SpeechEngineTests, FileSpeechBackendTests, VoiceLevelTests, live check `release`, `scripts/voice-check.sh` |
+| Try again when nothing was heard | hold the shortcut, then **Try again** | TakeVaultTests, RetryTakeTests (saved audio, replay and the bar's note; the recognizers are stand-ins) |
 | Act on release when plain and safe | let go of the shortcut | AutoActTests, VoiceOverTests, live check `release` |
 | macOS Shortcuts by name | type the shortcut name | AliasAndShortcutTests |
 | Undo the last toggle, window move or file move | type or say "undo" or "undo that" | UndoTests, FollowUpTests, FollowUpCommandTests, FileToolsTests |

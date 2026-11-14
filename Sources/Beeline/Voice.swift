@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import Speech
 
@@ -13,6 +14,8 @@ final class Voice {
     var onFinal: (String) -> Void = { _ in }
     var onState: (State) -> Void = { _ in }
     var onLevel: (Double) -> Void = { _ in }
+    /// A live take ended without any words. The saved audio can be run again with `retry`.
+    var onMissed: () -> Void = {}
 
     struct IO {
         var authorise: (@escaping (String?) -> Void) -> Void
@@ -21,7 +24,13 @@ final class Voice {
         var cancel: () -> Void
     }
 
-    private let io: IO
+    private var io: IO
+    private let liveIO: IO
+    private let vault: TakeVault?
+    private let tap: TakeTap
+    var makeReplay: ((FileSpeechBackend.Audio) -> IO)?
+    private(set) var lastTake: URL?
+    private var replaying = false
     var vocabulary: [String] = []
     private var finishesWithAudio = false
     private var active = false
@@ -31,7 +40,9 @@ final class Voice {
     convenience init() {
         let engine = AVAudioEngine()
         let file = FileSpeechBackend.path().map { FileSpeechBackend.Audio(url: URL(fileURLWithPath: $0)) }
+        let tap = TakeTap()
         let speech = SpeechSession(engine: engine, file: file)
+        speech.tee = tap.write
         let router = SpeechRouter(recognizer: file.map { FileSpeechBackend(source: $0, backend: speech) } ?? speech,
                                   preference: { file == nil ? UserDefaults.standard.string(forKey: SpeechEngine.preferenceKey) : nil })
         self.init(io: Voice.IO(authorise: { done in
@@ -44,8 +55,13 @@ final class Voice {
             }
         },
                                begin: { router.begin($0, update: $1, level: $2) },
-                               stop: router.stop, cancel: router.cancel), finishesWithAudio: file != nil)
+                               stop: router.stop, cancel: router.cancel), finishesWithAudio: file != nil,
+                  vault: file == nil ? TakeVault() : nil, tap: tap)
         self.router = router
+        makeReplay = { Voice.fileIO($0, engine: AVAudioEngine()) }
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.forgetTakes()
+        }
         file?.onEnd = { [weak self] in
             self?.onAudioEnd()
             self?.stop()
@@ -53,7 +69,9 @@ final class Voice {
         if #available(macOS 26, *), file == nil {
             Task { @MainActor in
                 guard let locale = await AnalyzerSession.readyLocale() else { return }
-                router.analyzer = AnalyzerSession(engine: engine, locale: locale)
+                let session = AnalyzerSession(engine: engine, locale: locale)
+                session.tee = tap.write
+                router.analyzer = session
             }
         }
         NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange,
@@ -64,9 +82,48 @@ final class Voice {
 
     private(set) var router: SpeechRouter?
 
-    init(io: IO, finishesWithAudio: Bool = false) {
+    init(io: IO, finishesWithAudio: Bool = false, vault: TakeVault? = nil, tap: TakeTap = TakeTap()) {
         self.io = io
+        self.liveIO = io
         self.finishesWithAudio = finishesWithAudio
+        self.vault = vault
+        self.tap = tap
+        vault?.clear() // a take from an earlier run can no longer be retried
+    }
+
+    /// Deletes every saved take, for when Beeline quits.
+    func forgetTakes() {
+        cancel()
+        vault?.clear()
+    }
+
+    /// Reads a saved take back through the recognizer instead of the microphone.
+    static func fileIO(_ audio: FileSpeechBackend.Audio, engine: AVAudioEngine) -> IO {
+        let speech = SpeechSession(engine: engine, file: audio)
+        let router = SpeechRouter(recognizer: FileSpeechBackend(source: audio, backend: speech), preference: { nil })
+        return IO(authorise: { done in
+            Task { @MainActor in
+                if #available(macOS 26, *), let locale = await AnalyzerSession.readyLocale() {
+                    router.analyzer = FileSpeechBackend(source: audio, backend: AnalyzerSession(engine: engine, locale: locale, file: audio))
+                    done(nil)
+                } else { speech.authorise(done) }
+            }
+        }, begin: { router.begin($0, update: $1, level: $2) }, stop: router.stop, cancel: router.cancel)
+    }
+
+    /// Runs the newest saved take again. False when there is none or a take is already running.
+    @discardableResult
+    func retry() -> Bool {
+        guard !active, let makeReplay, let vault, let name = lastTake?.lastPathComponent,
+              let url = vault.takes().first(where: { $0.lastPathComponent == name }) else { return false }
+        let audio = FileSpeechBackend.Audio(url: url)
+        audio.onEnd = { [weak self] in self?.stop() }
+        io = makeReplay(audio)
+        replaying = true
+        finishesWithAudio = true
+        lastTake = url
+        start()
+        return true
     }
 
     func start() {
@@ -78,17 +135,31 @@ final class Voice {
             guard let self, session == self.generation, !self.cancelledBeforeStart else { return }
             if let problem {
                 DemoLog.note("voice-error", ["why": problem])
+                self.endReplay()
                 return self.onState(.unavailable(problem))
             }
             self.active = true
+            let replay = self.replaying
+            // Fixed for this take: stop() switches both back to the microphone before a replay's last callback.
+            let finishesWithAudio = self.finishesWithAudio
+            var gotFinal = false
+            if !replay {
+                self.dropTake() // a new hold replaces a take that was never retried
+                self.tap.start(self.vault?.begin())
+            }
             let problem = self.io.begin(Self.contextualStrings(self.vocabulary), { [weak self] text, final, finished in
                 guard let self, session == self.generation else { return }
                 if let text {
                     DemoLog.note(final ? "voice-final" : "voice-partial", ["text": text])
                     self.onText(text)
                 }
+                if final, let text, !text.isEmpty { gotFinal = true }
                 if final, let text { self.onFinal(text) }
-                if finished, session == self.generation, !self.finishesWithAudio { self.stop() }
+                if finished, session == self.generation {
+                    // A replay whose recognizer is done has no use for the rest of the file.
+                    if !finishesWithAudio || replay { self.stop() }
+                    if gotFinal { self.dropTake() } else if self.lastTake != nil { self.onMissed() }
+                }
             }, { [weak self] level in
                 guard let self, session == self.generation else { return }
                 self.onLevel(level)
@@ -106,15 +177,38 @@ final class Voice {
     func stop() {
         cancelledBeforeStart = true
         io.stop()
+        if let recording = tap.end(), let vault {
+            lastTake = vault.finish(recording)
+            if lastTake != nil {
+                DispatchQueue.main.asyncAfter(deadline: .now() + TakeVault.lifetime + 1) { [weak vault] in vault?.sweep() }
+            }
+        }
+        endReplay()
         guard active else { return }
         active = false
         onState(.stopped)
     }
 
+    /// The take was heard, so its audio has no more use.
+    private func dropTake() {
+        guard let take = lastTake else { return }
+        lastTake = nil
+        vault?.discard(take)
+    }
+
+    private func endReplay() {
+        guard replaying else { return }
+        replaying = false
+        finishesWithAudio = false
+        io = liveIO
+    }
+
     func cancel() {
         generation += 1
         io.cancel()
+        if let recording = tap.end() { vault?.abandon(recording) }
         stop()
+        dropTake() // its answer can no longer arrive, and Try again is no longer offered
     }
 
     static func contextualStrings(_ words: [String]) -> [String] {
@@ -149,6 +243,7 @@ final class SpeechSession: SpeechBackend {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var generation = 0
+    var tee: ((AVAudioPCMBuffer) -> Void)?
 
     init(engine: AVAudioEngine, file: FileSpeechBackend.Audio? = nil) { self.engine = engine; self.file = file }
 
@@ -205,7 +300,9 @@ final class SpeechSession: SpeechBackend {
             input.removeTap(onBus: 0)
             let format = input.outputFormat(forBus: 0)
             guard format.sampleRate > 0, format.channelCount > 0 else { return "No microphone found." }
+            let tee = self.tee
             input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+                tee?(buffer)
                 request.append(buffer)
                 let value = Voice.level(of: buffer)
                 DispatchQueue.main.async { level(value) }

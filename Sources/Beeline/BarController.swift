@@ -30,9 +30,10 @@ final class BarController: NSObject, NSWindowDelegate {
     private let voiceTestRuns: Bool
     private var voiceTestPlansOnly: Bool { isVoiceTest && !voiceTestRuns }
 
-    init(environment: [String: String] = ProcessInfo.processInfo.environment, watching: Bool = true) {
+    init(environment: [String: String] = ProcessInfo.processInfo.environment, watching: Bool = true, voice: Voice = Voice()) {
         isVoiceTest = FileSpeechBackend.path(in: environment) != nil
         voiceTestRuns = FileSpeechBackend.shouldRun(in: environment)
+        self.voice = voice
         super.init()
         model.onRun = { [weak self] item in
             guard let self else { return }
@@ -321,7 +322,7 @@ final class BarController: NSObject, NSWindowDelegate {
         return NSApp.sendAction(action, to: nil, from: nil)
     }
 
-    private let voice = Voice()
+    private let voice: Voice
     private var holdTimer: Timer?
     private var isListening = false
     private var openedByPress = false
@@ -347,12 +348,15 @@ final class BarController: NSObject, NSWindowDelegate {
         }
     }
 
-    private func startListening() {
+    static let missedNote = "Didn't catch that"
+
+    func startListening(replay: Bool = false) {
         cancelPendingAct()
+        if !replay { voice.cancel() } // a hold during a replay ends the replay
         isListening = true
         openedByPress = true
         model.query = ""
-        model.voiceNote = "Listening…"
+        model.voiceNote = replay ? "Trying again…" : "Listening…"
         var lastTranscript = ""
         voice.onText = { [weak self] text in
             guard let self else { return }
@@ -367,11 +371,17 @@ final class BarController: NSObject, NSWindowDelegate {
             self.model.voiceLevel = level > last ? level : last * 0.7 + level * 0.3
         }
         voice.onAudioEnd = { [weak self] in self?.shortcutReleased() }
+        voice.onMissed = { [weak self] in
+            guard let self, !self.isListening, self.isShown else { return }
+            self.model.voiceNote = Self.missedNote
+            self.model.say("\(Self.missedNote). Try again is available.")
+        }
+        model.retryTake = { [weak self] in self?.startListening(replay: true) }
         voice.onFinal = { [weak self] text in self?.heard(text) }
         voice.onState = { [weak self] state in
             guard let self else { return }
             switch state {
-            case .listening: self.model.voiceNote = "Listening… let go to stop"
+            case .listening: self.model.voiceNote = replay ? "Trying again…" : "Listening… let go to stop"
             case .stopped:
                 self.isListening = false
                 self.model.voiceLevel = nil
@@ -383,7 +393,14 @@ final class BarController: NSObject, NSWindowDelegate {
                 self.model.say(reason)
             }
         }
-        voice.start()
+        if replay, !voice.retry() {
+            isListening = false
+            model.voiceLevel = nil
+            model.voiceNote = "That take has expired"
+            model.say("That take has expired.")
+        } else if !replay {
+            voice.start()
+        }
     }
 
     private var pendingAct: (item: Item, timer: Timer)?
@@ -486,7 +503,7 @@ final class BarController: NSObject, NSWindowDelegate {
         holdTimer?.invalidate()
         holdTimer = nil
         cancelPendingAct()
-        if isListening { stopListening() }
+        if isListening { isListening = false; model.voiceLevel = nil } // cancel below drops the take
         voice.cancel()
         model.voiceNote = nil
         guard isShown else { return }

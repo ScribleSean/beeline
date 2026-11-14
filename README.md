@@ -88,6 +88,8 @@ Beeline runs on your Mac. It goes online only for:
 
 Clipboard history stays in memory and ends when Beeline quits. Beeline doesn't keep anything a password manager marks as private.
 
+While you hold the shortcut and talk, Beeline saves the audio in `~/Library/Application Support/Beeline/Takes` so it can offer **Try again** when nothing was heard. The file is readable only by you and left out of backups. Beeline deletes it as soon as the words are heard, after 15 minutes otherwise, and when Beeline starts or quits. It keeps at most the three newest and the first two minutes of each.
+
 Beeline saves what you pick, with the words you typed to find it, in `~/Library/Application Support/Beeline`, so it ranks first next time. It doesn't record reminders, web searches, desktops or file chores. **Forget picks** in Settings clears it. Saved desktops (app, window and tab names) and aliases are in the same folder.
 
 ## Keys

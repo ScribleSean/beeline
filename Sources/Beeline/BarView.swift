@@ -227,6 +227,7 @@ final class BarModel: ObservableObject {
     var isShowingPlan: Bool { plan != nil || isAskingClaude || planProblem != nil || claudeAnswer != nil || rewritten != nil }
 
     @Published var voiceNote: String?
+    var retryTake: () -> Void = {}
     /// Set while the microphone listens; rows wait until it stops so the mic never hears VoiceOver.
     @Published var voiceLevel: Double? {
         didSet { if voiceLevel == nil, oldValue != nil { speakSelectionSoon() } }
@@ -772,6 +773,10 @@ struct BarView: View {
                         .frame(width: 22, height: 22)
                         .background(note.hasPrefix("Listening") ? Theme.yellow : Theme.honeyTile, in: Circle())
                     Text(note).foregroundStyle(.primary)
+                    if note == BarController.missedNote {
+                        Button("Try again") { model.retryTake() }
+                            .buttonStyle(.link)
+                    }
                 }
                 .font(.system(size: 12))
                 .frame(maxWidth: .infinity)

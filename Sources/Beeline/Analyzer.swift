@@ -112,6 +112,7 @@ final class AnalyzerSession: SpeechBackend {
     private var input: AsyncStream<AVAudioPCMBuffer>.Continuation?
     private var work: Task<Void, Never>?
     private var analyzer: SpeechAnalyzer?
+    var tee: ((AVAudioPCMBuffer) -> Void)?
 
     init(engine: AVAudioEngine, locale: Locale, file: FileSpeechBackend.Audio? = nil) {
         self.engine = engine
@@ -143,7 +144,9 @@ final class AnalyzerSession: SpeechBackend {
             mic.removeTap(onBus: 0)
             format = mic.outputFormat(forBus: 0)
             guard format.sampleRate > 0, format.channelCount > 0 else { finishAudio(); return "No microphone found." }
+            let tee = self.tee
             mic.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+                tee?(buffer)
                 input.yield(buffer)
                 let value = Voice.level(of: buffer)
                 DispatchQueue.main.async { level(value) }
