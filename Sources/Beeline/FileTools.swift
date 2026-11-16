@@ -469,6 +469,11 @@ enum FileTools {
     }
 
     private static func combine(_ pdfs: [URL]) {
+        finish(combinePDFs(pdfs).map { [$0] } ?? [], "combine")
+    }
+
+    static func combinePDFs(_ pdfs: [URL]) -> URL? {
+        guard let first = pdfs.first else { return nil }
         let combined = PDFDocument()
         for url in pdfs.sorted(by: { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }) {
             guard let document = PDFDocument(url: url) else { continue }
@@ -478,8 +483,8 @@ enum FileTools {
                 }
             }
         }
-        let output = unique(pdfs[0].deletingLastPathComponent().appendingPathComponent("Combined.pdf"))
-        finish(combined.pageCount > 0 && combined.write(to: output) ? [output] : [], "combine")
+        let output = unique(first.deletingLastPathComponent().appendingPathComponent("Combined.pdf"))
+        return combined.pageCount > 0 && combined.write(to: output) ? output : nil
     }
 
     private static func renamed(_ files: [URL], base: String) -> [URL] {
@@ -515,16 +520,19 @@ enum FileTools {
     }
 
     private static func renameByDate(_ files: [URL]) {
+        finish(renameFilesByDate(files), "rename by date")
+    }
+
+    static func renameFilesByDate(_ files: [URL]) -> [URL] {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        let moved: [URL] = files.compactMap { url in
+        return files.compactMap { url in
             let values = try? url.resourceValues(forKeys: [.creationDateKey])
             guard let date = values?.creationDate else { return nil }
             let ext = url.pathExtension
             let name = formatter.string(from: date)
             return move(url, unique(url.deletingLastPathComponent().appendingPathComponent(ext.isEmpty ? name : "\(name).\(ext)")))
         }
-        finish(moved, "rename by date")
     }
 
     private static func move(_ from: URL, _ to: URL) -> URL? {
@@ -533,16 +541,23 @@ enum FileTools {
     }
 
     private static func convert(_ pictures: [URL], to format: String) {
+        finish(convertPictures(pictures, to: format), "convert")
+    }
+
+    static func convertPictures(_ pictures: [URL], to format: String) -> [URL] {
         let ext = format == "jpeg" ? "jpg" : format
-        let made: [URL] = pictures.compactMap { url in
+        return pictures.compactMap { url in
             let output = unique(url.deletingPathExtension().appendingPathExtension(ext))
             return run("/usr/bin/sips", ["-s", "format", format, url.path, "--out", output.path]).ok ? output : nil
         }
-        finish(made, "convert")
     }
 
     private static func resize(_ pictures: [URL], to size: Int?) {
-        let made: [URL] = pictures.compactMap { url in
+        finish(resizePictures(pictures, to: size), "resize")
+    }
+
+    static func resizePictures(_ pictures: [URL], to size: Int?) -> [URL] {
+        pictures.compactMap { url in
             guard let image = NSImageRep(contentsOf: url) else { return nil }
             let longest = size ?? max(image.pixelsWide, image.pixelsHigh) / 2
             guard longest > 0 else { return nil }
@@ -551,11 +566,14 @@ enum FileTools {
                 .appendingPathComponent(url.deletingPathExtension().lastPathComponent + label + "." + url.pathExtension))
             return run("/usr/bin/sips", ["-Z", String(longest), url.path, "--out", output.path]).ok ? output : nil
         }
-        finish(made, "resize")
     }
 
     private static func exportVideos(_ movies: [URL], preset: String, suffix: String, ext: String) {
-        let made: [URL] = movies.compactMap { url in
+        finish(exportedVideos(movies, preset: preset, suffix: suffix, ext: ext), "video export")
+    }
+
+    static func exportedVideos(_ movies: [URL], preset: String, suffix: String, ext: String) -> [URL] {
+        movies.compactMap { url in
             let output = unique(url.deletingLastPathComponent()
                 .appendingPathComponent(url.deletingPathExtension().lastPathComponent + suffix + "." + ext))
             guard run("/usr/bin/avconvert", ["--source", url.path, "--preset", preset, "--output", output.path]).ok else { return nil }
@@ -568,7 +586,6 @@ enum FileTools {
             }
             return output
         }
-        finish(made, "video export")
     }
 
     static var exitWhenDone = false

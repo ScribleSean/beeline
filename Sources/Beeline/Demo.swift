@@ -205,7 +205,7 @@ enum Demo {
         }
 
         private func release() async -> (Bool, String) {
-            guard Settings.isOn(Settings.actOnRelease), Settings.isOn(Settings.holdToTalk) else {
+            guard AutoAct.isAllowed() else {
                 return (false, "“Act when you let go” or hold-to-talk is off in Settings")
             }
             bar.show()

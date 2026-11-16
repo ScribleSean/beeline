@@ -31,8 +31,13 @@ enum Settings {
         ])
     }
 
+    /// Where the toggles are read from. Tests bind their own suite for one task, so they can flip a toggle
+    /// without touching the shared defaults that tests running beside them read. The binding does not follow work
+    /// handed to a dispatch queue, which reads the shared defaults again.
+    @TaskLocal static var defaults = UserDefaults.standard
+
     static func isOn(_ key: String) -> Bool {
-        UserDefaults.standard.bool(forKey: key)
+        defaults.bool(forKey: key)
     }
 
     static func applyAppearance() {

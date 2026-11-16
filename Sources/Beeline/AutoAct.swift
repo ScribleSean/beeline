@@ -18,6 +18,11 @@ enum AutoAct {
 
     static var voiceOverIsOn: () -> Bool = { NSWorkspace.shared.isVoiceOverEnabled }
 
+    /// Acting on release needs both toggles: "Act when you let go" and hold to talk. The voice self-test always may.
+    static func isAllowed(voiceTest: Bool = false) -> Bool {
+        voiceTest || (Settings.isOn(Settings.actOnRelease) && Settings.isOn(Settings.holdToTalk))
+    }
+
     private static let leadIns = ["open", "launch", "start", "show", "go to", "switch to", "bring up", "show me", "turn on"]
 
     static func pick(_ results: [Item], spoken: String) -> Item? {

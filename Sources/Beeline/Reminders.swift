@@ -49,7 +49,7 @@ enum Reminders {
             let component: Calendar.Component = unit.hasPrefix("min") ? .minute : unit.hasPrefix("h") ? .hour
                 : unit.hasPrefix("d") ? .day : .weekOfYear
             let title = text.replacingCharacters(in: match.range, with: "").split(whereSeparator: \.isWhitespace).joined(separator: " ")
-            return (title.isEmpty ? text : title, Calendar.current.date(byAdding: component, value: amount, to: Date()))
+            return (title.isEmpty ? text : title, Calendar.current.date(byAdding: component, value: amount, to: now))
         }
         guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue),
               let match = detector.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),

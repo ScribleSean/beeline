@@ -11,15 +11,15 @@ What a user can do, how they reach it, and what checks it. Live check means `scr
 | Confirm before anything irreversible | ↩ twice | ControlsTests, RankingTests, BarModelTests |
 | Mac controls (sleep, lock, mute, dark mode, Wi-Fi, quit, window halves) | type the action | RankingTests, LockAndAlertTests, CancelCleanupTests |
 | Sums, units, currencies, time zones | type the expression | ConverterTests, RatesTests, RankingTests |
-| Reminders and goals | "remind me …" | TextMatchingTests (time parsing only) |
-| Saved desktops | "save desktop as …", its name | TextMatchingTests (wording only) |
+| Reminders and goals | "remind me …" | TextMatchingTests, RemindersTests (wordings, relative and named times, titles; saving into Reminders is not tested) |
+| Saved desktops | "save desktop as …", its name | DesktopsTests (wording, replace vs save, delete asks first and removes only that one, newest first, old and damaged files; capturing and restoring real windows is not tested) |
 | File chores: move, copy, replace, compress | Finder selection, then the chore | FileToolsTests |
-| File chores: rename, convert, resize, combine, shrink video | Finder selection, then the chore | none |
+| File chores: rename, convert, resize, combine, shrink video | Finder selection, then the chore | FileToolsTests (rename), FileChoreTests (convert, resize, combine, rename by date), VideoChoreTests (audio export and the 720p copy, on a movie made in the test) |
 | Rewrite selected text | select text, "make it formal" | RewriteTests, live check `rewrite` |
 | Clipboard history | type "clipboard" | ClipboardTests |
 | Talk while holding ⌘Space | hold the shortcut | SpeechEngineTests, FileSpeechBackendTests, VoiceLevelTests, live check `release`, `scripts/voice-check.sh` |
 | Try again when nothing was heard | hold the shortcut, then **Try again** | TakeVaultTests, RetryTakeTests (saved audio, replay and the bar's note; the recognizers are stand-ins) |
-| Act on release when plain and safe | let go of the shortcut | AutoActTests, VoiceOverTests, live check `release` |
+| Act on release when plain and safe | let go of the shortcut | AutoActTests, VoiceOverTests, SettingsOffTests (the rule both toggles feed), live check `release` |
 | macOS Shortcuts by name | type the shortcut name | AliasAndShortcutTests |
 | Undo the last toggle, window move or file move | type or say "undo" or "undo that" | UndoTests, FollowUpTests, FollowUpCommandTests, FileToolsTests |
 | Go back to the previously focused window | say "the other window" | FollowUpCommandTests |
@@ -30,6 +30,6 @@ What a user can do, how they reach it, and what checks it. Live check means `scr
 | Aliases | ⇧⌘A | AliasAndShortcutTests, ActionPanelTests |
 | ⌘K actions panel | ⌘K on a result | ActionPanelTests |
 | VoiceOver | VoiceOver on | VoiceOverTests, `scripts/voiceover-check.mjs` |
-| Settings toggles (bee, act on release, clipboard history, learn from use) | Settings | none for the off states |
+| Settings window and toggles (bee, act on release, clipboard history, learn from use) | Settings | SettingsRenderTests (the window draws; not each section), SettingsOffTests (learn from use, bee, clipboard history and act-on-release off) |
 | Welcome and permissions | first launch | live check `welcome`, `permissions` |
 | Update Beeline | menu bar | UpdateTests |

@@ -77,21 +77,23 @@ final class Catalogue {
     private var activationObserver: NSObjectProtocol?
     private let semantic = Semantic()
     let clipboard = Clipboard()
-    private let usage = Usage()
+    private let usage: Usage
     let aliases: Aliases
     var shortcuts: [Item] = []
     private var shortcutsRead = Date.distantPast
 
-    init(aliases: Aliases = .shared) {
+    init(aliases: Aliases = .shared, usage: Usage = Usage()) {
         self.aliases = aliases
+        self.usage = usage
         apps = Self.scanApps()
         settings = SettingsPanes.items()
         refreshRunning()
         refreshAppsIfChanged()
     }
 
-    init(apps: [Item], windows: [Item], planOnlyWindows: [Item] = [], quits: [Item], controls: [Item]) {
+    init(apps: [Item], windows: [Item], planOnlyWindows: [Item] = [], quits: [Item], controls: [Item], usage: Usage = Usage()) {
         self.aliases = .shared
+        self.usage = usage
         self.apps = apps
         self.windows = windows
         self.planOnlyWindows = planOnlyWindows

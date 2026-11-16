@@ -408,7 +408,7 @@ final class BarController: NSObject, NSWindowDelegate {
     func heard(_ text: String) {
         cancelPendingAct()
         let declined: String? = isListening ? "still listening" : !isShown ? "bar hidden"
-            : !(isVoiceTest || (Settings.isOn(Settings.actOnRelease) && Settings.isOn(Settings.holdToTalk))) ? "auto-act off in Settings"
+            : !AutoAct.isAllowed(voiceTest: isVoiceTest) ? "auto-act off in Settings"
             : model.query != text ? "query changed" : model.armedID != nil ? "a row is armed"
             : model.isShowingPlan ? "showing a plan" : nil
         guard declined == nil, let item = AutoAct.pick(model.results, spoken: text) else {

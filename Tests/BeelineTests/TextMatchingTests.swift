@@ -3,14 +3,6 @@ import Testing
 @testable import Beeline
 
 // "İ" lower-cases to a longer string, so positions in a lowered copy don't line up with the original.
-@Test func savingADesktopNamedWithDottedCapitalIDoesNotCrash() throws {
-    TestEnvironment.prepare()
-    let rows = try #require(Desktops.results(for: "save desktop as İstanbul"))
-    #expect(rows.first?.title == "Save this desktop as “İstanbul”")
-    _ = Desktops.results(for: "Delete desktop İ")
-    #expect(Desktops.results(for: "save desktop as STRAẞE")?.first?.title == "Save this desktop as “STRAẞE”")
-}
-
 @Suite(.serialized) struct SelectionTests {
     @Test func finderRequestsWithDottedCapitalIDoNotCrash() throws {
         let scratch = try Scratch()
