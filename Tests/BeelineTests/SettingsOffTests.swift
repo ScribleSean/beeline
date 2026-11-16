@@ -54,6 +54,11 @@ private func scratchFile() -> URL {
 /// With history off, `check()` must not keep a copy. (ClipboardTests cover history on.)
 @MainActor @Test func withClipboardHistoryOffACopyIsNotKept() async throws {
     // The read finishes on the main queue, which sees the shared defaults: keep those on, so only the off toggle can stop it.
+    let previous = UserDefaults.standard.object(forKey: Settings.clipboardHistory)
+    defer {
+        if let previous { UserDefaults.standard.set(previous, forKey: Settings.clipboardHistory) }
+        else { UserDefaults.standard.removeObject(forKey: Settings.clipboardHistory) }
+    }
     UserDefaults.standard.set(true, forKey: Settings.clipboardHistory)
     let board = NSPasteboard(name: NSPasteboard.Name("beeline-test-" + UUID().uuidString))
     let clipboard = Clipboard(board: board)
@@ -61,6 +66,7 @@ private func scratchFile() -> URL {
     board.setString("invoice 42", forType: .string)
     try withToggles([Settings.clipboardHistory: false]) { clipboard.check() }
     clipboard.readQueue.sync {}
-    try await Task.sleep(nanoseconds: 100_000_000)
+    // Any main-queue block the read queued is ahead of this one, so it has run by the time we resume.
+    await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in DispatchQueue.main.async { done.resume() } }
     #expect(clipboard.entries.isEmpty)
 }

@@ -3,7 +3,7 @@ import Testing
 @testable import Beeline
 
 /// Saved desktops live in one file under the test support folder, so these run one at a time
-/// and start each case from a known file.
+/// and start each case from a known file. Other suites may read the cache meanwhile; it is lock-protected.
 @Suite(.serialized) struct DesktopsTests {
     private func stored(_ desktops: [Desktops.Desktop]) throws {
         try FileManager.default.createDirectory(at: Desktops.file.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -63,7 +63,7 @@ import Testing
         #expect(kept.contains { $0.hasPrefix("desktops.json.unreadable-") }, "the damaged file should be set aside, not deleted")
     }
 
-    /// Moved from TextMatchingTests so nothing else touches the desktops cache at the same time.
+    /// Moved from TextMatchingTests so it runs with the other desktops tests, one at a time.
     @Test func savingADesktopNamedWithDottedCapitalIDoesNotCrash() throws {
         TestEnvironment.prepare()
         try stored([])

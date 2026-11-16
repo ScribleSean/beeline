@@ -25,9 +25,12 @@ enum Desktops {
 
     static let file = TestRun.supportFolder.appendingPathComponent("desktops.json")
 
-    private static var cache: [Desktop]?
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var cache: [Desktop]?
 
     static func load() -> [Desktop] {
+        lock.lock()
+        defer { lock.unlock() }
         if let cache { return cache }
         let read = JSONStore.read([Desktop].self, from: file, name: "desktops") ?? []
         cache = read
@@ -35,11 +38,15 @@ enum Desktops {
     }
 
     static func reload() {
+        lock.lock()
+        defer { lock.unlock() }
         cache = nil
     }
 
     private static func store(_ desktops: [Desktop]) {
+        lock.lock()
         cache = desktops
+        lock.unlock()
         try? JSONStore.createPrivateDirectory(file.deletingLastPathComponent())
         try? JSONEncoder().encode(desktops).write(to: file, options: .atomic)
     }
